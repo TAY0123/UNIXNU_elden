@@ -39,10 +39,28 @@ PAC behavior and translation regime require their own tablet evidence.
 
 ## Stage 2 · Paired Recovery inputs
 
-Prepare the 25F71 restore image and Recovery userspace using the
-[pinned reference procedure](https://github.com/CrossDarwin/macOS-ForSheng/blob/ca57db73c066162323e77156a9f0f1d72b1de4ff/docs/bringup.md).
-The checkpoint is a verified ARM64e `launchd` and `dyld` from the paired
-BaseSystem, with a read-only raw disk image for QEMU.
+Passed on 2026-11-10. The pinned 25F71 IPSW passed SHA-256, build and board
+checks. BaseSystem reported macOS 26.5 build 25F71 and contained ARM64e
+`launchd` and `dyld`. The read-only QEMU image is 1,577,092,608 bytes, with
+SHA-256 `6199e53d3cf60c59790e507851ef48141dbfa23875fdde5e838446984ed56881`.
+The extracted BaseSystem root hash matched the original IPSW manifest.
+
+From the pinned reference checkout, after its core sources are available:
+
+```sh
+media=private/apple/macos26
+.venv/bin/python scripts/fetch_inputs.py --config config/macos26.json --jobs 8
+.venv/bin/python scripts/inspect_macos26.py
+.venv/bin/python scripts/prepare_macos26_recovery.py --ipsw-tool "$IPSW_TOOL"
+.venv/bin/python scripts/prepare_macos26_block.py --output "$media/recovery-raw"
+.venv/bin/python scripts/prepare_macos26_root_hash.py \
+  --disk "$media/recovery-raw" --output "$media/BaseSystem.root-hash"
+```
+
+Set `IPSW_TOOL` to the executable verified against the reference's
+`config/ipsw-tool.json`. The KDK DMG also passed its pinned SHA-256 check.
+KDK package signature and kernel UUID checks run on the macOS build host.
+See the [pinned reference procedure](https://github.com/CrossDarwin/macOS-ForSheng/blob/ca57db73c066162323e77156a9f0f1d72b1de4ff/docs/bringup.md).
 
 ## Stage 3 · Reference Recovery boot in QEMU
 
