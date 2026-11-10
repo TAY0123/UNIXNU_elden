@@ -151,6 +151,14 @@ Qualify EL1 PAC and 16 KiB translation on the tablet before adapting the
 loader, memory map, and UFS path. Use the repository's owner-operated
 RAM-boot procedure for hardware tests.
 
+The exact UFS candidate reached `arm_init` with a 256 MiB owned window
+through the ARM64e-aware loader in QEMU. Its occupied virtual span is
+`0x8f44000`. The sanitized Elden memory descriptions admit five
+32 MiB-congruent 256 MiB windows for this link base. The same-boot
+firmware memory map and loader allocation remain tablet checkpoints.
+The independent Elden ADT audit accepts both the older 64-byte seed and
+the current generator's 256-byte seed.
+
 ### Elden EL1 RAM probe
 
 The standalone 47-bit UEFI app from the pinned reference checks 16 KiB

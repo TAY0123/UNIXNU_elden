@@ -482,8 +482,8 @@ def parse_adt_and_check(
     adt_child(chosen, "manifest-properties")
 
     random_seed = chosen.properties.get("random-seed", b"")
-    if len(random_seed) != 64 or not any(random_seed):
-        raise ValueError("ADT random-seed is not 64 bytes")
+    if len(random_seed) not in (64, 256) or not any(random_seed):
+        raise ValueError("ADT random-seed must be a nonzero 64-byte or 256-byte value")
     if adt_u32(chosen, "nvram-bank-size") != 8192:
         raise ValueError("unexpected CHRP NVRAM bank size")
     nvram = chosen.properties.get("nvram-proxy-data", b"")
