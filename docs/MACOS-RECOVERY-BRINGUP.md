@@ -676,6 +676,12 @@ probe mode without diagnostics continues after logging success. The
 MacBook image is `~/Downloads/elden-macos26-4k-ufs-result-ram.img` with
 SHA-256 `0adacbc5f0b68f040f9864e930abea24ebbef508ccb1795fef3108cd64aa4fe0`.
 
+The physical tablet reported `ELDEN UFS PROBE PASS: LUN 0 LBA 1 GPT
+header CRC verified`. The reported CRC matched the primary GPT header
+saved after repartitioning. This verifies the inherited UFS link, DMA,
+and read path through the first GPT block. The diagnostic stop is the
+expected end of probe 10.
+
 On 2026-11-10, TWRP's `baseband_guard` denied writes to the Linux
 `rootfs`. A RAM boot of the installed mainline Linux kernel with a
 maintenance initramfs brought up USB serial and kept UFS filesystems
@@ -689,8 +695,12 @@ enumerated `macosroot` as `/dev/sda18` on LUN 0. The original GPT copies,
 4 GiB tail, and ext4 undo files are retained privately. The new partition
 awaits the paired Recovery media.
 
-The following storage checkpoint is read-only Recovery media
-publication with `native-ufs-elden=1 native-ufs-root=1` and matching
-BaseSystem on a dedicated `macosroot` partition. Cold initialization of
-the PHY, controller reset, MCQ, and persistent writes are outside this
-firmware-handoff implementation.
+The next storage checkpoint is to deploy the paired BaseSystem to
+`macosroot` and boot with `native-ufs-elden=1 native-ufs-root=1` to
+verify read-only media publication and the APFS root mount. A 1.471 GiB
+BaseSystem image was staged on the host. Its manifest and full OS window
+readback matched the compiled transport. The available ISC seed has a
+different digest and volume identities from the current driver contract,
+so this image contains only the BaseSystem. Cold PHY
+initialization, controller reset, MCQ, and persistent writes are outside
+this firmware-handoff implementation.
