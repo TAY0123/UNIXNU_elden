@@ -422,6 +422,19 @@ separate checkpoints.
 The MacBook retest image is `~/Downloads/elden-macos26-4k-r6-ram.img`
 with SHA-256 `3fe386db944745727360ab57c5bf03146aa9c2be577e9fd52a6f1ef4ec54ffb3`.
 Its kernel UUID is `4BC95A0C-8278-3B67-A060-99E592519074`.
+The tablet passed CPU registration and panicked in
+`ml_unsafe_kernel_text()`. The paired dSYM resolves the fault to the
+`_unsafe_kernel_text_initialized` assertion. XNU's initializer expects
+a four-byte `/chosen/kernel-ctrr-to-be-enabled` value from the loader.
+
+The seventh image supplies that value as `1`, which keeps XNU's
+writable-text tracing disabled. This is the policy value consumed
+by XNU. The kernel and the 15 prelinked modules are identical to the
+sixth image. The independent ADT comparison found this to be the
+only change apart from the freshly generated seed and test identity.
+The MacBook image is `~/Downloads/elden-macos26-4k-r7-ram.img` with
+SHA-256 `a58bff66f00e9de42322e9afac3373e84e6593f8dc728a02807a3f162ffe8824`.
+Bootloader fastboot accepted the image and disconnected from USB.
 
 ### UniXNU firmware TTY commands
 

@@ -1,3 +1,7 @@
 [adt.chosen.string]
 osenvironment = "main"
 crypto-hash-method = "sha2-384"
+
+[adt.chosen.u32]
+# Initialize XNU's text policy with unsafe kernel text disabled.
+kernel-ctrr-to-be-enabled = 1
