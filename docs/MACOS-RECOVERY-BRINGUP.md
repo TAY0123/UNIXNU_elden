@@ -626,7 +626,10 @@ DarwinBoot preflight. Package with
 `package/elden-macos26-ufs-probe-unixnu.toml` and the seventh image's
 ADT. The verified MacBook copy is `~/Downloads/elden-macos26-4k-ufs-ram.img`
 with SHA-256 `8d884a50a17ffa676adece06a39b80008475cac6c8173723ba81123233a035c7`.
-Its read-only GPT probe awaits a tablet test.
+After the partition update, bootloader fastboot reported `macosroot` as
+`0x100000000` bytes and accepted the RAM boot of this image. The probe
+requires selecting **Elden macOS 26.5 - UFS Read-only Probe**. Its
+controller read result is pending a capture from the tablet screen.
 
 On 2026-11-10, TWRP's `baseband_guard` denied writes to the Linux
 `rootfs`. A RAM boot of the installed mainline Linux kernel with a
