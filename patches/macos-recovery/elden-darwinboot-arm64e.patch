@@ -1,0 +1,37 @@
+diff --git a/DarwinBootPkg/Driver/DarwinBoot.c b/DarwinBootPkg/Driver/DarwinBoot.c
+index 25ce2d2..95325d4 100644
+--- a/DarwinBootPkg/Driver/DarwinBoot.c
++++ b/DarwinBootPkg/Driver/DarwinBoot.c
+@@ -123,11 +123,31 @@ ParseKernel (CONST UINT8 *Data, UINTN Size, KERNEL *Kernel)
+   SEGMENT  *Segment;
+   BOOLEAN  HasEntry;
+   BOOLEAN  Executable;
++  UINT32   Subtype;
+ 
+   if ((Size < 32) || (U32 (Data) != 0xfeedfacf) || (U32 (Data + 4) != 0x100000c) ||
+-      (U32 (Data + 8) != 0) || (U32 (Data + 12) != 2)) {
++      (U32 (Data + 12) != 2)) {
+     return EFI_UNSUPPORTED;
+   }
++
++  Subtype = U32 (Data + 8);
++  if (Subtype != 0) {
++    UINT64  Isar1;
++    UINT64  Isar2;
++
++    // CPU_SUBTYPE_ARM64E may carry capability flags in the high byte.
++    if ((Subtype & 0x00ffffff) != 2) {
++      return EFI_UNSUPPORTED;
++    }
++
++    Isar1 = READ_SYSREG (id_aa64isar1_el1);
++    Isar2 = READ_SYSREG (id_aa64isar2_el1);
++    if ((((Isar1 & 0xff0) == 0) && ((Isar2 & 0xf000) == 0)) ||
++        (((Isar1 & 0xff000000) == 0) && ((Isar2 & 0xf00) == 0))) {
++      Print (L"DARWINBOOT: ARM64e requires address and generic PAC\n");
++      return EFI_UNSUPPORTED;
++    }
++  }
+   if (U32 (Data + 20) > Size - 32) { return EFI_LOAD_ERROR; }
+   ZeroMem (Kernel, sizeof (*Kernel));
+   Count = U32 (Data + 16);

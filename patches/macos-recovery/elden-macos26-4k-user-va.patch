@@ -1,0 +1,16 @@
+diff --git a/osfmk/mach/arm/vm_param.h b/osfmk/mach/arm/vm_param.h
+--- a/osfmk/mach/arm/vm_param.h
++++ b/osfmk/mach/arm/vm_param.h
+@@ -133,7 +133,11 @@
+ 
+ /* system-wide values */
+ #define MACH_VM_MIN_ADDRESS_RAW 0x0ULL
+-#if defined(XNU_PLATFORM_MacOSX) || defined(XNU_PLATFORM_DriverKit)
++#if defined(KERNEL) && SHENG && !defined(__ARM_16K_PG__) && defined(XNU_PLATFORM_MacOSX)
++/* The 4K pmap nests the commpage at the start of the last 1 GiB
++ * of its low 64 GiB address range. Keep user mappings below it. */
++#define MACH_VM_MAX_ADDRESS_RAW 0x0000000FC0000000ULL
++#elif defined(XNU_PLATFORM_MacOSX) || defined(XNU_PLATFORM_DriverKit)
+ #define MACH_VM_MAX_ADDRESS_RAW 0x00007FFFFE000000ULL
+ #else
+ #define MACH_VM_MAX_ADDRESS_RAW 0x0000000FC0000000ULL

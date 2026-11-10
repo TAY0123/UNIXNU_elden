@@ -42,14 +42,17 @@ def _u64(data: bytes, offset: int) -> int:
     return struct.unpack_from("<Q", data, offset)[0]
 
 
-def parse_kernel(data: bytes) -> dict:
+def parse_kernel(data: bytes, *, arm64e: bool = False) -> dict:
     """Mirror ``ParseKernel`` from DarwinBoot.c."""
     size = len(data)
     if size < 32:
         raise ValueError("kernel is shorter than a Mach-O header")
     if (_u32(data, 0) != 0xFEEDFACF or _u32(data, 4) != 0x100000C
-            or _u32(data, 8) != 0 or _u32(data, 12) != 2):
+            or _u32(data, 12) != 2):
         raise ValueError("kernel is not a thin 64-bit ARM64 MH_EXECUTE Mach-O")
+    subtype = _u32(data, 8)
+    if subtype != 0 and not (arm64e and (subtype & 0xFFFFFF) == 2):
+        raise ValueError(f"kernel CPU subtype {subtype:#x} is unsupported by this loader")
     if _u32(data, 20) > size - 32:
         raise ValueError("sizeofcmds runs past the end of the kernel")
     count = _u32(data, 16)
@@ -239,6 +242,8 @@ def main() -> None:
     parser.add_argument("--adt", type=Path, required=True)
     parser.add_argument("--expect-kernel-bytes", type=int)
     parser.add_argument("--expect-kernel-sha256")
+    parser.add_argument("--arm64e", action="store_true",
+                        help="use the Elden ARM64e overlay's subtype rules")
     args = parser.parse_args()
 
     kernel = args.kernel.read_bytes()
@@ -247,7 +252,7 @@ def main() -> None:
         raise SystemExit(f"kernel is {len(kernel)} bytes, want {args.expect_kernel_bytes}")
     if args.expect_kernel_sha256 and sha256(kernel) != args.expect_kernel_sha256:
         raise SystemExit("kernel SHA-256 differs from the expected value")
-    parsed = parse_kernel(kernel)
+    parsed = parse_kernel(kernel, arm64e=args.arm64e)
     tree = adt_walk(adt)
     here = args.kernel.parent
     sidecars = {

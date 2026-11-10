@@ -265,12 +265,11 @@ read returned `0x5757`. Active TCR was `0x4b5113514` and TTBR1 was
 for the standalone probe. The 4 KiB macOS kernel handoff remains a
 separate checkpoint.
 
-The current XNU boot code builds L1/L2 bootstrap tables. Its default
-4 KiB configuration uses a 39-bit TTBR1 window, which excludes the
-existing kernel link address `0xfffffe0007004000`. A first 4 KiB
-kernel candidate therefore needs either a link address inside the
-39-bit window or a four-level 47-bit XNU bootstrap. The standalone
-control did not exercise XNU's bootstrap or macOS binaries.
+XNU builds L1/L2 bootstrap tables. A 4 KiB configuration gives TTBR1
+39 bits with a full-page L1 or 38 bits with a subpage L1. Both exclude
+the reference link address `0xfffffe0007004000`. The first Elden
+kernel candidate uses the small-memory layout and links inside the
+38-bit window.
 
 ### Elden EL1 PAC probe
 
@@ -299,6 +298,46 @@ completed restore writes, and successful restoration verification.
 The probe qualifies boot-CPU PAC bank switching and instruction
 round trips. The XNU task and thread PAC lifecycle remains untested
 on Elden.
+
+### Elden macOS 26.5 kernel entry
+
+On the Mac build host, run the Elden wrapper against the pinned
+macOS-ForSheng checkout and its verified KDK.
+
+```sh
+.venv/bin/python "$ELDEN_REPO/scripts/build-elden-macos26-bootstrap.py" \
+  --sheng-root "$PWD" --kdk-root "$KDK_ROOT" -j 10
+```
+
+The isolated output is `out/elden-macos26-4k-bootstrap`. The 4 KiB
+pmap reserves the low commpage's enclosing 1 GiB region by bounding
+the kernel's userspace address limit at 63 GiB. Disassembly confirmed
+`TCR_EL1=0x00080022a51a251a` in the bootstrap code, which selects 4 KiB
+granules and a 38-bit TTBR1 window. The ARM64e Mach-O links at
+`0xfffffff007004000` with entry `0xfffffff007544488`. Its UUID is
+`5AF018E6-4D5A-30C8-8DFB-4603A696A323`.
+
+Apply `patches/macos-recovery/elden-darwinboot-arm64e.patch` in
+`third_party/UniXNU/drivers/DarwinBoot`. Keep both UEFI overlays from
+the Fastboot section for the menu. Build the phase-2.3 firmware and
+generate the ADT with `UniXNU/scripts/make-adt.py`, the compiled Elden
+DTS, `board.toml`, and `package/elden-macos26-bootstrap-adt.toml`. Use
+a temporary nonzero identity for this bootstrap test. Run
+`scripts/darwinboot_preflight.py --arm64e`, then package with
+`scripts/make_phase2_payload.py` using
+`package/elden-macos26-bootstrap-unixnu.toml`. The Android v4 image
+uses the 56 MiB embedded FAT channel and boots the source kernel
+with one CPU and the inherited GOP console.
+
+The verified MacBook image is `~/Downloads/elden-macos26-4k-ram.img`
+with SHA-256 `3e64fc1a121f665d79e1de5ce5a27d7f264699f8ece27bfb1a7b064a813a62da`.
+Elden accepted the RAM boot. After the owner selected **Elden macOS
+26.5 - 4 KiB Kernel Entry**, DarwinBoot validated the inputs, exited
+boot services, and entered the kernel. The kernel lit stages 0–C
+green, through programming TCR, the translation table bases, and
+MAIR before enabling the MMU. The blue D–F markers indicate a
+prepared framebuffer mapping. The first translated instruction
+and C entry remain unverified. Recovery media was absent.
 
 ### UniXNU firmware TTY commands
 
@@ -472,10 +511,10 @@ before mapping controller registers or publishing media.
 After the Elden macOS handoff is qualified, the first owner-operated RAM
 boot can select `native-ufs-elden=1 native-ufs-probe=10 native-ufs-diagnostics=1`.
 This reads LUN 0's GPT header and checks its CRC without needing a
-`macosroot` partition. The older Elden DarwinBoot parser requires ARM64
-CPU subtype zero and rejects the ARM64e candidate's subtype `0xc0000002`.
-Integrate and qualify the ARM64e-aware DarwinBoot before packaging this
-kernel for Elden. The next checkpoint is read-only Recovery media
+`macosroot` partition. The Elden DarwinBoot overlay admits ARM64e
+after checking both address and generic PAC. The existing UFS candidate
+uses the 16 KiB layout. Rebuild its companion for the Elden kernel
+after qualifying the 4 KiB MMU transition. The next storage checkpoint is read-only Recovery media
 publication with `native-ufs-elden=1 native-ufs-root=1` and matching
 BaseSystem on a dedicated `macosroot` partition. Cold initialization of
 the PHY, controller reset, MCQ, and persistent writes are outside this

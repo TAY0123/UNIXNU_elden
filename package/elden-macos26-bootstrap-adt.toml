@@ -1,0 +1,3 @@
+[adt.chosen.string]
+osenvironment = "main"
+crypto-hash-method = "sha2-384"
