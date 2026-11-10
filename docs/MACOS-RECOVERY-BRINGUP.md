@@ -627,9 +627,25 @@ DarwinBoot preflight. Package with
 ADT. The verified MacBook copy is `~/Downloads/elden-macos26-4k-ufs-ram.img`
 with SHA-256 `8d884a50a17ffa676adece06a39b80008475cac6c8173723ba81123233a035c7`.
 After the partition update, bootloader fastboot reported `macosroot` as
-`0x100000000` bytes and accepted the RAM boot of this image. The probe
-requires selecting **Elden macOS 26.5 - UFS Read-only Probe**. Its
-controller read result is pending a capture from the tablet screen.
+`0x100000000` bytes and accepted the RAM boot of this image. The owner
+selected the UFS probe. It timed out at `NOP OUT` with `db=1` and `is=0`
+and reached neither LUN capacity nor the GPT read. The truncated panic
+did not include the SMMU fault registers or link state.
+
+The next image ports the SM8750 link wake sequence from the earlier
+Elden iPadOS driver. After stopping the legacy queue it disables the
+automatic Hibern8 timer, checks the TX lane state, exits Hibern8 if
+needed, and disables completion aggregation before restarting the
+queue. The compact panic line includes TX state, UIC result, AHIT,
+doorbell, interrupts, and global and context-bank SMMU fault status.
+The transport retains the inherited DMA route and rejects media writes.
+
+The MacBook compiled and linked the revised driver. Six host link
+tests, the ARM64e storage prelink, DarwinBoot preflight, and embedded
+image checks passed. The retry image is `~/Downloads/elden-macos26-4k-ufs-wake-ram.img`
+with SHA-256 `bdebbc4098043d6d544adf2a8a5cf09ee7f43d0fe515eae246085b4294716eb3`.
+Bootloader fastboot accepted the retry RAM boot. Select
+**Elden macOS 26.5 - UFS Read-only Probe** and capture the result.
 
 On 2026-11-10, TWRP's `baseband_guard` denied writes to the Linux
 `rootfs`. A RAM boot of the installed mainline Linux kernel with a

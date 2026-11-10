@@ -135,7 +135,20 @@
    write32 (hc, 0x50, static_cast<uint32_t> (phys));
    write32 (hc, 0x54, static_cast<uint32_t> (phys >> 32));
    write32 (hc, 0x20, 0xffffffffU);  // clear stale status
-@@ -876,19 +854,20 @@
+@@ -833,9 +811,11 @@
+     gRootDiagnostic.runStop = read32 (gHost.hc, 0x60);
+     gRootDiagnostic.ahit = read32 (gHost.hc, 0x18);
+     for (unsigned i = 0; i < 5; ++i) gRootDiagnostic.uic[i] = read32 (gHost.hc, 0x38 + 4 * i);
+-    if (gHost.smmu && gHost.cb) {
++    if (gHost.smmu) {
+       gRootDiagnostic.gfsr = read32 (gHost.smmu, 0x48);
+       gRootDiagnostic.gsyn = read32 (gHost.smmu, 0x54);
++    }
++    if (gHost.cb) {
+       gRootDiagnostic.fsr = read32 (gHost.cb, 0x58);
+       gRootDiagnostic.fsyn = read32 (gHost.cb, 0x68);
+       gRootDiagnostic.far = uint64_t (read32 (gHost.cb, 0x60)) |
+@@ -876,19 +856,87 @@
  
  #include "RootQueue.h"
  
@@ -147,13 +160,77 @@
 -// the request list, wake the device from UFS-PowerDown and wait for LUN 0 to be ready.
 -// `why` receives a short reason on failure.
 -static bool hostBringUp (const char **why)
--{
++static uint32_t gEldenTxBefore = UINT32_MAX, gEldenTxAfter = UINT32_MAX;
++static uint32_t gEldenLinkResult = UINT32_MAX;
++
++static bool hostLinkCommand (uint32_t command, uint32_t argument, const char **why)
+ {
 -  if (gHost.poisoned) {
 -    *why = "transport quarantined";
--    return false;
--  }
++  gEldenLinkResult = UINT32_MAX;
++  if (!hostWaitRegister (0x30, 8, 8)) {
++    recordTransport (kIOReturnTimeout, 15);
++    *why = "UIC command not ready";
++    return false;
++  }
++  const bool hibern8Exit = command == 0x18;
++  const uint32_t completion = hibern8Exit ? 0x420 : 0x400;
++  hostWrite (0x20, completion);
++  hostWrite (0x94, argument);
++  hostWrite (0x98, 0);
++  hostWrite (0x9c, 0);
++  hostWrite (0x90, command);
++  bool done = hostWaitRegister (0x20, 0x400, 0x400);
++  gEldenLinkResult = read32 (gHost.hc, 0x98) & 0xff;
++  constexpr uint32_t errors = kUfsFatalStatus | 4;
++  if (done && !gEldenLinkResult && hibern8Exit && !(read32 (gHost.hc, 0x20) & errors)) {
++    // UHXS can arrive after UCCS. Bound the separate power transition.
++    uint64_t deadline;
++    clock_interval_to_deadline (500, kMillisecondScale, &deadline);
++    do {
++      const uint32_t status = read32 (gHost.hc, 0x20);
++      done = (status & 0x20) != 0;
++      if (done || (status & errors)) break;
++      IODelay (10);
++    } while (mach_absolute_time () < deadline);
++  }
++  const uint32_t status = read32 (gHost.hc, 0x20);
++  if (!done || gEldenLinkResult || (status & errors) ||
++      (hibern8Exit && ((read32 (gHost.hc, 0x30) >> 8) & 7) != 1)) {
++    recordTransport ((status & errors) || done ? kIOReturnIOError : kIOReturnTimeout, 15);
++    *why = "UIC link command failed";
+     return false;
+   }
 -  if (gHost.ready) {
 -    return true;
++  hostWrite (0x20, completion);
++  return true;
++}
++
++static bool hostWakeLink (const char **why)
++{
++  gRootDiagnostic.stage = "link state";
++  // Use the same SM8750 wake sequence as the Elden iPadOS probe.
++  if (read32 (gHost.hc, 0x18)) hostWrite (0x18, 0);
++  if (read32 (gHost.hc, 0x18)) {
++    recordTransport (kIOReturnIOError, 15);
++    *why = "auto hibernation disable";
++    return false;
++  }
++  constexpr uint32_t txFsmLane0 = 0x00410000;
++  if (!hostLinkCommand (0x01, txFsmLane0, why)) return false;
++  gEldenTxBefore = gEldenTxAfter = read32 (gHost.hc, 0x9c);
++  if (gEldenTxBefore != 1) return true;
++  gRootDiagnostic.stage = "Hibern8 exit";
++  gEldenTxAfter = UINT32_MAX;
++  if (!hostLinkCommand (0x18, 0, why) || !hostLinkCommand (0x01, txFsmLane0, why)) return false;
++  gEldenTxAfter = read32 (gHost.hc, 0x9c);
++  if (gEldenTxAfter != 1) return true;
++  recordTransport (kIOReturnNotReady, 15);
++  *why = "link remains in Hibern8";
++  return false;
++}
++
 +// Attach to the powered legacy controller without resetting its link.
 +static bool hostInitialize (const char **why)
 +{
@@ -167,7 +244,7 @@
    }
    gRootDiagnostic.stage = "controller map";
    gHost.hc = mapPhys (UFS_HC_BASE, UFS_HC_SIZE, gHost.hcMap);
-@@ -896,17 +875,26 @@
+@@ -896,17 +944,26 @@
      *why = "controller map";
      return false;
    }
@@ -200,7 +277,7 @@
    gHost.lock = IOLockAlloc ();
    if (!gHost.dma || !gHost.lock) {
      *why = "dma buffer";
-@@ -917,26 +905,31 @@
+@@ -917,25 +974,38 @@
    gHost.phys = gHost.dma->getPhysicalSegment (0, &contiguous, kIOMemoryMapperNone);
    gRootDiagnostic.dma = gHost.phys;
    gRootDiagnostic.contiguous = contiguous;
@@ -216,12 +293,21 @@
    cacheCivac (gHost.virt, kDmaBytes);
    uint32_t report[3] = { 0, 0, 0 };
 -  gRootDiagnostic.stage = "SMMU and request list";
+-  if (!hostStopQueue (why)) return false;
+-  smmuBypassStream (0x60, gHost.smmuMap, report, gHost.phys, kDmaBytes);
 +  gRootDiagnostic.stage = "inherited SMMU route";
 +  if (!checkEldenUfsDma (gHost.smmuMap, report, gHost.phys, kDmaBytes)) {
 +    *why = "inherited Elden DMA route unavailable";
 +    return false;
 +  }
-+  gHost.smmu = gHost.smmuMap->getVirtualAddress ();
+   gHost.smmu = gHost.smmuMap->getVirtualAddress ();
+-  uint32_t idr1 = read32 (gHost.smmu, 0x24);
+-  gHost.cb = gHost.smmu + ((1U << (((idr1 >> 28) & 7) + 1)) + (report[0] >> 16)) * 4096;
+-  if (gRootDiagnosticEnabled) {
+-    gRootDiagnostic.gfsrBefore = read32 (gHost.smmu, 0x48);
+-    gRootDiagnostic.fsrBefore = read32 (gHost.cb, 0x58);
+-    gRootDiagnostic.smmuId2 = read32 (gHost.smmu, 0x28);
+-    gRootDiagnostic.cba2r = read32 (gHost.smmu, 0x1800 + 4 * (report[0] >> 16));
 +  const uint32_t idr1 = gRootDiagnostic.smmuId1;
 +  if (((gRootDiagnostic.s2cr >> 16) & 3U) == 0) {
 +    gHost.cb = gHost.smmu + ((1U << (((idr1 >> 28) & 7) + 1)) + (report[0] >> 16)) * 4096;
@@ -231,21 +317,18 @@
 +  gRootDiagnostic.stage = "legacy request list";
 +  // StopQueue can change registers before it reports a failure.
 +  gEldenQueueTouched = true;
-   if (!hostStopQueue (why)) return false;
--  smmuBypassStream (0x60, gHost.smmuMap, report, gHost.phys, kDmaBytes);
--  gHost.smmu = gHost.smmuMap->getVirtualAddress ();
--  uint32_t idr1 = read32 (gHost.smmu, 0x24);
--  gHost.cb = gHost.smmu + ((1U << (((idr1 >> 28) & 7) + 1)) + (report[0] >> 16)) * 4096;
--  if (gRootDiagnosticEnabled) {
--    gRootDiagnostic.gfsrBefore = read32 (gHost.smmu, 0x48);
--    gRootDiagnostic.fsrBefore = read32 (gHost.cb, 0x58);
--    gRootDiagnostic.smmuId2 = read32 (gHost.smmu, 0x28);
--    gRootDiagnostic.cba2r = read32 (gHost.smmu, 0x1800 + 4 * (report[0] >> 16));
--  }
++  if (!hostStopQueue (why) || !hostWakeLink (why)) return false;
++  // Polling one slot must not inherit the firmware's completion aggregation.
++  gRootDiagnostic.stage = "completion aggregation";
++  hostWrite (0x4c, 0);
++  if (read32 (gHost.hc, 0x4c) & 0x80000000U) {
++    recordTransport (kIOReturnIOError, 15);
++    *why = "interrupt aggregation disable";
++    return false;
+   }
    if (!hostStartQueue (why)) return false;
    gRootDiagnostic.stage = "NOP OUT";
-   // NOP OUT proves the transport before touching the SCSI layer.
-@@ -970,7 +963,21 @@
+@@ -970,7 +1040,21 @@
      uint8_t tur[6] = { 0, 0, 0, 0, 0, 0 };
      uint32_t scsi = 0;
      if (hostScsi (0, tur, 6, false, 0, 200000, &scsi) == kIOReturnSuccess) {
@@ -267,12 +350,10 @@
        return true;
      }
      if (gHost.poisoned) break;
-@@ -978,6 +985,30 @@
-   }
-   gHost.ready = false;
+@@ -980,6 +1064,30 @@
    *why = "LUN 0 not ready";
-+  return false;
-+}
+   return false;
+ }
 +
 +static bool hostBringUp (const char **why)
 +{
@@ -295,10 +376,26 @@
 +  gHost.hc = 0;
 +  gHost.smmuMap.reset ();
 +  gHost.hcMap.reset ();
-   return false;
++  return false;
++}
  }
- }
-@@ -1830,6 +1861,21 @@
+ 
+ namespace {
+@@ -1302,8 +1410,11 @@
+   gRootDiagnostic.failures = native_ufs_block_failures;
+   // Show media and I/O counters first so controller details cannot displace the root-volume failure.
+   int used = snprintf (gRootDiagnosticText, sizeof (gRootDiagnosticText),
+-    "UFS ROOT FAILURE: %s\nstage=%s prepared=%u published=%u reads=%llu failures=%llu\n%s",
+-    reason, gRootDiagnostic.stage, gRootDiagnostic.prepared, gRootDiagnostic.published,
++    "UFS ROOT FAILURE: %s\nstage=%s ret=%08x tx=%x/%x uic=%x ahit=%x db=%x is=%x gf=%x cf=%x\n"
++    "prepared=%u published=%u reads=%llu failures=%llu\n%s",
++    reason, gRootDiagnostic.stage, gRootDiagnostic.result, gEldenTxBefore, gEldenTxAfter,
++    gEldenLinkResult, gRootDiagnostic.ahit, gRootDiagnostic.doorbell, gRootDiagnostic.interrupt,
++    gRootDiagnostic.gfsr, gRootDiagnostic.fsr, gRootDiagnostic.prepared, gRootDiagnostic.published,
+     static_cast<unsigned long long> (gRootDiagnostic.reads),
+     static_cast<unsigned long long> (gRootDiagnostic.failures), gRootMediaText);
+   if (used > 0 && static_cast<size_t> (used) < sizeof (gRootDiagnosticText)) {
+@@ -1830,6 +1941,21 @@
    if ((!probe && !rootMode) || !OSDynamicCast (IOPlatformExpertDevice, provider)) {
      return false;
    }
@@ -320,7 +417,7 @@
    unsigned diagnostic = 0;
    PE_parse_boot_argn ("native-ufs-diagnostics", &diagnostic, sizeof (diagnostic));
    gRootDiagnosticEnabled = diagnostic == 1;
-@@ -1849,21 +1895,18 @@
+@@ -1849,21 +1975,18 @@
      adoptAndRead (probe);
    }
    if (probe == 10) {
