@@ -1,0 +1,15 @@
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -1415,6 +1415,11 @@ int
+ ml_get_cpu_number(uint32_t phys_id)
+ {
++#if SHENG
++	/* SM8750 has cores with the same Aff0/Aff1 in different Aff2 groups. */
++	phys_id &= MPIDR_AFF2_MASK | MPIDR_AFF1_MASK | MPIDR_AFF0_MASK;
++#else
+ 	phys_id &= MPIDR_AFF1_MASK | MPIDR_AFF0_MASK;
++#endif
+ 
+ 	for (unsigned i = 0; i < topology_info.num_cpus; i++) {
+ 		if (topology_info.cpus[i].phys_id == phys_id) {

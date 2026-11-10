@@ -23,12 +23,12 @@ def main() -> None:
     output = root / "out/elden-macos26-4k-bootstrap"
     output.mkdir(parents=True, exist_ok=True)
     patches = Path(__file__).resolve().parents[1] / "patches/macos-recovery"
-    overlay = patches / "elden-macos26-4k-user-va.patch"
-    kmem_overlay = patches / "elden-macos26-small-kmem.patch"
-    staged_overlay = output / overlay.name
-    staged_kmem = output / kmem_overlay.name
-    shutil.copyfile(overlay, staged_overlay)
-    shutil.copyfile(kmem_overlay, staged_kmem)
+    staged_patches = []
+    for name in ("elden-macos26-4k-user-va.patch", "elden-macos26-small-kmem.patch",
+                 "elden-macos26-cpu-affinity.patch"):
+        staged_patch = output / name
+        shutil.copyfile(patches / name, staged_patch)
+        staged_patches.append(staged_patch)
     prepare = build.prepare
     run = build.run
 
@@ -43,7 +43,7 @@ def main() -> None:
         filtered = output / "0007-elden-4k-page-layout.patch"
         filtered.write_text(original[:start] + original[end:])
         build.PATCHES[build.PATCHES.index(patch)] = filtered
-        build.PATCHES.extend((staged_overlay, staged_kmem))
+        build.PATCHES.extend(staged_patches)
 
         record = prepare()
         header = output / "source/pexpert/pexpert/arm64/SHENG.h"

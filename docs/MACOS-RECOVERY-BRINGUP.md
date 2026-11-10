@@ -406,9 +406,22 @@ DarwinBoot preflight accepted the 109,101,056-byte kernel and its
 
 The verified MacBook image is `~/Downloads/elden-macos26-4k-r5-ram.img`
 with SHA-256 `b6dd563354e58850007ee968331216976204decd83d251e22bc839ace892f40f`.
-The tablet accepted the RAM boot. Select **Elden macOS 26.5 - 4 KiB
-Recovery Components** to test the provider and prelink initialization.
-This image has no Recovery root media or UFS companion.
+After selecting **Elden macOS 26.5 - 4 KiB Recovery Components**,
+the tablet passed the previous SHA1 initialization fault and reached
+ArmCpu startup. XNU returned `KERN_FAILURE` (5) for CPU 0 registration.
+The ADT has a boot CPU with MPIDR affinity `0x0` and a secondary
+with `0x10000`. The original lookup discarded Aff2, so ArmCpu
+matched both providers to logical CPU 0 even with `cpus=1`.
+
+The next build preserves Aff2 in the SHENG CPU lookup. Its ADT check
+finds exactly one match for logical CPU 0, and disassembly confirms
+the 24-bit mask. The retest keeps the same firmware, ADT, and paired
+prelink modules. Recovery root media and multicore startup remain
+separate checkpoints.
+
+The MacBook retest image is `~/Downloads/elden-macos26-4k-r6-ram.img`
+with SHA-256 `3fe386db944745727360ab57c5bf03146aa9c2be577e9fd52a6f1ef4ec54ffb3`.
+Its kernel UUID is `4BC95A0C-8278-3B67-A060-99E592519074`.
 
 ### UniXNU firmware TTY commands
 
