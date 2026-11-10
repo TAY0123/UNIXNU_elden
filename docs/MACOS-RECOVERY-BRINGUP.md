@@ -257,8 +257,48 @@ address. The build and embedded image checks passed.
 The MacBook copy is `~/Downloads/elden-el1-native47-4k-ram.img` with
 SHA-256 `8f4103d10c065a5ee652f92872b8b32e26377ba227da48365dfc3972857dafef`.
 Elden bootloader fastboot accepted the image and the RAM-boot command.
-Select **ELDEN 2.3 PROBE - EL1 4K 47-bit CONTROL** and record the
-execution and restoration results. EL1 PAC requires a separate test.
+The tablet showed `execute=PASS registers=PASS firmware-restored=PASS`
+and EFI `Success`. Both aliases returned their expected PCs
+(`0xffff800000004000` and `0xfffffe0007004000`), and the shared data
+read returned `0x5757`. Active TCR was `0x4b5113514` and TTBR1 was
+`0xccc64000`. This confirms 47-bit EL1 execution with 4 KiB pages
+for the standalone probe. The 4 KiB macOS kernel handoff remains a
+separate checkpoint.
+
+The current XNU boot code builds L1/L2 bootstrap tables. Its default
+4 KiB configuration uses a 39-bit TTBR1 window, which excludes the
+existing kernel link address `0xfffffe0007004000`. A first 4 KiB
+kernel candidate therefore needs either a link address inside the
+39-bit window or a four-level 47-bit XNU bootstrap. The standalone
+control did not exercise XNU's bootstrap or macOS binaries.
+
+### Elden EL1 PAC probe
+
+Apply `patches/macos-recovery/elden-el1-pac-probe.patch` to an isolated,
+unmodified copy of the pinned reference probes. Build
+`ci/preflight.dsc` with `-D SHENG_NATIVE_EL1_PROBE=1`. Package the
+output EFI as `Payloads/EldenPac.efi` and set the default entry ID to
+`pac` in the phase-2.3 probe payload.
+
+The standalone app checks the boot CPU's address and generic PAC
+feature fields. It reads the original keys and tests writing those
+same values before trying synthetic keys. It verifies restoration
+before returning to firmware. A local synchronous fault while the
+test keys are installed triggers restoration. The app stops if it
+cannot verify safe restoration. No original key values appear in
+the report.
+
+The EFI build, opcode check, and RAM image verifier passed. The MacBook
+copy is `~/Downloads/elden-el1-pac-ram.img` with SHA-256
+`800e8b7e87045d92cfce9e4654b2f75104bfcad940ddb2c2a7d6424f273e889b`.
+Elden bootloader fastboot accepted the transfer and RAM boot.
+The tablet ran **ELDEN 2.3 PROBE - EL1 PAC** at EL1 and reported
+`bank-switch=PASS flags=7FFF expected=7FFF` and EFI `Success`.
+Markers 0–4 confirm vector setup, key reads, unchanged writes,
+completed restore writes, and successful restoration verification.
+The probe qualifies boot-CPU PAC bank switching and instruction
+round trips. The XNU task and thread PAC lifecycle remains untested
+on Elden.
 
 ### UniXNU firmware TTY commands
 

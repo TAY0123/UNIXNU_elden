@@ -1,0 +1,190 @@
+--- a/probes/el1-native/NativeEl1.inf
++++ b/probes/el1-native/NativeEl1.inf
+@@ -9,9 +9,8 @@
+ 
+ [Sources]
+   NativeEl1.c
+-  Native47.c
++  EldenPac.c
+   native.S
+-  layout47.S
+ 
+ [Packages]
+   MdePkg/MdePkg.dec
+--- a/probes/el1-native/NativeEl1.c
++++ b/probes/el1-native/NativeEl1.c
+@@ -10,7 +10,7 @@
+ extern UINT64 ShengEl1GranuleProbe (UINT64 *Table, UINT64 *Output, UINT64 Tcr,
+                                    UINTN Progress, UINTN Stride, UINT64 Leaf);
+ extern VOID ShengEl1GranuleProbeEnd (VOID);
+-extern UINT64 ShengEl1PauthProbe (UINT64 *Output);
++extern UINT64 ShengEl1PauthProbe (UINT64 *Output, UINT64 *Trap, UINTN Progress, UINTN Stride);
+ 
+ BOOLEAN
+ ShengProbePause (CONST CHAR16 *Message)
+@@ -182,6 +182,7 @@
+   UINT64 Result[8] = { 0 };
+   UINT64 ProbeStatus;
+   UINT64 Signatures[10] = { 0 };
++  UINT64 PauthTrap[3] = { 0 };
+   UINT64 PauthFlags = 0;
+   UINT64 Tcr, Leaf;
+   UINTN Index;
+@@ -287,7 +288,7 @@
+     }
+     Print (L"SHENG-EL1: PAC probe starting\r\n");
+     gBS->Stall (200000);
+-    PauthFlags = ShengEl1PauthProbe (Signatures);
++    PauthFlags = ShengEl1PauthProbe (Signatures, PauthTrap, Progress, Stride);
+     Print (L"SHENG-EL1: PAC bank-switch=%s flags=0x%lx expected=0x7fff\r\n",
+            PauthFlags == 0x7fff ? L"PASS" : L"FAIL", PauthFlags);
+   } else {
+--- /dev/null
++++ b/probes/el1-native/EldenPac.c
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: MIT
++#include "NativeEl1.h"
++#include <Library/UefiBootServicesTableLib.h>
++#include <Library/UefiLib.h>
++
++extern UINT64 ShengEl1PauthProbe(UINT64 *Signatures, UINT64 *Trap, UINTN Progress, UINTN Stride);
++
++EFI_STATUS EFIAPI
++UefiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
++{
++  UINT64 El, Isar1, Isar2, SpSel, Flags;
++  UINT64 Signatures[10] = {0};
++  UINT64 Trap[3] = {0};
++  UINTN Progress = 0, Stride = 0;
++
++  (VOID)ImageHandle;
++  (VOID)SystemTable;
++  gST->ConOut->ClearScreen(gST->ConOut);
++  __asm__ volatile("mrs %0,CurrentEL" : "=r"(El));
++  Print(L"ELDEN-PAC: EL=%lu - key switching and restoration\r\n", El >> 2);
++  if (El != 4) {
++    return ShengProbeFinish(EFI_UNSUPPORTED);
++  }
++  __asm__ volatile("mrs %0,id_aa64isar1_el1; mrs %1,id_aa64isar2_el1; mrs %2,spsel"
++                   : "=r"(Isar1), "=r"(Isar2), "=r"(SpSel));
++  Print(L"ELDEN-PAC: ISAR1=%lx ISAR2=%lx\r\n", Isar1, Isar2);
++  if (SpSel != 1 || (!(Isar1 & 0xff0) && !(Isar2 & 0xf000)) ||
++      (!(Isar1 & 0xff000000) && !(Isar2 & 0xf00))) {
++    Print(L"ELDEN-PAC: requires SP_EL1 and advertised address and generic PAC\r\n");
++    return ShengProbeFinish(EFI_UNSUPPORTED);
++  }
++  if (EFI_ERROR(ShengProbePrepareProgress(&Progress, &Stride))) {
++    Progress = 0;
++  }
++  ShengProbePause(L"Press a key to run the EL1 PAC probe");
++  Print(L"ELDEN-PAC: starting. Record the last marker if the probe stops.\r\n");
++  Flags = ShengEl1PauthProbe(Signatures, Trap, Progress, Stride);
++  Print(L"ELDEN-PAC: bank-switch=%s flags=%lx expected=7FFF\r\n",
++        Flags == 0x7fff ? L"PASS" : L"FAIL", Flags);
++  if (Trap[0]) {
++    Print(L"ELDEN-PAC: trap checkpoint=%lu ESR=%lx ELR=%lx\r\n",
++          Trap[0], Trap[1], Trap[2]);
++  }
++  return ShengProbeFinish(Flags == 0x7fff && !Trap[0] ? EFI_SUCCESS : EFI_DEVICE_ERROR);
++}
+--- a/probes/el1-native/native.S
++++ b/probes/el1-native/native.S
+@@ -279,12 +279,35 @@
+     mov x22,#0
+     mrs x23,sctlr_el1
+     mrs x24,daif
++    mov x25,x1
++    mov x13,x2
++    mov x14,x3
+     msr daifset,#15
++    mrs x26,vbar_el1
++    mrs x27,spsr_el1
++    mrs x28,elr_el1
++    adr x9,EldenPacVectors
++    msr vbar_el1,x9
++    isb
++    mov x29,#1
++    mmu_mark 0
+     save_key 1,0,1,0
+     save_key 1,2,3,16
+     save_key 2,0,1,32
+     save_key 2,2,3,48
+     save_key 3,0,1,64
++    mov x29,#2
++    mmu_mark 1
++    // Check access with unchanged values before installing test keys.
++    load_key 1,0,1,0
++    load_key 1,2,3,16
++    load_key 2,0,1,32
++    load_key 2,2,3,48
++    load_key 3,0,1,64
++    msr sctlr_el1,x23
++    isb
++    mov x29,#3
++    mmu_mark 2
+     install_keys 0x1100
+     mov x9,#0x2000
+     movk x9,#0xc800,lsl #16
+@@ -323,6 +346,8 @@
+     cmp x9,x10
+     cset x10,eq
+     orr x22,x22,x10,lsl #13
++.Lpac_restore:
++    mov x29,#4
+     load_key 1,0,1,0
+     load_key 1,2,3,16
+     load_key 2,0,1,32
+@@ -330,6 +355,8 @@
+     load_key 3,0,1,64
+     msr sctlr_el1,x23
+     isb
++    mov x29,#5
++    mmu_mark 3
+     mov x12,#0
+     compare_key 1,0,1,0
+     compare_key 1,2,3,16
+@@ -339,9 +366,14 @@
+     mrs x9,sctlr_el1
+     eor x9,x9,x23
+     orr x12,x12,x9
+-    cmp x12,#0
+-    cset x10,eq
+-    orr x22,x22,x10,lsl #14
++    cbnz x12,.Lpac_stop
++    orr x22,x22,#(1<<14)
++    mmu_mark 4
++.Lpac_exit:
++    msr vbar_el1,x26
++    msr spsr_el1,x27
++    msr elr_el1,x28
++    isb
+     stp xzr,xzr,[sp]
+     stp xzr,xzr,[sp,#16]
+     stp xzr,xzr,[sp,#32]
+@@ -352,3 +384,26 @@
+     add sp,sp,#96
+     restore_frame
+     ret
++
++.Lpac_fault:
++    // A fault while restoring keys cannot safely return to firmware.
++    cmp x29,#4
++    b.eq .Lpac_stop
++    str x29,[x25]
++    mrs x9,esr_el1
++    mrs x10,elr_el1
++    stp x9,x10,[x25,#8]
++    mov x22,#0
++    cmp x29,#3
++    b.eq .Lpac_restore
++    b .Lpac_exit
++.Lpac_stop:
++    wfe
++    b .Lpac_stop
++
++.p2align 11
++EldenPacVectors:
++.rept 16
++    b .Lpac_fault
++    .balign 128
++.endr
