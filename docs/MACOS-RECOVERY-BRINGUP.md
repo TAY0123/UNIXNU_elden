@@ -794,3 +794,26 @@ order. It selects `0x100` as the secondary. The MacBook copy is
 `~/Downloads/elden-macos26-4k-recovery-smp-control-ram.img` with SHA-256
 `154b51b260c46ecc5b54b839ba9d366021eca34369a0bf7b1552e3050ff782a1`.
 This control has not been run on the tablet.
+
+### Recovery PID 1 trace
+
+The opt-in `sheng-pid1-trace=1` reports whether the kernel's initial
+exec call returned, whether PID 1 took synchronous exceptions from EL0,
+and whether `launchd` acknowledged reaching `main` by setting
+`kern.initproc_spawned`. The report includes the last syscall number
+and the syndrome of the last non-syscall exception. Counters are
+independent samples. A zero exception count means no trap was recorded.
+The exception hook only records counters and the progress worker prints
+a summary every 30 seconds.
+
+The **Recovery PID 1 Trace** menu entry uses one CPU, the original
+Recovery ADT and the deployed BaseSystem. It retains the launchd output
+filter from the earlier PID 1 log run.
+
+The MacBook built the 4 KiB ARM64e kernel and the paired UFS companion.
+The 15-module prelink, 326-slot storage ABI, DarwinBoot preflight and
+embedded RAM image verification passed. The MacBook copy is
+`~/Downloads/elden-macos26-4k-recovery-pid1-trace-ram.img` with SHA-256
+`d96e5491d19257172168e727591f7e5b86cd576f6ce77a210db7a0c0541e055b`.
+Runtime verification requires a photo of the `SHENG-PID1` line after
+`launchd exec`.

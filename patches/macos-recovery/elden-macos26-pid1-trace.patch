@@ -1,0 +1,130 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 2beb320..9f818ec 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -1110,6 +1110,11 @@ bsdinit_task(void)
+ 	bsd_init_kprintf("bsd_do_post - done");
+ 
+ 	load_init_program(p);
++#if SHENG
++	if (sheng_pid1_trace_enabled) {
++		__atomic_store_n(&sheng_pid1_exec_returned, 1, __ATOMIC_RELAXED);
++	}
++#endif
+ 	lock_trace = 1;
+ }
+ 
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index 1a4db49..766e751 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1422,7 +1422,13 @@ sysctl_initproc_spawned(struct sysctl_oid *oidp, __unused void *arg1, __unused i
+ 		// Can only ever be set by launchd, and only once at boot
+ 		return EPERM;
+ 	}
+-	return sysctl_handle_int(oidp, &initproc_spawned, 0, req);
++	int error = sysctl_handle_int(oidp, &initproc_spawned, 0, req);
++#if SHENG
++	if (sheng_pid1_trace_enabled && !error && req->newptr && initproc_spawned) {
++		__atomic_store_n(&sheng_pid1_main_ack, 1, __ATOMIC_RELAXED);
++	}
++#endif
++	return error;
+ }
+ 
+ SYSCTL_PROC(_kern, OID_AUTO, initproc_spawned,
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 905c291..fa8956a 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -150,6 +150,27 @@ void panic_with_thread_kernel_state(const char *msg, arm_saved_state_t *ss) __ab
+ void sleh_synchronous_sp1(arm_context_t *, uint64_t, vm_offset_t) __abortlike;
+ void sleh_synchronous(arm_context_t *, uint64_t, vm_offset_t, bool);
+ 
++#if SHENG
++extern int proc_selfpid(void);
++unsigned sheng_pid1_trace_enabled;
++unsigned sheng_pid1_exec_returned, sheng_pid1_main_ack;
++static uint64_t sheng_pid1_el0_sync, sheng_pid1_svc, sheng_pid1_last_esr;
++static int sheng_pid1_last_svc;
++
++/* Independent samples for diagnostics. Exception entry never logs or waits. */
++void
++sheng_pid1_trace_report(void)
++{
++	printf("SHENG-PID1: exec-return=%u el0-sync=%llu svc=%llu last-svc=%d last-esr=%llx main=%u\n",
++	    __atomic_load_n(&sheng_pid1_exec_returned, __ATOMIC_RELAXED),
++	    (unsigned long long)__atomic_load_n(&sheng_pid1_el0_sync, __ATOMIC_RELAXED),
++	    (unsigned long long)__atomic_load_n(&sheng_pid1_svc, __ATOMIC_RELAXED),
++	    __atomic_load_n(&sheng_pid1_last_svc, __ATOMIC_RELAXED),
++	    (unsigned long long)__atomic_load_n(&sheng_pid1_last_esr, __ATOMIC_RELAXED),
++	    __atomic_load_n(&sheng_pid1_main_ack, __ATOMIC_RELAXED));
++}
++#endif
++
+ 
+ 
+ void sleh_irq(arm_saved_state_t *);
+@@ -952,6 +973,17 @@ sleh_synchronous(arm_context_t *context, uint64_t esr, vm_offset_t far, __unused
+ 
+ 	if (is_user) {
+ 		thread->machine.el0_synchronous_trap = true;
++#if SHENG
++		if (sheng_pid1_trace_enabled && proc_selfpid() == 1) {
++			__atomic_fetch_add(&sheng_pid1_el0_sync, 1, __ATOMIC_RELAXED);
++			if (class == ESR_EC_SVC_64 && is_saved_state64(state)) {
++				__atomic_store_n(&sheng_pid1_last_svc, get_saved_state_svc_number(state), __ATOMIC_RELAXED);
++				__atomic_fetch_add(&sheng_pid1_svc, 1, __ATOMIC_RELAXED);
++			} else {
++				__atomic_store_n(&sheng_pid1_last_esr, esr, __ATOMIC_RELAXED);
++			}
++		}
++#endif
+ 	}
+ 
+ 	switch (class) {
+diff --git a/pexpert/arm/pe_kprintf.c b/pexpert/arm/pe_kprintf.c
+index 0e5a3ca..164b11d 100644
+--- a/pexpert/arm/pe_kprintf.c
++++ b/pexpert/arm/pe_kprintf.c
+@@ -32,8 +32,16 @@ uint64_t sheng_boot_progress_seconds(void)
+ }
+ static __attribute__((noreturn)) void sheng_boot_progress_thread(__unused void *argument, __unused wait_result_t result)
+ {
++	uint64_t next_pid1_report = 0;
+ 	for (;;) {
+ 		sheng_boot_progress_tick();
++		if (sheng_pid1_trace_enabled) {
++			uint64_t now = sheng_boot_progress_seconds();
++			if (now >= next_pid1_report) {
++				sheng_pid1_trace_report();
++				next_pid1_report = now + 30;
++			}
++		}
+ 		assert_wait_timeout((event_t)&sheng_boot_progress_enabled, THREAD_UNINT, 2, NSEC_PER_SEC);
+ 		thread_block(THREAD_CONTINUE_NULL);
+ 	}
+@@ -44,6 +52,9 @@ void sheng_boot_progress_start(void)
+ 	uint32_t expected = 0;
+ 	if (!sheng_boot_progress_enabled || !__atomic_compare_exchange_n(&started, &expected, 1,
+ 	    0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
++	unsigned pid1_trace = 0;
++	PE_parse_boot_argn("sheng-pid1-trace", &pid1_trace, sizeof(pid1_trace));
++	sheng_pid1_trace_enabled = pid1_trace == 1;
+ 	thread_t thread;
+ 	if (kernel_thread_start(sheng_boot_progress_thread, NULL, &thread) == KERN_SUCCESS)
+ 		thread_deallocate(thread);
+diff --git a/pexpert/pexpert/pexpert.h b/pexpert/pexpert/pexpert.h
+index f31859b..4f7ab49 100644
+--- a/pexpert/pexpert/pexpert.h
++++ b/pexpert/pexpert/pexpert.h
+@@ -179,6 +179,9 @@ void sheng_boot_checkpoint(unsigned stage);
+ void sheng_boot_service(const char *name, int pid, int exiting, int status);
+ void sheng_boot_progress_tick(void);
+ void sheng_boot_progress_start(void);
++extern unsigned sheng_pid1_trace_enabled;
++extern unsigned sheng_pid1_exec_returned, sheng_pid1_main_ack;
++void sheng_pid1_trace_report(void);
+ void sheng_boot_log_state(unsigned state, unsigned error, uint64_t generation);
+ #endif
+ 

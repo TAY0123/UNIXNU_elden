@@ -60,8 +60,9 @@ def main() -> None:
         if "__ARM_16K_PG__" in header.read_text():
             raise ValueError("staged SHENG source still requests the 16 KiB granule")
         trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
+        pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
         source = output / "source"
-        subprocess.run(["git", "-C", source, "apply", trace_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
         source_diff = subprocess.check_output(["git", "-C", source, "diff", "HEAD", "--binary"])
         record["source_diff_sha256"] = hashlib.sha256(source_diff).hexdigest()
         record["elden_bootstrap"] = {
@@ -71,6 +72,7 @@ def main() -> None:
             "bootstrap_trace_overlay_sha256": build.sha(trace_overlay),
             "bootstrap_trace_header_sha256": build.sha(
                 source / "osfmk/arm64/sheng_bootstrap_trace.h"),
+            "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
             "hardware_verified": False,
         }
         build.save(record)
