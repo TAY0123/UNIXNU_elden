@@ -336,6 +336,53 @@ transport still needs to publish a serial port for the MacBook's
 USB-C connection. Child EFI applications currently use their own
 console for output and key prompts.
 
+### Reboot to Fastboot
+
+Select **Reboot to Fastboot** in the Elden UniXNU menu. On an EFI serial
+connection, send `boot fastboot` followed by a newline. The action uses
+the Elden bootloader's PSCI `SYSTEM_RESET2` type `0x80010001` and cookie
+`0x2`. If the request returns, UniXNU reports the error in the menu.
+[Elden Linux hardware results](https://github.com/xiaquwan1001/lenovo-legion-y700-gen4-tb322fc-elden-linux/blob/main/archive/topics/FLASHCTL-2026-10-03.md)
+
+Apply both UEFI overlays to the pinned UniXNU checkout, then build
+and package the image. `PAC_EFI` is the compiled EL1 PAC probe from above.
+The PAC probe is still the default menu entry and **Restart** is the
+ordinary reboot.
+
+```sh
+git -C third_party/UniXNU apply "$PWD/patches/uefi/serial-menu-commands.patch"
+git -C third_party/UniXNU apply "$PWD/patches/uefi/elden-fastboot-menu-action.patch"
+work=out/elden-fastboot
+python3 scripts/build_phase2_firmware.py --toolchain "$LLVM_BIN" \
+  --crypto-path "$PWD/.cache/phase1/basecrypto" --output-dir "$work/firmware"
+PYTHONPATH=scripts python3 -c '
+from pathlib import Path
+from make_payload import build_config_image
+build_config_image(Path("package/elden-fastboot-unixnu.toml"),
+                   Path("out/elden-fastboot/probe.img"), 8,
+                   label=b"ELDENPROBE", media_id=0x53484e47)
+'
+mmd -i "$work/probe.img" ::/EFI/UniXNU/Payloads
+mcopy -i "$work/probe.img" "$PAC_EFI" ::/EFI/UniXNU/Payloads/EldenPac.efi
+python3 scripts/build_phase2_image.py --kind probe --header-version 4 \
+  --embed-payload --fd "$work/firmware/SILICIUM_UEFI.fd" \
+  --payload "$work/probe.img" --work "$work" --clang "$LLVM_BIN/clang" \
+  --output "$work/elden-fastboot-ram.img"
+python3 scripts/verify_phase2_artifact.py --kind probe --embed-payload \
+  --fd "$work/firmware/SILICIUM_UEFI.fd" --shim "$work/shim-probe-embed.bin" \
+  --payload "$work/probe.img" --image "$work/elden-fastboot-ram.img" \
+  --expect-default pac --report "$work/verify.json"
+```
+
+The firmware build, PSCI argument and return-path tests, and embedded
+payload checks passed. The MacBook copy is `~/Downloads/elden-fastboot-ram.img`
+with SHA-256 `b865e2ef7d6038842119144f0076cb11f7e8c9461616474c4967a486eedb4caa`.
+The tablet accepted the RAM boot and disconnected from USB fastboot.
+After the owner selected **Reboot to Fastboot**, the MacBook saw the
+tablet re-enumerate with `product: elden_prc_wifi` and `is-userspace: no`.
+This verifies the local menu action on the tablet. The serial route
+still requires a working EFI Serial I/O connection.
+
 ### Elden framebuffer driver
 
 On 2026-11-10, a read-only query of the running tablet's Linux MSM DRM driver

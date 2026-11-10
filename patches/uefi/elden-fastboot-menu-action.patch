@@ -1,0 +1,95 @@
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Boot.c b/package/UniXNUPkg/Library/UniXNULib/Boot.c
+index 4b1e737..8ef2f4d 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Boot.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Boot.c
+@@ -10,6 +10,38 @@
+ #include <Guid/Fdt.h>
+ #include <Protocol/UniXNULoader.h>
+ 
++#if defined (MDE_CPU_AARCH64)
++#include <IndustryStandard/ArmStdSmc.h>
++#include <Library/ArmSmcLib.h>
++
++// Elden's bootloader target for PSCI SYSTEM_RESET2.
++#define ELDEN_RESET_TYPE_BOOTLOADER  0x80010001U
++#define ELDEN_RESET_COOKIE_FASTBOOT   0x2U
++
++STATIC
++EFI_STATUS
++RebootFastboot (
++  VOID
++  )
++{
++  ARM_SMC_ARGS  Args = { 0 };
++
++  Args.Arg0 = ARM_SMC_ID_PSCI_SYSTEM_RESET2_AARCH64;
++  Args.Arg1 = ELDEN_RESET_TYPE_BOOTLOADER;
++  Args.Arg2 = ELDEN_RESET_COOKIE_FASTBOOT;
++  UniXNULog ("action: reboot to fastboot");
++  ArmCallSmc (&Args);
++
++  // A successful reset does not return.
++  UniXNULog ("action: fastboot reset returned %d", (INT32)Args.Arg0);
++  if ((INT32)Args.Arg0 == ARM_SMC_PSCI_RET_NOT_SUPPORTED) {
++    return EFI_UNSUPPORTED;
++  }
++
++  return EFI_DEVICE_ERROR;
++}
++#endif
++
+ STATIC
+ EFI_STATUS
+ RunAction (
+@@ -21,6 +53,10 @@ RunAction (
+       UniXNULog ("action: reset");
+       gRT->ResetSystem (EfiResetCold, EFI_SUCCESS, 0, NULL);
+       break;
++#if defined (MDE_CPU_AARCH64)
++    case UniXNUActionFastboot:
++      return RebootFastboot ();
++#endif
+     case UniXNUActionShutdown:
+       UniXNULog ("action: shutdown");
+       gRT->ResetSystem (EfiResetShutdown, EFI_SUCCESS, 0, NULL);
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Config.c b/package/UniXNUPkg/Library/UniXNULib/Config.c
+index ed39c6b..ef63729 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Config.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Config.c
+@@ -1144,6 +1144,8 @@ AddEntry (
+     Action      = TomlGetString (Table, "action", "");
+     if (AsciiStrCmp (Action, "reset") == 0) {
+       Entry->Action = UniXNUActionReset;
++    } else if (AsciiStrCmp (Action, "fastboot") == 0) {
++      Entry->Action = UniXNUActionFastboot;
+     } else if (AsciiStrCmp (Action, "shutdown") == 0) {
+       Entry->Action = UniXNUActionShutdown;
+     } else if (AsciiStrCmp (Action, "exit") == 0) {
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Internal.h b/package/UniXNUPkg/Library/UniXNULib/Internal.h
+index 2524c40..ad7bb6a 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Internal.h
++++ b/package/UniXNUPkg/Library/UniXNULib/Internal.h
+@@ -203,7 +203,8 @@ typedef enum {
+   UniXNUActionReset,
+   UniXNUActionShutdown,
+   UniXNUActionExit,
+-  UniXNUActionTools
++  UniXNUActionTools,
++  UniXNUActionFastboot
+ } UNIXNU_ACTION;
+ 
+ typedef struct {
+diff --git a/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf b/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf
+index 7a395a8..5c10731 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf
++++ b/package/UniXNUPkg/Library/UniXNULib/UniXNULib.inf
+@@ -45,6 +45,9 @@
+   UefiLib
+   UefiRuntimeServicesTableLib
+ 
++[LibraryClasses.AARCH64]
++  ArmSmcLib
++
+ [Guids]
+   gEfiFileInfoGuid                ## CONSUMES
+   gFdtTableGuid                   ## SOMETIMES_CONSUMES ## SOMETIMES_PRODUCES

@@ -1,0 +1,30 @@
+version = 1
+
+[boot]
+timeout = -1
+default = "pac"
+serial_commands = true
+
+[kits]
+autoload = false
+
+[ui]
+scale = 4
+
+[[entry]]
+id = "pac"
+title = "ELDEN 2.3 PROBE - EL1 PAC"
+type = "efi"
+path = "Payloads/EldenPac.efi"
+
+[[entry]]
+id = "fastboot"
+title = "Reboot to Fastboot"
+type = "action"
+action = "fastboot"
+
+[[entry]]
+id = "reset"
+title = "Restart"
+type = "action"
+action = "reset"
