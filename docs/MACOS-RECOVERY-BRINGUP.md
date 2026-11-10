@@ -628,6 +628,19 @@ ADT. The verified MacBook copy is `~/Downloads/elden-macos26-4k-ufs-ram.img`
 with SHA-256 `8d884a50a17ffa676adece06a39b80008475cac6c8173723ba81123233a035c7`.
 Its read-only GPT probe awaits a tablet test.
 
+On 2026-11-10, TWRP's `baseband_guard` denied writes to the Linux
+`rootfs`. A RAM boot of the installed mainline Linux kernel with a
+maintenance initramfs brought up USB serial and kept UFS filesystems
+unmounted. Offline ext4 resize reduced `rootfs` by 4 GiB and kept its
+start LBA and GPT identity. A second filesystem check
+passed after the kernel reread the new partition table.
+
+Both GPT copies matched the verified candidate byte for byte. Only the
+end of `rootfs` and the new 4 GiB `macosroot` entry changed. Linux
+enumerated `macosroot` as `/dev/sda18` on LUN 0. The original GPT copies,
+4 GiB tail, and ext4 undo files are retained privately. The new partition
+awaits the paired Recovery media.
+
 The following storage checkpoint is read-only Recovery media
 publication with `native-ufs-elden=1 native-ufs-root=1` and matching
 BaseSystem on a dedicated `macosroot` partition. Cold initialization of
