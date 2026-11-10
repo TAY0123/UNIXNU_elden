@@ -768,5 +768,24 @@ affinity pairs. The prelink, DarwinBoot, and embedded payload checks
 passed. The MacBook image is
 `~/Downloads/elden-macos26-4k-recovery-smp-aff2-ram.img` with SHA-256
 `8a46c7522f52037c374161e2d0a6c63989f22c0e146581f82540299df4333c0a`.
-Bootloader fastboot accepted this RAM boot. Secondary CPU execution
-still needs a capture from the selected test entry.
+Bootloader fastboot accepted this RAM boot. The first photo shows IOKit
+entry with CPU 1 at step 0. The later photos verify the two-core test on
+the tablet. CPU 1 reached step 7 with `fail=0` and `psci=0`. The requested
+MPIDR `0x10000` matches the observed `0x80010000` under the hardware
+affinity mask. CPU 1's timer count rose from 452 to 1,367 and its IPI
+count from 405 to 542. The boot mounted the macOS Base System and
+recorded one `launchd` exec and zero exits. After 31 seconds at that
+stage, no later service had been recorded.
+
+The same RAM image has the **Eight-core Test** entry. Verify that it
+reports `cpus=8 secondaries=7` and that CPUs 1 through 7 each reach step 7
+with `fail=0`, `psci=0` and timer and IPI delivery. The next Recovery
+checkpoint remains evidence that PID 1 runs beyond exec and starts
+services.
+
+A separate, host-verified **CPU Affinity Control** image keeps the Aff2
+kernel and two-core boot arguments and restores the original ADT CPU
+order. It selects `0x100` as the secondary. The MacBook copy is
+`~/Downloads/elden-macos26-4k-recovery-smp-control-ram.img` with SHA-256
+`154b51b260c46ecc5b54b839ba9d366021eca34369a0bf7b1552e3050ff782a1`.
+This control has not been run on the tablet.
