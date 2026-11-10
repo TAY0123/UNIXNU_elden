@@ -779,9 +779,14 @@ stage, no later service had been recorded.
 
 The same RAM image has the **Eight-core Test** entry. Verify that it
 reports `cpus=8 secondaries=7` and that CPUs 1 through 7 each reach step 7
-with `fail=0`, `psci=0` and timer and IPI delivery. The next Recovery
-checkpoint remains evidence that PID 1 runs beyond exec and starts
-services.
+with `fail=0`, `psci=0` and timer and IPI delivery. Bootloader fastboot
+accepted the same image for the eight-core run. The owner photo captures
+`cpu=7 timer=2 ipi=1`, confirming that logical CPU 7 received both
+interrupt types. The aggregate and other secondary rows had scrolled off
+the panel, so the capture qualifies CPU 7 and leaves the full eight-core
+result open. At 218 seconds after `launchd exec`, the same run recorded
+one start, zero exits and zero starts for the watched Recovery services.
+The next Recovery checkpoint is evidence that PID 1 runs beyond exec.
 
 A separate, host-verified **CPU Affinity Control** image keeps the Aff2
 kernel and two-core boot arguments and restores the original ADT CPU
