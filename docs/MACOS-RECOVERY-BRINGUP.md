@@ -609,9 +609,20 @@ After the Elden macOS handoff is qualified, the first owner-operated RAM
 boot can select `native-ufs-elden=1 native-ufs-probe=10 native-ufs-diagnostics=1`.
 This reads LUN 0's GPT header and checks its CRC without needing a
 `macosroot` partition. The Elden DarwinBoot overlay admits ARM64e
-after checking both address and generic PAC. The existing UFS candidate
-uses the 16 KiB layout. Rebuild its companion for the Elden kernel
-after qualifying the 4 KiB MMU transition. The next storage checkpoint is read-only Recovery media
+after checking both address and generic PAC.
+
+The 4 KiB UFS companion builds with the Elden bootstrap wrapper's
+`--elden-ufs-device "$ELDEN_REPO"` option after applying
+`elden-ufs-build.patch` to macOS-ForSheng. Pass the resulting
+`ufs-driver` directory to the prelink emitter's `--storage-driver`
+option. The 4 KiB prelink passed the 326-slot storage ABI check and
+DarwinBoot preflight. Package with
+`package/elden-macos26-ufs-probe-unixnu.toml` and the seventh image's
+ADT. The verified MacBook copy is `~/Downloads/elden-macos26-4k-ufs-ram.img`
+with SHA-256 `8d884a50a17ffa676adece06a39b80008475cac6c8173723ba81123233a035c7`.
+Its read-only GPT probe awaits a tablet test.
+
+The following storage checkpoint is read-only Recovery media
 publication with `native-ufs-elden=1 native-ufs-root=1` and matching
 BaseSystem on a dedicated `macosroot` partition. Cold initialization of
 the PHY, controller reset, MCQ, and persistent writes are outside this

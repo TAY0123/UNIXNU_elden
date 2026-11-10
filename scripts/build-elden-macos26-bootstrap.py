@@ -13,6 +13,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sheng-root", type=Path, required=True)
     parser.add_argument("--kdk-root", type=Path, required=True)
+    parser.add_argument("--elden-ufs-device", type=Path,
+                        help="also compile the read-only UFS companion from this device checkout")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
     args = parser.parse_args()
 
@@ -78,6 +80,9 @@ def main() -> None:
     build.run = run_elden
     sys.argv = [sys.argv[0], "--arch", "arm64e", "--link-kernel",
                 "--kdk-root", str(args.kdk_root.resolve(strict=True)), "-j", str(args.jobs)]
+    if args.elden_ufs_device is not None:
+        sys.argv.extend(["--build-ufs-driver", "--elden-ufs-device",
+                         str(args.elden_ufs_device.resolve(strict=True))])
     build.main()
 
 
