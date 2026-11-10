@@ -647,6 +647,25 @@ with SHA-256 `bdebbc4098043d6d544adf2a8a5cf09ee7f43d0fe515eae246085b4294716eb3`.
 Bootloader fastboot accepted the retry RAM boot. Select
 **Elden macOS 26.5 - UFS Read-only Probe** and capture the result.
 
+The link-wake retest observed TX lane state `1` (Hibern8). It reported
+a timeout during exit with `uic=0`, `db=0`, and `is=0x420` in the later
+snapshot. `0x420` contains both UIC command completion and Hibern8
+exit. The previous implementation made separate timed decisions and
+could miss a completion at the deadline.
+
+The next probe polls both bits together with a single 600 ms budget
+measured against the ARM physical counter. It uses the status from the
+deadline iteration, checks the UIC result and local power status, and
+rechecks the TX lane before starting the queue. The panic now includes
+the status used for the decision and the before/after SMMU fault status.
+Eight host cases passed, including both bits on the final sample and
+one bit missing at timeout. The Mac build, storage ABI prelink, DarwinBoot
+preflight, and embedded image checks passed. The MacBook image is
+`~/Downloads/elden-macos26-4k-ufs-uic-ram.img` with SHA-256
+`b07b974f4819396fef30c1feab2a731e00a22d0aa2a36639de3afd6dca2d5b3d`.
+Bootloader fastboot accepted this RAM boot. The UFS probe result awaits
+selection in the UniXNU menu.
+
 On 2026-11-10, TWRP's `baseband_guard` denied writes to the Linux
 `rootfs`. A RAM boot of the installed mainline Linux kernel with a
 maintenance initramfs brought up USB serial and kept UFS filesystems
