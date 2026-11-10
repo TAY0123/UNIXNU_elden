@@ -435,6 +435,12 @@ only change apart from the freshly generated seed and test identity.
 The MacBook image is `~/Downloads/elden-macos26-4k-r7-ram.img` with
 SHA-256 `a58bff66f00e9de42322e9afac3373e84e6593f8dc728a02807a3f162ffe8824`.
 Bootloader fastboot accepted the image and disconnected from USB.
+The owner's photo shows Elden passed the text-policy assertion,
+reached `PE_lockdown_iokit`, loaded APFS, and entered
+`IOFindBSDRoot`. The `Apple_HFS` match is XNU's default when no
+specific root match is supplied. This image contains no Recovery
+root media. NVRAM sync reported that no controller was available.
+The separate read-only UFS probe is the next storage test.
 
 ### UniXNU firmware TTY commands
 
