@@ -382,6 +382,33 @@ and firmware are unchanged from the third image.
 
 The MacBook image is `~/Downloads/elden-macos26-4k-r4-ram.img` with
 SHA-256 `b3dd3c4aca35c4b9521ee952b0691dbadfaba78b879a2c05a54793362a1deb5c`.
+The tablet passed interrupt-parent parsing. The next panic was a data
+abort at `SHA1Init` in `corecrypto_sha1.c:43`, called by
+`IOPlatformExpertDevice::generatePlatformUUID`. The bootstrap image
+reached this point without a registered corecrypto provider.
+
+For the fifth image, apply
+`patches/macos-recovery/elden-macos26-prelink-base.patch` to
+macOS-ForSheng and emit the paired Recovery module set.
+
+```sh
+.venv/bin/python scripts/emit_macos26_security.py --elden-bootstrap \
+  --recovery-components --kernel-build "$KERNEL_BUILD" --output "$PRELINK"
+```
+
+Set `KERNEL_BUILD` to the isolated Elden output with its matching dSYM.
+The emitter uses the linked image base for authenticated pointer
+targets and slides the BootKC components into the same aperture.
+It emitted 15 paired modules with no unresolved instruction relocation.
+DarwinBoot preflight accepted the 109,101,056-byte kernel and its
+`0x8f38000` virtual span in a 256 MiB owned window. Package with
+`package/elden-macos26-recovery-unixnu.toml` and a 112 MiB FAT volume.
+
+The verified MacBook image is `~/Downloads/elden-macos26-4k-r5-ram.img`
+with SHA-256 `b6dd563354e58850007ee968331216976204decd83d251e22bc839ace892f40f`.
+The tablet accepted the RAM boot. Select **Elden macOS 26.5 - 4 KiB
+Recovery Components** to test the provider and prelink initialization.
+This image has no Recovery root media or UFS companion.
 
 ### UniXNU firmware TTY commands
 

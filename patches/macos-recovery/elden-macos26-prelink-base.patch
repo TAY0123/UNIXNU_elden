@@ -1,0 +1,219 @@
+diff --git a/scripts/emit_macos26_security.py b/scripts/emit_macos26_security.py
+index 43e441f..b781824 100644
+--- a/scripts/emit_macos26_security.py
++++ b/scripts/emit_macos26_security.py
+@@ -1,6 +1,6 @@
+ #!/usr/bin/env python3
+ # SPDX-License-Identifier: GPL-3.0-or-later
+-"""Emit a QEMU-only ARM64E prelink candidate with real security components."""
++"""Emit an ARM64e prelink candidate with paired security components."""
+ import argparse
+ import copy
+ from collections import defaultdict
+@@ -16,13 +16,13 @@ import xml.etree.ElementTree as ET
+ 
+ from inspect_macos26_security import ROOT, ROOTS, backed_offset, macho as kc_macho
+ from native_macho import macho, native_chained_fixups
+-from observe_macos26_kernel import identify
++from observe_macos26_kernel import REFERENCE_LINK_BASE, identify
+ from plan_macos26_security import MASK64, plan
+ 
+ sys.path.insert(0, str(ROOT / 'UniXNU/kits/NativePrelink'))
+ from emit_prelink import to_xml
+ 
+-BASE = 0xfffffe0007004000
++ELDEN_BOOTSTRAP_BASE = 0xfffffff007004000
+ PAGE = 16384
+ GROUPS = {'__PRELINK_TEXT': '__TEXT', '__PLK_TEXT_EXEC': '__TEXT_EXEC',
+           '__PLK_DATA_CONST': '__DATA_CONST', '__PRELINK_DATA': '__DATA',
+@@ -33,7 +33,7 @@ def align(value, boundary=PAGE):
+     return (value + boundary - 1) & -boundary
+ 
+ 
+-def native_pointers(data, image):
++def native_pointers(data, image, base):
+     native_chained_fixups(data)
+     at = next(o for c, o, _ in image['commands'] if c == 0x80000034)
+     offset, _ = struct.unpack_from('<II', data, at + 8)
+@@ -55,7 +55,7 @@ def native_pointers(data, image):
+                 auth = bool(raw >> 63)
+                 if not auth and (raw >> 43) & 0xff:
+                     raise ValueError('tagged native pointer needs an explicit high-byte relocation')
+-                yield dict(new_site=site, new_target=BASE + (raw & (0xffffffff if auth else (1 << 43) - 1)),
++                yield dict(new_site=site, new_target=base + (raw & (0xffffffff if auth else (1 << 43) - 1)),
+                            authenticated=auth, key=(raw >> 49) & 3,
+                            address_diversity=bool((raw >> 48) & 1), diversity=(raw >> 32) & 0xffff)
+                 following = (raw >> 51) & 0x7ff
+@@ -75,7 +75,7 @@ def section_command(name, segment, va, size, fileoff):
+                        fileoff, 3, 0, 0, 0, 0, 0, 0)
+ 
+ 
+-def chain_blob(segments, relocations):
++def chain_blob(segments, relocations, base):
+     by_segment = [defaultdict(list) for _ in segments]
+     for r in relocations:
+         site = r['new_site']
+@@ -102,20 +102,21 @@ def chain_blob(segments, relocations):
+                 distance = entries[j + 1]['new_site'] - r['new_site'] if j + 1 < len(entries) else 0
+                 if distance and (distance < 8 or distance % 4 or distance // 4 > 0x7ff):
+                     raise ValueError('overlapping pointers or unsupported chain stride')
+-                target = r['new_target'] - BASE
++                target = r['new_target'] - base
+                 if not 0 <= target < (1 << (32 if r['authenticated'] else 43)):
+                     raise ValueError('pointer target cannot be encoded')
+                 raw = target | ((distance // 4) << 51)
+                 if r['authenticated']:
+                     raw |= (1 << 63) | (r['key'] << 49) | (int(r['address_diversity']) << 48) | (r['diversity'] << 32)
+                 writes.append((r['new_site'], raw))
+-        starts.extend(struct.pack('<IHHQIH', 22 + 2 * count, 4096, 7, s['va'] - BASE, 0, count))
++        starts.extend(struct.pack('<IHHQIH', 22 + 2 * count, 4096, 7, s['va'] - base, 0, count))
+         starts.extend(struct.pack(f'<{count}H', *firsts))
+     return struct.pack('<7I', 0, 28, 0, 0, 0, 0, 0) + starts, writes
+ 
+ 
+ def emit(native_data, original, native_names, identity, slide, roots=ROOTS, storage_driver=None):
+     image = macho(native_data, 'arm64e')
++    base = min(s['va'] for s in image['segments'] if s['size'])
+     marker = native_names.get('_sheng_security_prelink_version')
+     if marker is None or struct.unpack_from('<I', native_data,
+             backed_offset(image['segments'], marker, 4, len(native_data)))[0] != 1:
+@@ -146,7 +147,7 @@ def emit(native_data, original, native_names, identity, slide, roots=ROOTS, stor
+             continue
+         low = min(s['va'] for s in parts) & -PAGE
+         high = align(max(s['va'] + s['size'] for s in parts))
+-        if low + slide < BASE or high + slide > BASE + 0x20000000:
++        if low + slide < base or high + slide > base + 0x20000000:
+             raise ValueError('coalesced component group exceeds the owned memory window')
+         blob = bytearray(high - low)
+         for s in parts:
+@@ -270,10 +271,10 @@ def emit(native_data, original, native_names, identity, slide, roots=ROOTS, stor
+     pending['__PRELINK_INFO'] = blob
+ 
+     # Chain metadata is mapped at the end of the native LINKEDIT, before appending modules.
+-    relocations = list(native_pointers(native_data, image)) + report['pointer_relocations']
++    relocations = list(native_pointers(native_data, image, base)) + report['pointer_relocations']
+     if driver:
+         relocations += driver['relocations']
+-    fixups, writes = chain_blob(segments, relocations)
++    fixups, writes = chain_blob(segments, relocations, base)
+     output = bytearray(native_data)
+     fixup_at = align(len(output), 8)
+     output.extend(bytes(fixup_at - len(output)))
+@@ -287,7 +288,7 @@ def emit(native_data, original, native_names, identity, slide, roots=ROOTS, stor
+         output.extend(blob)
+         next(s for s in segments if s['name'] == name)['fileoff'] = at
+     occupied = sorted((s['va'], s['va'] + s['size']) for s in segments if s['size'])
+-    if any(a[1] > b[0] for a, b in zip(occupied, occupied[1:])) or occupied[-1][1] - BASE > 0x20000000:
++    if any(a[1] > b[0] for a, b in zip(occupied, occupied[1:])) or occupied[-1][1] - base > 0x20000000:
+         raise ValueError('coalesced candidate has overlapping mappings or exceeds its memory window')
+ 
+     def at(address, length=8):
+@@ -452,7 +453,10 @@ def main():
+     parser.add_argument('--bootkc', type=Path, default=ROOT / 'private/apple/macos26/kernelcache.release.mac13g.decoded')
+     parser.add_argument('--slide', type=lambda s: int(s, 0), default=0x2000000)
+     parser.add_argument('--output', type=Path, required=True)
+-    parser.add_argument('--qemu-only', action='store_true', required=True)
++    target = parser.add_mutually_exclusive_group(required=True)
++    target.add_argument('--qemu-only', action='store_true')
++    target.add_argument('--elden-bootstrap', action='store_true',
++                        help='stage the Elden 4 KiB kernel with paired modules for hardware bring-up')
+     parser.add_argument('--include-module', action='append', default=[], metavar='BUNDLE',
+                         help='include another original BootKC module and its dependency closure')
+     parser.add_argument('--recovery-components', action='store_true',
+@@ -464,7 +468,16 @@ def main():
+     if args.hid_components and not args.recovery_components:
+         parser.error('--hid-components requires --recovery-components')
+     try:
+-        kernel, names, identity = identify(args.kernel_build.resolve())
++        metadata = json.loads((args.kernel_build / 'build.json').read_text())
++        expected_base = REFERENCE_LINK_BASE
++        if args.elden_bootstrap:
++            profile = metadata.get('elden_bootstrap', {})
++            if (metadata.get('architecture') != 'arm64e' or profile.get('page_bytes') != 4096
++                    or profile.get('arm64_large_memory') is not False
++                    or profile.get('link_address') != hex(ELDEN_BOOTSTRAP_BASE)):
++                raise ValueError('requires the isolated Elden 4 KiB ARM64e build')
++            expected_base = ELDEN_BOOTSTRAP_BASE
++        kernel, names, identity = identify(args.kernel_build.resolve(), expected_base)
+         modules = list(args.include_module)
+         recovery_contract = None
+         if args.recovery_components:
+@@ -483,8 +496,11 @@ def main():
+                     or hid_contract['architecture'] != identity['architecture']):
+                 raise ValueError('HID component contract differs from the paired native kernel')
+             modules += hid_contract['original_modules']
++        slide = args.slide + expected_base - REFERENCE_LINK_BASE
+         candidate, report = emit(kernel.read_bytes(), args.bootkc.read_bytes(), names, identity,
+-                                 args.slide, (*ROOTS, *modules), args.storage_driver)
++                                 slide, (*ROOTS, *modules), args.storage_driver)
++        report.update(qemu_only=args.qemu_only, elden_bootstrap=args.elden_bootstrap,
++                      kernel_link_base=hex(expected_base))
+         if recovery_contract:
+             report['recovery_components'] = recovery_contract
+         if hid_contract:
+@@ -493,7 +509,6 @@ def main():
+         (args.output / kernel.name).write_bytes(candidate)
+         shutil.copytree(args.kernel_build / 'kernel.development.sheng.dSYM', args.output / 'kernel.development.sheng.dSYM')
+         shutil.copy2(args.kernel_build / 'kernel.development.sheng.map', args.output / 'kernel.development.sheng.map')
+-        metadata = json.loads((args.kernel_build / 'build.json').read_text())
+         metadata.update(executable_kernel_sha256=report['candidate_sha256'], native_security_candidate=True,
+                         source_kernel_sha256=identity['kernel_sha256'], hardware_admitted=False,
+                         native_pointer_fixups=report['native_pointer_fixups'])
+diff --git a/scripts/observe_macos26_kernel.py b/scripts/observe_macos26_kernel.py
+index d1860e6..28f2abe 100644
+--- a/scripts/observe_macos26_kernel.py
++++ b/scripts/observe_macos26_kernel.py
+@@ -15,12 +15,13 @@ from native_macho import macho, symbols
+ from native_devtree import configure_native_text_state
+ 
+ ROOT = Path(__file__).resolve().parents[1]
++REFERENCE_LINK_BASE = 0xfffffe0007004000
+ NATIVE_BOOT_ARGS = '-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam'
+ sys.path.insert(0, str(ROOT / 'UniXNU/kits/NativePrelink'))
+ from native_prelink import backed_offset
+ 
+ 
+-def identify(build_dir: Path) -> tuple[Path, dict, dict]:
++def identify(build_dir: Path, expected_base: int = REFERENCE_LINK_BASE) -> tuple[Path, dict, dict]:
+     build = json.loads((build_dir / 'build.json').read_text())
+     kernel = build_dir / 'kernel.development.sheng'
+     data = kernel.read_bytes()
+@@ -54,7 +55,7 @@ def identify(build_dir: Path) -> tuple[Path, dict, dict]:
+         raise ValueError('entry is not in an executable file-backed segment')
+     addresses = symbols(kernel)
+     if entry != addresses.get('__start') or min(s['va'] for s in image['segments']
+-            if s['size']) != 0xfffffe0007004000:
++            if s['size']) != expected_base:
+         raise ValueError('entry or linked base differs from the native SHENG layout')
+     dwarfs = list((build_dir / 'kernel.development.sheng.dSYM/Contents/Resources/DWARF').iterdir())
+     if len(dwarfs) != 1 or not dwarfs[0].is_file():
+diff --git a/scripts/plan_macos26_security.py b/scripts/plan_macos26_security.py
+index 9ba3b7f..feec4a6 100644
+--- a/scripts/plan_macos26_security.py
++++ b/scripts/plan_macos26_security.py
+@@ -69,6 +69,7 @@ def relative(word: int, pc: int):
+ def plan(data: bytes, native: dict, identity: dict, slide: int, roots=ROOTS) -> dict:
+     if slide <= 0 or slide % PAGE:
+         raise ValueError('module slide must be positive and 16 KiB aligned')
++    base = min(s['va'] for s in identity['segments'] if s['size'])
+     report = inspect(data, native, roots)
+     selected = set(report['components'])
+     kc = macho(data)
+@@ -91,7 +92,7 @@ def plan(data: bytes, native: dict, identity: dict, slide: int, roots=ROOTS) ->
+         if any(s['size'] and bottom < s['va'] + s['size'] and s['va'] < top
+                for s in identity['segments']):
+             raise ValueError('module placement overlaps the native kernel')
+-        if top - 0xfffffe0007004000 > 0x20000000:
++        if top - base > 0x20000000:
+             raise ValueError('module placement exceeds the owned 512 MiB window')
+ 
+     old_exports = exports(data, modules['com.apple.kernel'])
+@@ -113,7 +114,7 @@ def plan(data: bytes, native: dict, identity: dict, slide: int, roots=ROOTS) ->
+         if owner(item['site']) not in selected:
+             continue
+         new_target = resolve(item['target'])
+-        if not 0 <= new_target - 0xfffffe0007004000 <= 0xffffffff:
++        if not 0 <= new_target - base <= 0xffffffff:
+             raise ValueError('relocated pointer does not fit an authenticated format-7 target')
+         pointers.append(dict(item, new_site=item['site'] + slide, new_target=new_target))
+ 

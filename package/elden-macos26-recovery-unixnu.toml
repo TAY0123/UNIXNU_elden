@@ -1,0 +1,25 @@
+version = 1
+
+[boot]
+timeout = -1
+default = "native26"
+serial_commands = true
+
+[kits]
+autoload = false
+
+[ui]
+scale = 4
+
+[[entry]]
+id = "native26"
+title = "Elden macOS 26.5 - 4 KiB Recovery Components"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1"
+
+[[entry]]
+id = "fastboot"
+title = "Reboot to Fastboot"
+type = "action"
+action = "fastboot"
