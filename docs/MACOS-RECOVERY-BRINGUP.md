@@ -199,6 +199,14 @@ A read-only query on 2026-11-10 against Elden Linux
 LUNs with 4 KiB logical sectors, and the legacy request queue in use.
 Linux reported MCQ disabled. LUN 0 did not have a `macosroot` partition.
 
+On the MacBook, USB ADB identified the running `lenovo,elden` Linux
+device. A read of exactly one 4 KiB block at LUN 0 LBA 1 through Linux
+returned an EFI GPT header with CRC32 `4b1100b9`. The macOS driver's GPT
+predicate, compiled as a host check, accepted the returned block and
+rejected the same block with an altered checksum. This verifies the
+expected probe data through Linux. Native macOS controller access remains
+pending.
+
 The macOS 26.5 ARM64e adapter extends the pinned `NativeUfs` transport.
 It requires the Elden ADT, powered GCC branches, a legacy UFSHCI queue,
 and firmware's inherited identity DMA route for stream `0x60`. It verifies
@@ -232,7 +240,10 @@ before mapping controller registers or publishing media.
 After the Elden macOS handoff is qualified, the first owner-operated RAM
 boot can select `native-ufs-elden=1 native-ufs-probe=10 native-ufs-diagnostics=1`.
 This reads LUN 0's GPT header and checks its CRC without needing a
-`macosroot` partition. The next checkpoint is read-only Recovery media
+`macosroot` partition. The older Elden DarwinBoot parser requires ARM64
+CPU subtype zero and rejects the ARM64e candidate's subtype `0xc0000002`.
+Integrate and qualify the ARM64e-aware DarwinBoot before packaging this
+kernel for Elden. The next checkpoint is read-only Recovery media
 publication with `native-ufs-elden=1 native-ufs-root=1` and matching
 BaseSystem on a dedicated `macosroot` partition. Cold initialization of
 the PHY, controller reset, MCQ, and persistent writes are outside this
