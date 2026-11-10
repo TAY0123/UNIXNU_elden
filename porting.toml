@@ -140,17 +140,19 @@ evidence = [
 
 [[area]]
 id = "display"
-status = "planned"
+status = "implemented"
 components = []
-paths = ["soc/sm8750/dts/**", "dts/**"]
+paths = ["soc/sm8750/dts/**", "dts/**", "board.toml", "patches/macos-recovery/elden-gop-display.patch", "docs/MACOS-RECOVERY-BRINGUP.md"]
 inputs = ["1904x3040 bonded dual-DSI panel with DSC.", "UEFI GOP framebuffer and splash reservation.", "SM8750 DPU/DSI/PHY and backlight sequencing."]
-configuration = ["The phase 1 menu renders through UEFI GOP.", "XNU display and IOMobileFramebuffer components remain disabled."]
+configuration = ["The phase 1 menu renders through UEFI GOP.", "The separate macOS 26.5 build includes an opt-in Elden GOP profile and preserves the firmware scanout."]
 procedure = ["Keep display handoff on GOP for the first kernel milestone.", "Record a visible checkpoint after DarwinBoot.", "Add DPU/DSI only after kernel entry is stable."]
-findings = ["GOP display is device-verified in the UniXNU menu.", "No XNU display provider has been validated.", "The panel path remains a known high-risk cold-boot area.", "DarwinBoot fills boot_args Video[0..5] from GOP and the device prints base 0xFC800000, row 7616, 1904x3040, depth 32. After the MMU is on the kernel only maps VirtualBase + (PA - PhysicalBase) inside the 256 MiB window, so the frame buffer is outside that window and later console writes need an explicit mapping or must happen before the switch."]
+findings = ["GOP display is device-verified in the UniXNU menu.", "The running Elden Linux MSM DRM driver reports a 1904x3040 internal panel, 118x190 mm active area and a 7680-byte framebuffer stride.", "The recorded UEFI handoff reports base 0xFC800000, row 7616, 1904x3040 and depth 32. The macOS profile checks that the boot-time scanout fits the board's reserved aperture before mapping it."]
 completion = ["XNU paints a known pattern through a declared framebuffer handoff.", "Userland presentation and backlight transitions work."]
-limits = ["No DPU, DSI, DSC or panel node is present in the hardware DTS.", "GOP success is not counted as XNU display support.", "The current kernel console is hard-wired to the iBoot video console handoff, which elden does not have."]
-next_action = ["Make PE_create_console fall back to boot_args Video[0..5] when the iBoot console handoff is absent; this is the next phase 2.5 step and the first visible kernel output."]
+limits = ["The Elden macOS profile uses inherited GOP scanout with CPU copies.", "XNU display provider execution on Elden, native DPU/DSI modesetting, and backlight control require separate validation."]
+next_action = ["Qualify the macOS EL1 and 16 KiB handoff on Elden, then test an owner-operated RAM boot for the first CPU-presented frame."]
 evidence = [
+  { kind = "device", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "modetest -M msm -c -p (read-only Linux DRM query)", revision = "cc333727e6badf997e6b2b9174934fe7ec144023", result = "2026-11-10, porting checkout at capture: Linux 7.2.8-y700-r2-androidcrypt1 drove the internal DSI panel at 1904x3040 and 165 Hz. The DRM connector reports 118x190 mm, and sysfs reports a 32-bit Linux framebuffer with a 7680-byte stride." },
+  { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "python scripts/build_macos26_xnu.py --build-qemu-gop-display --build-gop-display --elden-gop-board (with paired ARM64e build inputs)", revision = "ca57db73c066162323e77156a9f0f1d72b1de4ff", result = "2026-11-10: the Mac compiled the opt-in Elden profile in both VirtIO and UFS companions. The QEMU VirtIO candidate passed the 473-slot framebuffer vtable and PAC audit." },
   { kind = "source", reference = "docs/PHASE1-STATUS.md", result = "GOP menu display was observed on hardware." },
   { kind = "source", reference = "docs/porting-analysis.md", result = "Display topology, panel risk and GOP-first strategy." },
 ]

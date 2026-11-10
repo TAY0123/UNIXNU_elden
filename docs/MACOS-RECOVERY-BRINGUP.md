@@ -150,3 +150,34 @@ sample.
 Qualify EL1 PAC and 16 KiB translation on the tablet before adapting the
 loader, memory map, and UFS path. Use the repository's owner-operated
 RAM-boot procedure for hardware tests.
+
+### Elden framebuffer driver
+
+On 2026-11-10, a read-only query of the running tablet's Linux MSM DRM driver
+found the connected internal DSI panel at 1904×3040 and an active 165 Hz mode.
+The panel is CSOT PP8807HB1-1 with a Novatek NT36536 controller, a 118×190 mm
+active area, and an AW99706 backlight. The Linux framebuffer used a 7,680-byte
+stride. The UEFI handoff recorded a 7,616-byte stride in the reserved
+`0xfc800000`–`0xff300000` aperture.
+
+The Elden profile uses the boot-time stride and checks the 32-bit scanout
+extent against the board reservation before mapping it. It advertises one
+CPU-presented mode and the panel's physical size. The software presentation
+timer stays at 60 Hz, independent of the firmware's panel refresh.
+
+From the pinned macOS-ForSheng checkout on the Mac build host:
+
+```sh
+git apply "$ELDEN_REPO/patches/macos-recovery/elden-gop-display.patch"
+.venv/bin/python scripts/build_macos26_xnu.py --arch arm64e --link-kernel \
+  --build-qemu-gop-display --build-ufs-driver --build-gop-display \
+  --elden-gop-board "$ELDEN_REPO/board.toml" --kdk-root "$KDK_ROOT" -j 8
+```
+
+The Mac built both the VirtIO and UFS companions. The VirtIO prelink passed
+the 25F71 audit for all 473 framebuffer vtable slots and their PAC metadata.
+The hardware profile is selected with `native-gop-display=1 elden-gop-display=1`
+and a supported explicit `cpus` value. The QEMU observer uses
+`--native-gop-display` with the generic framebuffer profile. Display tests
+on Elden, panel modesetting, backlight control, and GPU acceleration remain
+separate milestones.

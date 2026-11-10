@@ -1,0 +1,371 @@
+diff --git a/platform/sheng/macos26/display/0002-elden-gop-profile.patch b/platform/sheng/macos26/display/0002-elden-gop-profile.patch
+new file mode 100644
+index 0000000..226afaa
+--- /dev/null
++++ b/platform/sheng/macos26/display/0002-elden-gop-profile.patch
+@@ -0,0 +1,91 @@
++--- a/NativeGOPDisplay.cpp
+++++ b/NativeGOPDisplay.cpp
++@@ -11,6 +11,7 @@
++ #include "gop_scanout.h"
++ #include "framebuffer_owner.h"
++ #include "gop_layers.h"
+++#include "elden_gop_profile.h"
++ #include <IOKit/IOPlatformExpert.h>
++ #include <IOKit/IOTimerEventSource.h>
++ #include <IOKit/IOUserClient.h>
++@@ -143,6 +144,7 @@
++     uint32_t fSurfaceFormat = 0;
++     uint64_t fSourceWidth = 0, fSourceHeight = 0;
++     bool fDisplayOn = false;
+++    bool fEldenProfile = false;
++     uint64_t fFrames = 0;
++     uint64_t fLastLit = 0, fLastCenter = 0;   // bring-up: lit pixels and centre pixel of the last frame shown
++     uint64_t fTicks = 0, fDropped = 0, fReported = 0;   // swap_begin_gated runs, swaps dropped, fSubmitted + fFrames + fDropped + fStalled at the last report
++@@ -162,9 +164,10 @@
++ 
++ bool NativeGOPDisplay::start(IOService *provider)
++ {
++-    unsigned enabled = 0, cpus = 0;
+++    unsigned enabled = 0, cpus = 0, elden = 0;
++     PE_parse_boot_argn("native-gop-display", &enabled, sizeof(enabled));
++     PE_parse_boot_argn("cpus", &cpus, sizeof(cpus));
+++    PE_parse_boot_argn("elden-gop-display", &elden, sizeof(elden));
++     if (enabled != 1 || (cpus != 1 && cpus != 2 && cpus != 4 && cpus != 8) || !provider)
++         return false;
++     if (getPlatform()->getConsoleInfo(&fVideo) != kIOReturnSuccess || !fVideo.v_baseAddr || fVideo.v_depth != 32 ||
++@@ -175,13 +178,26 @@
++         IOLog("NativeGOPDisplay: no 32-bit boot framebuffer (base %#lx depth %lu)\n", fVideo.v_baseAddr, fVideo.v_depth);
++         return false;
++     }
++-    IOMemoryDescriptor *memory = IOMemoryDescriptor::withPhysicalAddress(fVideo.v_baseAddr & ~3UL, fVideo.v_rowBytes * fVideo.v_height,
++-                                                                         kIODirectionInOut);
+++    // PE may tag a physical console address with bit zero.
+++    const uint64_t base = fVideo.v_baseAddr & ~1ULL;
+++    const uint64_t bytes = fVideo.v_rowBytes * fVideo.v_height;
+++    if (!base || (base & 3) || (fVideo.v_rowBytes & 3))
+++        return false;
+++    fEldenProfile = elden == 1;
+++    if (fEldenProfile &&
+++        (base != kEldenGop.base || fVideo.v_width != kEldenGop.width ||
+++         fVideo.v_height != kEldenGop.height || bytes > kEldenGop.aperture)) {
+++        IOLog("NativeGOPDisplay: Elden framebuffer outside the board profile\n");
+++        return false;
+++    }
+++    IOMemoryDescriptor *memory =
+++        IOMemoryDescriptor::withPhysicalAddress(base, bytes, kIODirectionInOut);
++     if (memory) {
++         fScanoutMap = memory->createMappingInTask(kernel_task, 0, kIOMapAnywhere | kIOMapWriteCombineCache);
++         memory->release();
++     }
++-    if (!fScanoutMap) {
+++    if (!fScanoutMap || fScanoutMap->getLength() < bytes) {
+++        OSSafeReleaseNULL(fScanoutMap);
++         IOLog("NativeGOPDisplay: cannot map the framebuffer at %#lx\n", fVideo.v_baseAddr);
++         return false;
++     }
++@@ -563,7 +579,8 @@
++             break;
++         ioavTimingSetColorElements(timing, timingColors);
++         if (!(appendString(product, "ManufacturerID", "UNK") && appendNumber(product, "ProductID", 0) &&
++-              appendNumber(product, "SerialNumber", 0) && appendString(product, "ProductName", "Sheng Boot Framebuffer") &&
+++              appendNumber(product, "SerialNumber", 0) && appendString(product, "ProductName",
+++                           fEldenProfile ? "Elden Boot Framebuffer" : "Sheng Boot Framebuffer") &&
++               appendNumber(product, "WeekOfManufacture", 24) && appendNumber(product, "YearOfManufacture", 2021)))
++             break;
++         if (!(appendDictionary(chromaticity, "Red", point(41943, 21627)) && appendDictionary(chromaticity, "Green", point(19661, 39322)) &&
++@@ -575,8 +592,8 @@
++               attributes->setObject("Chromaticity", chromaticity) && attributes->setObject("DefaultColorSpaceIsSRGB", kOSBooleanFalse) &&
++               attributes->setObject("DefaultWhitePoint", whitePoint) && attributes->setObject("SupportsStandby", kOSBooleanTrue) &&
++               appendNumber(attributes, "ContinuousFrequencySupport", 3) &&
++-              appendNumber(attributes, "MaxHorizontalImageSize", (width * 254 + 4800) / 9600) &&
++-              appendNumber(attributes, "MaxVerticalImageSize", (height * 254 + 4800) / 9600) &&
+++              appendNumber(attributes, "MaxHorizontalImageSize", (fEldenProfile ? (kEldenGop.width_mm + 5) / 10 : (width * 254 + 4800) / 9600)) &&
+++              appendNumber(attributes, "MaxVerticalImageSize", (fEldenProfile ? (kEldenGop.height_mm + 5) / 10 : (height * 254 + 4800) / 9600)) &&
++               appendNumber(attributes, "NativeFormatHorizontalPixels", width) && appendNumber(attributes, "NativeFormatVerticalPixels", height) &&
++               appendNumber(attributes, "PreciseAspectRatio", (static_cast<uint64_t>(width) << 16) / height)))
++             break;
++@@ -588,7 +605,8 @@
++             break;
++         if (!(appendNumber(scalingLimits, "RGBLayer_MinScaleFraction", 4) && appendNumber(scalingLimits, "RGBLayer_MaxScale", 4)))
++             break;
++-        setProperty("IOMFBUUID", "5348454E-472D-474F-5000-000000000001");
+++        setProperty("IOMFBUUID", fEldenProfile ? "454C4445-4E2D-474F-5000-000000000001" :
+++                                               "5348454E-472D-474F-5000-000000000001");
++         setProperty("external", false);
++         setProperty("primary", 0ULL, 32);   // AppleParavirtDisplay's display index
++         done = setProperty("DisplayAttributes", attributes) && setProperty("Transport", transport) &&
+diff --git a/scripts/build_macos26_storage.py b/scripts/build_macos26_storage.py
+index b0e04ef..ea9283a 100644
+--- a/scripts/build_macos26_storage.py
++++ b/scripts/build_macos26_storage.py
+@@ -19,11 +19,9 @@ PROTOCOL_CHARACTERISTICS = {
+ 
+ 
+ def build(root, out, compile_record, source, run, record, env, *, transport='virtio', gop_display=False,
+-          recovery_input=False):
++          recovery_input=False, display_board=None):
+     if transport not in ('virtio', 'ufs'):
+         raise ValueError('unsupported native storage transport')
+-    if gop_display and transport != 'ufs':
+-        raise ValueError('the board GOP companion requires the UFS bundle')
+     if recovery_input and not gop_display:
+         raise ValueError('the QEMU input experiment requires the GOP companion')
+     component = 'NativeVirtioBlock' if transport == 'virtio' else 'NativeUfs'
+@@ -35,7 +33,7 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+     input_driver = None
+     if gop_display:
+         from prepare_macos26_gop import prepare
+-        display = prepare(root, destination / 'gop-display')
++        display = prepare(root, destination / 'gop-display', display_board)
+     if recovery_input:
+         from prepare_macos26_input import prepare
+         input_driver = prepare(root, destination / 'recovery-input')
+diff --git a/scripts/build_macos26_xnu.py b/scripts/build_macos26_xnu.py
+index 6270f9f..873a6f7 100644
+--- a/scripts/build_macos26_xnu.py
++++ b/scripts/build_macos26_xnu.py
+@@ -560,11 +560,12 @@ def compile_sources(args, record: dict) -> None:
+         link_kernel(args, record, common, sdk, source, env)
+         if ARCH == 'arm64e':
+             from build_macos26_storage import build as build_storage
+-            build_storage(ROOT, OUT, compile_record, source, run, record, env)
++            build_storage(ROOT, OUT, compile_record, source, run, record, env,
++                          gop_display=args.build_qemu_gop_display, display_board=args.elden_gop_board)
+             if args.build_ufs_driver:
+                 build_storage(ROOT, OUT, compile_record, source, run, record, env,
+                               transport='ufs', gop_display=args.build_gop_display,
+-                              recovery_input=args.build_recovery_input)
++                              recovery_input=args.build_recovery_input, display_board=args.elden_gop_board)
+             save(record)
+ 
+ 
+@@ -651,6 +652,10 @@ def main() -> None:
+                         help='compile the default-off sheng UFS transport with the paired ARM64E ABI')
+     parser.add_argument('--build-gop-display', action='store_true',
+                         help='include the default-off paired CPU GOP display in the UFS companion')
++    parser.add_argument('--build-qemu-gop-display', action='store_true',
++                        help='include the paired GOP display with the QEMU VirtIO transport')
++    parser.add_argument('--elden-gop-board', type=Path,
++                        help='compile the optional Elden GOP profile from board.toml')
+     parser.add_argument('--build-recovery-input', action='store_true',
+                         help='include the default-off QEMU VirtIO HID input companion')
+     parser.add_argument('--arch', choices=('arm64', 'arm64e'), default='arm64')
+@@ -661,6 +666,10 @@ def main() -> None:
+         parser.error('--build-ufs-driver requires --link-kernel --arch arm64e')
+     if args.build_gop_display and not args.build_ufs_driver:
+         parser.error('--build-gop-display requires --build-ufs-driver')
++    if args.build_qemu_gop_display and (not args.link_kernel or args.arch != 'arm64e'):
++        parser.error('--build-qemu-gop-display requires --link-kernel --arch arm64e')
++    if args.elden_gop_board and not (args.build_gop_display or args.build_qemu_gop_display):
++        parser.error('--elden-gop-board requires a GOP display build')
+     if args.build_recovery_input and not args.build_gop_display:
+         parser.error('--build-recovery-input requires --build-gop-display')
+     ARCH = args.arch
+diff --git a/scripts/native_storage_module.py b/scripts/native_storage_module.py
+index 2cf0c96..58c742a 100644
+--- a/scripts/native_storage_module.py
++++ b/scripts/native_storage_module.py
+@@ -110,69 +110,73 @@ def prepare(directory: Path, base: int, native: dict, original: bytes,
+                 or evidence.get('read_only_transport') is not True
+                 or evidence.get('hardware_enable_required') is not True):
+             raise ValueError('UFS transport must restrict its read-only root to macosroot on LUN0')
+-        display = evidence.get('native_gop_display')
+-        input_driver = evidence.get('native_recovery_input')
+-        allowed = {component, 'NativeGOPDisplay'} if display else {component}
+-        if input_driver:
+-            allowed |= {'NativeRecoveryInput', 'IOHIDEventDriver'}
+-        if info['CFBundleExecutable'] != component or any(
+-                item['IOClass'] not in allowed for item in info['IOKitPersonalities'].values()):
+-            raise ValueError('UFS personality differs from the qualified component')
+-        if display:
+-            required = {'com.apple.iokit.IOMobileGraphicsFamily', 'com.apple.iokit.IOSurface',
+-                        'com.apple.iokit.IOAVFamily'}
+-            if (not required <= selected.keys() or display.get('build') != '25F71'
+-                    or display.get('default_off') is not True or 1 not in display_cpus(display)
+-                    or display.get('gpu_acceleration') is not False
+-                    or display.get('publishes_vm_identity') is not False):
+-                raise ValueError('GOP display requires the paired default-off framebuffer contract')
+-            expected = dict(CFBundleIdentifier=evidence['bundle'], IOClass='NativeGOPDisplay',
+-                IOProviderClass='IOPlatformExpertDevice', IOMatchCategory='NativeGOPDisplay', IOProbeScore=500)
+-            if info['IOKitPersonalities'].get('NativeGOPDisplay') != expected:
+-                raise ValueError('unexpected GOP display provider or identity')
+-            for name, key in (('NativeGOPDisplay.cpp', 'source_sha256'),
+-                              ('IOMobileFramebufferABI.h', 'header_sha256')):
+-                if hashlib.sha256((directory / 'gop-display' / name).read_bytes()).hexdigest() != display.get(key):
+-                    raise ValueError('GOP display source differs from the compiled record')
+-            if len(display_cpus(display)) > 1:
+-                if hashlib.sha256((directory / 'gop-display/framebuffer_owner.h').read_bytes()).hexdigest() != display.get('framebuffer_owner_sha256'):
+-                    raise ValueError('GOP framebuffer owner differs from the compiled record')
+-            contract = json.loads((Path(__file__).resolve().parents[1] /
+-                                  'config/macos26-gop-reference.json').read_text())['abi']
+-            family = kc_macho(original, kc['entries']['com.apple.iokit.IOMobileGraphicsFamily'][1])
+-            text = next(s for s in family['segments'] if s['name'] == '__TEXT_EXEC')
+-            text_hash = hashlib.sha256(original[text['fileoff']:text['fileoff'] + text['filesize']]).hexdigest()
+-            if (display.get('abi') != contract or family['uuid'] != contract['family_uuid']
+-                    or text_hash != contract['family_text_sha256']):
+-                raise ValueError('GOP private field layout requires the reviewed paired framebuffer family')
+-        if input_driver:
+-            contract = json.loads((Path(__file__).resolve().parents[1] /
+-                                   'config/macos26-input-reference.json').read_text())['abi']
+-            if (not display or 'com.apple.iokit.IOHIDFamily' not in selected
+-                    or input_driver.get('abi') != contract or input_driver.get('default_off') is not True
+-                    or input_driver.get('qemu_only') is not True
+-                    or input_driver.get('hardware_admitted') is not False
+-                    or input_driver.get('boot_argument') != 'native-recovery-input=1'
+-                    or input_driver.get('provider_compatible') != 'sheng,qemu-virtio-input'):
+-                raise ValueError('input companion requires the paired default-off QEMU HID contract')
+-            expected = dict(CFBundleIdentifier=evidence['bundle'], IOClass='NativeRecoveryInput',
+-                IOProviderClass='IOPlatformDevice', IONameMatch='native-recovery-input',
+-                IOMatchCategory='NativeRecoveryInput', IOProbeScore=500)
+-            event_driver = dict(CFBundleIdentifier='com.apple.iokit.IOHIDFamily', IOClass='IOHIDEventDriver',
+-                IOProviderClass='IOHIDInterface', VendorID=6900, ProductID=4178, IOProbeScore=3000)
+-            if (info['IOKitPersonalities'].get('NativeRecoveryInput') != expected
+-                    or info['IOKitPersonalities'].get('NativeRecoveryHIDEventDriver') != event_driver):
+-                raise ValueError('input companion provider or original event driver identity differs')
+-            for name, key in (('NativeRecoveryInput.cpp', 'source_sha256'),
+-                              ('NativeVirtioPci.h', 'header_sha256')):
+-                if hashlib.sha256((directory / 'recovery-input' / name).read_bytes()).hexdigest() != input_driver.get(key):
+-                    raise ValueError('input source differs from compiled record')
+-            family = kc_macho(original, kc['entries']['com.apple.iokit.IOHIDFamily'][1])
+-            text = next(s for s in family['segments'] if s['name'] == '__TEXT_EXEC')
+-            if (family['uuid'] != contract['family_uuid'] or
+-                    hashlib.sha256(original[text['fileoff']:text['fileoff'] + text['filesize']]).hexdigest()
+-                    != contract['family_text_sha256']):
+-                raise ValueError('input companion requires the reviewed original HID family')
++    display = evidence.get('native_gop_display')
++    input_driver = evidence.get('native_recovery_input')
++    allowed = {component, 'NativeGOPDisplay'} if display else {component}
++    if input_driver:
++        allowed |= {'NativeRecoveryInput', 'IOHIDEventDriver'}
++    if info['CFBundleExecutable'] != component or any(
++            item['IOClass'] not in allowed for item in info['IOKitPersonalities'].values()):
++        raise ValueError('transport personality differs from the qualified component')
++    if display:
++        required = {'com.apple.iokit.IOMobileGraphicsFamily', 'com.apple.iokit.IOSurface',
++                    'com.apple.iokit.IOAVFamily'}
++        if (not required <= selected.keys() or display.get('build') != '25F71'
++                or display.get('default_off') is not True or 1 not in display_cpus(display)
++                or display.get('gpu_acceleration') is not False
++                or display.get('publishes_vm_identity') is not False):
++            raise ValueError('GOP display requires the paired default-off framebuffer contract')
++        expected = dict(CFBundleIdentifier=evidence['bundle'], IOClass='NativeGOPDisplay',
++            IOProviderClass='IOPlatformExpertDevice', IOMatchCategory='NativeGOPDisplay', IOProbeScore=500)
++        if info['IOKitPersonalities'].get('NativeGOPDisplay') != expected:
++            raise ValueError('unexpected GOP display provider or identity')
++        for name, key in (('NativeGOPDisplay.cpp', 'source_sha256'),
++                          ('IOMobileFramebufferABI.h', 'header_sha256')):
++            if hashlib.sha256((directory / 'gop-display' / name).read_bytes()).hexdigest() != display.get(key):
++                raise ValueError('GOP display source differs from the compiled record')
++        if 'elden_profile_sha256' in display and hashlib.sha256(
++                (directory / 'gop-display/elden_gop_profile.h').read_bytes()
++        ).hexdigest() != display['elden_profile_sha256']:
++            raise ValueError('Elden GOP profile differs from the compiled record')
++        if len(display_cpus(display)) > 1:
++            if hashlib.sha256((directory / 'gop-display/framebuffer_owner.h').read_bytes()).hexdigest() != display.get('framebuffer_owner_sha256'):
++                raise ValueError('GOP framebuffer owner differs from the compiled record')
++        contract = json.loads((Path(__file__).resolve().parents[1] /
++                              'config/macos26-gop-reference.json').read_text())['abi']
++        family = kc_macho(original, kc['entries']['com.apple.iokit.IOMobileGraphicsFamily'][1])
++        text = next(s for s in family['segments'] if s['name'] == '__TEXT_EXEC')
++        text_hash = hashlib.sha256(original[text['fileoff']:text['fileoff'] + text['filesize']]).hexdigest()
++        if (display.get('abi') != contract or family['uuid'] != contract['family_uuid']
++                or text_hash != contract['family_text_sha256']):
++            raise ValueError('GOP private field layout requires the reviewed paired framebuffer family')
++    if input_driver:
++        contract = json.loads((Path(__file__).resolve().parents[1] /
++                               'config/macos26-input-reference.json').read_text())['abi']
++        if (not display or 'com.apple.iokit.IOHIDFamily' not in selected
++                or input_driver.get('abi') != contract or input_driver.get('default_off') is not True
++                or input_driver.get('qemu_only') is not True
++                or input_driver.get('hardware_admitted') is not False
++                or input_driver.get('boot_argument') != 'native-recovery-input=1'
++                or input_driver.get('provider_compatible') != 'sheng,qemu-virtio-input'):
++            raise ValueError('input companion requires the paired default-off QEMU HID contract')
++        expected = dict(CFBundleIdentifier=evidence['bundle'], IOClass='NativeRecoveryInput',
++            IOProviderClass='IOPlatformDevice', IONameMatch='native-recovery-input',
++            IOMatchCategory='NativeRecoveryInput', IOProbeScore=500)
++        event_driver = dict(CFBundleIdentifier='com.apple.iokit.IOHIDFamily', IOClass='IOHIDEventDriver',
++            IOProviderClass='IOHIDInterface', VendorID=6900, ProductID=4178, IOProbeScore=3000)
++        if (info['IOKitPersonalities'].get('NativeRecoveryInput') != expected
++                or info['IOKitPersonalities'].get('NativeRecoveryHIDEventDriver') != event_driver):
++            raise ValueError('input companion provider or original event driver identity differs')
++        for name, key in (('NativeRecoveryInput.cpp', 'source_sha256'),
++                          ('NativeVirtioPci.h', 'header_sha256')):
++            if hashlib.sha256((directory / 'recovery-input' / name).read_bytes()).hexdigest() != input_driver.get(key):
++                raise ValueError('input source differs from compiled record')
++        family = kc_macho(original, kc['entries']['com.apple.iokit.IOHIDFamily'][1])
++        text = next(s for s in family['segments'] if s['name'] == '__TEXT_EXEC')
++        if (family['uuid'] != contract['family_uuid'] or
++                hashlib.sha256(original[text['fileoff']:text['fileoff'] + text['filesize']]).hexdigest()
++                != contract['family_text_sha256']):
++            raise ValueError('input companion requires the reviewed original HID family')
+ 
+     if 'com.apple.iokit.IOStorageFamily' not in selected:
+         raise ValueError('transport needs the original IOStorageFamily dependency')
+diff --git a/scripts/prepare_macos26_gop.py b/scripts/prepare_macos26_gop.py
+index c379d92..d0f2619 100644
+--- a/scripts/prepare_macos26_gop.py
++++ b/scripts/prepare_macos26_gop.py
+@@ -8,6 +8,7 @@ from pathlib import Path
+ import re
+ import shutil
+ import subprocess
++import tomllib
+ import urllib.request
+ 
+ 
+@@ -15,7 +16,27 @@ def digest(data: bytes) -> str:
+     return hashlib.sha256(data).hexdigest()
+ 
+ 
+-def prepare(root: Path, destination: Path) -> dict:
++def elden_profile(board: Path) -> str:
++    fields = ('base', 'aperture', 'width', 'height', 'width_mm', 'height_mm')
++    table = tomllib.loads(board.read_text())['board']
++    profile = table['hardware']['gop_framebuffer']
++    values = [profile[name] for name in fields]
++    if any(type(value) is not int or value <= 0 for value in values):
++        raise ValueError('Elden GOP profile requires positive integer fields')
++    base, aperture, width, height, width_mm, height_mm = values
++    if (table['name'] != 'elden' or profile['pixel_format'] != 'a8r8g8b8'
++            or base % 16384 or aperture % 16384 or base + aperture > 1 << 64
++            or width > 16384 or height > 16384 or width * height * 4 > aperture
++            or width_mm > 1000 or height_mm > 1000):
++        raise ValueError('invalid Elden GOP framebuffer profile')
++    members = '\n'.join(f'    uint64_t {field};' for field in fields)
++    initializers = ', '.join(f'{value}ULL' for value in values)
++    return ('// Generated from the device board description.\n#pragma once\n'
++            f'struct EldenGopProfile {{\n{members}\n}};\n'
++            f'constexpr EldenGopProfile kEldenGop = {{{initializers}}};\n')
++
++
++def prepare(root: Path, destination: Path, board: Path | None = None) -> dict:
+     manifest = json.loads((root / 'config/macos26-gop-reference.json').read_text())
+     repository, revision = manifest['repository'], manifest['revision']
+     if repository != 'Droid-VM/macOS-DroidVM' or not re.fullmatch(r'[0-9a-f]{40}', revision):
+@@ -49,6 +70,15 @@ def prepare(root: Path, destination: Path) -> dict:
+         raise ValueError('paired framebuffer header adaptation is missing or changed')
+     source = destination / 'NativeGOPDisplay.cpp'
+     (destination / 'DroidVMDisplay.cpp').replace(source)
++    elden_evidence = {}
++    if board is not None:
++        profile = elden_profile(board)
++        elden_patch = patch.with_name('0002-elden-gop-profile.patch')
++        subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(elden_patch.resolve())],
++                       cwd=destination, check=True, capture_output=True, text=True)
++        (destination / 'elden_gop_profile.h').write_text(profile)
++        elden_evidence = dict(elden_profile_sha256=digest(profile.encode()),
++                              elden_patch_sha256=digest(elden_patch.read_bytes()))
+     scanout = root / 'platform/sheng/macos26/display/gop_scanout.h'
+     shutil.copyfile(scanout, destination / scanout.name)
+     layers = root / 'platform/sheng/macos26/display/gop_layers.h'
+@@ -65,7 +95,7 @@ def prepare(root: Path, destination: Path) -> dict:
+                     build='25F71', default_off=True, boot_argument='native-gop-display=1',
+                     supported_cpus=[1, 2, 4, 8], framebuffer_owner_sha256=digest(owner.read_bytes()),
+                     gpu_acceleration=False, publishes_vm_identity=False,
+-                    runtime_qualified=False, source=str(source))
++                    runtime_qualified=False, source=str(source), **elden_evidence)
+     (destination / 'source.json').write_text(json.dumps(evidence, indent=2) + '\n')
+     return evidence
+ 
