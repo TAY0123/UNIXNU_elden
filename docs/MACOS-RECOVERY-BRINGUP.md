@@ -105,8 +105,45 @@ regime. The separate raw-entry probe also reached the first C entry.
 Set `KERNEL_BUILD` to the directory containing the linked kernel, build
 record, map and dSYM, and `QEMU_EFI` to the ARM64 UEFI code FD. The
 reference's pinned Sheng input archive supplies the QEMU boot manager.
-Root mount, `launchd`, and the graphical language chooser are separate
-runtime checkpoints.
+
+### Recovery userspace
+
+On 2026-11-10, QEMU TCG with one Cortex-A710 and 4 GiB of RAM mounted the
+paired APFS BaseSystem over VirtIO and matched the disk's first-sector
+hash. The debugger observed the original ARM64e `dyld` entry and matched
+the bytes at `launchd`'s `LC_MAIN` entry after its first instruction ran
+in EL0. The console reported `recoveryosd` and `coreservicesd` started.
+The 180-second run ended at the observation limit.
+
+The guest used the reference's QEMU development-root policy and a separate
+ISC test disk with a disposable QCOW2 overlay. The Recovery candidate SHA-256
+was `86090c41cdb612d1261f7812504628c930012df60d3dfae084ea1d89098a6026`.
+Prepare `ISC_DISK` with the reference's `prepare_qemu_isc.py` on macOS.
+Set `ROOT_VOLUME_UUID` to the APFS volume UUID from the paired raw disk.
+The observer's `--let-vector-log` option lets XNU handle its initial
+synchronous page fault and continue.
+
+```sh
+media=private/apple/macos26
+candidate=out/elden-reference-recovery-candidate
+.venv/bin/python scripts/emit_macos26_security.py \
+  --kernel-build "$KERNEL_BUILD" --qemu-only --recovery-components \
+  --storage-driver "$KERNEL_BUILD/storage-driver" --output "$candidate"
+.venv/bin/python scripts/observe_macos26_kernel.py \
+  --kernel-build "$candidate" --firmware "$QEMU_EFI" \
+  --output out/elden-reference-launchd --checkpoint thread_setentrypoint \
+  --follow-init-entry --follow-launchd-main --continue-after-launchd-main \
+  --virtio-block-image "$media/recovery-raw" --root-volume-uuid "$ROOT_VOLUME_UUID" \
+  --root-hash-payload "$media/BaseSystem.root-hash" --qemu-development-root --qemu-no-ignition \
+  --isc-block-image "$ISC_DISK" --isc-write-overlay \
+  --qemu-memory-mib 4096 --owned-memory-mib 2048 --timeout 180 \
+  --capture-screen --early-console --boot-progress --let-vector-log
+```
+
+The graphical checkpoint remains open. WindowServer started four times
+and exited three times. `recoveryosd` reported that `mountrecursive`
+exited with status 255. The language chooser had zero starts at the final
+sample.
 
 ## Stage 4 · Elden hardware
 
