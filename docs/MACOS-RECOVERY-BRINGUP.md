@@ -174,10 +174,20 @@ git apply "$ELDEN_REPO/patches/macos-recovery/elden-gop-display.patch"
   --elden-gop-board "$ELDEN_REPO/board.toml" --kdk-root "$KDK_ROOT" -j 8
 ```
 
-The Mac built both the VirtIO and UFS companions. The VirtIO prelink passed
+The Mac built both the VirtIO and UFS companions. Both prelinks passed
 the 25F71 audit for all 473 framebuffer vtable slots and their PAC metadata.
 The hardware profile is selected with `native-gop-display=1 elden-gop-display=1`
 and a supported explicit `cpus` value. The QEMU observer uses
-`--native-gop-display` with the generic framebuffer profile. Display tests
-on Elden, panel modesetting, backlight control, and GPU acceleration remain
-separate milestones.
+`--native-gop-display` with the generic framebuffer profile. Build the QEMU
+candidate with `--hid-components` and select `IOMobileGraphicsFamily`,
+`IOSurface`, and `IOAVFamily` through `--include-module`.
+
+The QEMU driver mapped the 800×600 framebuffer and reached `Display on`.
+`launchd` ran, and WindowServer had one start and zero exits by the end of
+the 180-second run. When explicitly enabled against the same 800×600
+framebuffer, the Elden profile rejected the mismatched scanout before
+mapping it. Recovery still reached `launchd` in that control run.
+
+The captured screen still showed the boot console. No composited frame or
+language chooser was observed. Display tests on Elden, panel modesetting,
+backlight control, and GPU acceleration remain separate milestones.
