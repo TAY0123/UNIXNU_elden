@@ -725,3 +725,19 @@ to capture PID 1 output with the same kernel and Recovery ADT. The
 MacBook copy is `~/Downloads/elden-macos26-4k-recovery-pid1-ram.img`
 with SHA-256 `76d640cd8124296ddf60503f208bc4d47bca3056aefe0999292ba35751053206`.
 The image passed the DarwinBoot and embedded payload checks.
+
+### Elden two-core Recovery test
+
+The separate RAM image requests `cpus=2 sheng-smp=1 armcpu-self-ipi=1`
+using the same kernel and Recovery ADT. The first two ADT entries are
+MPIDR `0x0` and `0x100`, which remain distinct under the current
+secondary reset vector's 16-bit mask. The kernel includes `SHENG-SMP`
+logging for PSCI status, CPU startup stages, and per-core timer and IPI
+counts. The test passes when CPU 1 reaches step 7 with a successful
+PSCI result and receives both interrupt types.
+
+The verified MacBook image is `~/Downloads/elden-macos26-4k-recovery-smp2-ram.img`
+with SHA-256 `99646af150b0dcf250d9d9da3c93454415bed96fd84c1308b07666743191166e`.
+Secondary startup remains pending a device run. The cores at `0x10000`
+and `0x10100` also need an Aff2-aware secondary reset path and an audit
+of MPIDR-based cluster indexing before expanding the test to eight cores.
