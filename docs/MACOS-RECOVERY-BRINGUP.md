@@ -366,6 +366,22 @@ The verified MacBook image is `~/Downloads/elden-macos26-4k-r3-ram.img`
 with SHA-256 `7a4c686c457c8660313ca77b4be8ca43319fa5099990f10ccd585283a605e9b3`.
 Elden accepted the RAM boot. The kernel UUID is
 `3021AE3E-E615-31E6-9E7C-3A85656F42E0`.
+The device cleared `kmem_range_init` and entered IOKit device-tree
+initialization. A data abort at `0xfffffff007aa96e8` was the null
+registry-entry dereference in `IODTGetICellCounts`. Its caller was
+`IODTMapInterruptsSharing`, which could not resolve the UFS interrupt
+parent through IOKit's `AAPL,phandle` property.
+
+Before generating the ADT for the fourth image, apply
+`patches/macos-recovery/elden-adt-interrupt-phandle.patch` to the
+UniXNU checkout that provides `scripts/make-adt.py`. The regenerated
+ADT retains `phandle` and adds the same value as `AAPL,phandle` on
+the GIC. Host validation matched both values to the UFS
+`interrupt-parent` and checked the three-cell specifier. The kernel
+and firmware are unchanged from the third image.
+
+The MacBook image is `~/Downloads/elden-macos26-4k-r4-ram.img` with
+SHA-256 `b3dd3c4aca35c4b9521ee952b0691dbadfaba78b879a2c05a54793362a1deb5c`.
 
 ### UniXNU firmware TTY commands
 

@@ -1,0 +1,16 @@
+diff --git a/scripts/unixnu/devicetree.py b/scripts/unixnu/devicetree.py
+--- a/scripts/unixnu/devicetree.py
++++ b/scripts/unixnu/devicetree.py
+@@ -217,7 +217,11 @@ def hardware_properties(entry, handles, base=0):
+             entry.strings(key)
+             properties.append((key, raw))
+         elif key in U32:
+-            properties.append((key, struct.pack('<I', entry.scalar(key))))
++            value = struct.pack('<I', entry.scalar(key))
++            properties.append((key, value))
++            if key == 'phandle' and 'interrupt-controller' in entry.properties:
++                # IOKit resolves interrupt-parent through AAPL,phandle.
++                properties.append(('AAPL,phandle', value))
+         elif key in U64:
+             cells = entry.cells(key)
+             if len(cells) not in (1, 2):
