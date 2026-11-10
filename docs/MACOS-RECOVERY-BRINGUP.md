@@ -692,15 +692,23 @@ passed after the kernel reread the new partition table.
 Both GPT copies matched the verified candidate byte for byte. Only the
 end of `rootfs` and the new 4 GiB `macosroot` entry changed. Linux
 enumerated `macosroot` as `/dev/sda18` on LUN 0. The original GPT copies,
-4 GiB tail, and ext4 undo files are retained privately. The new partition
-awaits the paired Recovery media.
+4 GiB tail, and ext4 undo files are retained privately.
 
-The next storage checkpoint is to deploy the paired BaseSystem to
-`macosroot` and boot with `native-ufs-elden=1 native-ufs-root=1` to
-verify read-only media publication and the APFS root mount. A 1.471 GiB
-BaseSystem image was staged on the host. Its manifest and full OS window
-readback matched the compiled transport. The available ISC seed has a
-different digest and volume identities from the current driver contract,
-so this image contains only the BaseSystem. Cold PHY
-initialization, controller reset, MCQ, and persistent writes are outside
-this firmware-handoff implementation.
+### Elden Recovery root media
+
+On 2026-11-11 the Linux maintenance RAM boot installed the 1.471 GiB
+paired BaseSystem on the dedicated `macosroot` partition. It verified
+the data before committing the manifest and matched the complete image
+on readback after flushing the partition cache. Both GPT copies were
+unchanged. The installed image
+contains BaseSystem only. The available ISC seed differs from the
+current driver's pinned digest and volume identities.
+
+The Recovery Root RAM image uses the qualified UFS kernel with
+`native-ufs-elden=1 native-ufs-root=1`, a Recovery ADT that matches the
+paired APFS volume UUID, and the matching BaseSystem root hash. The ADT
+retains the verified Elden kernel text policy. The MacBook image is
+`~/Downloads/elden-macos26-4k-recovery-root-ram.img` with SHA-256
+`15fe0bd06d6fca5ab0668bba5e9abef5fecaf45134649483ac12439950947043`.
+Bootloader fastboot accepted the RAM boot. Select **Elden macOS 26.5 -
+Recovery Root** to test read-only media publication and the APFS mount.
