@@ -815,5 +815,26 @@ The 15-module prelink, 326-slot storage ABI, DarwinBoot preflight and
 embedded RAM image verification passed. The MacBook copy is
 `~/Downloads/elden-macos26-4k-recovery-pid1-trace-ram.img` with SHA-256
 `d96e5491d19257172168e727591f7e5b86cd576f6ce77a210db7a0c0541e055b`.
-Runtime verification requires a photo of the `SHENG-PID1` line after
-`launchd exec`.
+Bootloader fastboot accepted the trace image. Runtime verification
+requires a photo of the `SHENG-PID1` line after `launchd exec`.
+
+### Recovery framebuffer RAM image
+
+The Elden bootstrap wrapper's `--build-gop-display` option includes the
+software framebuffer in the same read-only UFS companion. The separate
+**Recovery Framebuffer Test** menu entry enables the Elden framebuffer
+and keeps PID 1 tracing on one CPU. The original Recovery ADT, BaseSystem
+contract and firmware are reused.
+
+The MacBook built the combined 4 KiB ARM64e companion. Prelink preserved
+the Recovery modules and added the paired graphics and HID modules for
+30 total. The 326-slot storage and 473-slot display ABI checks passed
+with their pointer authentication metadata. Eleven host tests passed
+for scanout, framebuffer ownership, boot progress and display bindings.
+
+The larger prelink requires a 128 MiB embedded FAT payload. DarwinBoot
+preflight and embedded-image verification passed. The verified MacBook
+copy is `~/Downloads/elden-macos26-4k-recovery-framebuffer-ram.img` with
+SHA-256 `7af49b03be2d3fafb07944677b40b290675ff7b27150b3db4a9ae2524eec63f2`.
+The first tablet run still needs to establish `Display on` and
+`First frame` after the Recovery services start.

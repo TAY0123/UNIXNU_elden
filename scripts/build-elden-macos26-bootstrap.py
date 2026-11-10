@@ -17,8 +17,12 @@ def main() -> None:
                         help="build directory name under the reference checkout's out directory")
     parser.add_argument("--elden-ufs-device", type=Path,
                         help="also compile the read-only UFS companion from this device checkout")
+    parser.add_argument("--build-gop-display", action="store_true",
+                        help="include the Elden framebuffer in the UFS companion")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
     args = parser.parse_args()
+    if args.build_gop_display and args.elden_ufs_device is None:
+        parser.error("--build-gop-display requires --elden-ufs-device")
 
     root = args.sheng_root.resolve(strict=True)
     sys.path.insert(0, str(root / "scripts"))
@@ -91,8 +95,10 @@ def main() -> None:
     sys.argv = [sys.argv[0], "--arch", "arm64e", "--link-kernel",
                 "--kdk-root", str(args.kdk_root.resolve(strict=True)), "-j", str(args.jobs)]
     if args.elden_ufs_device is not None:
-        sys.argv.extend(["--build-ufs-driver", "--elden-ufs-device",
-                         str(args.elden_ufs_device.resolve(strict=True))])
+        device = args.elden_ufs_device.resolve(strict=True)
+        sys.argv.extend(["--build-ufs-driver", "--elden-ufs-device", str(device)])
+        if args.build_gop_display:
+            sys.argv.extend(["--build-gop-display", "--elden-gop-board", str(device / "board.toml")])
     build.main()
 
 
