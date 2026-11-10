@@ -84,9 +84,29 @@ containing Clang, LLD and the LLVM binary tools. The verified driver is at
 `out/native-loader/RELEASE_CLANGPDB/AARCH64/DarwinBoot.efi`, with SHA-256
 `810082d8a58723d462a8da5952bb6eabea451eee20e4d9cbaea954d1dcb38a1e`.
 
-Capture kernel entry, root mount, `launchd`, and the graphical Recovery
-language chooser as separate runtime checkpoints with the linked ARM64e
-kernel and matching build record.
+The Apple silicon build host verified the Apple KDK package signature
+and both matching kernel/DWARF pairs. Xcode 27.0 build `27A5194q` and SDK
+27.0 linked the SHENG ARM64e kernel. The Linux host rechecked the kernel,
+dSYM UUID, link map, and KDK report after transfer. The kernel UUID is
+`4777A227-486E-3F94-8835-7A4CCEB34A38` and its SHA-256 is
+`5002cd970525296c7667fff624e31f435ae21f0f2c38c17994ae081159f9069b`.
+
+QEMU reached the real `arm_init` via UEFI and DarwinBoot. The debugger
+matched the kernel's instructions at the checkpoint and observed an
+enabled EL1 MMU with 16 KiB translation granules and a 47-bit address
+regime. The separate raw-entry probe also reached the first C entry.
+
+```sh
+.venv/bin/python scripts/observe_macos26_kernel.py \
+  --kernel-build "$KERNEL_BUILD" --firmware "$QEMU_EFI" \
+  --output out/elden-reference-arm-init --checkpoint arm_init --timeout 75
+```
+
+Set `KERNEL_BUILD` to the directory containing the linked kernel, build
+record, map and dSYM, and `QEMU_EFI` to the ARM64 UEFI code FD. The
+reference's pinned Sheng input archive supplies the QEMU boot manager.
+Root mount, `launchd`, and the graphical language chooser are separate
+runtime checkpoints.
 
 ## Stage 4 · Elden hardware
 
