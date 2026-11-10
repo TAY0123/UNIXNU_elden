@@ -56,6 +56,7 @@ FAT 载荷已使用同一镜像完成两次实机 RAM 冷启动验收。阶段 2
 - [格式 2 迁移记录](docs/FORMAT2-MIGRATION.md)
 - [第三方源码版本](docs/third-party.md)
 - [第三方版本锁](unixnu.lock)
+- [macOS Recovery 模拟器与移植进度](docs/MACOS-RECOVERY-BRINGUP.md)
 
 ## 准备
 
