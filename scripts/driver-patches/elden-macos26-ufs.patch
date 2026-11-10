@@ -188,8 +188,10 @@
 +  if (!hostWaitRegister (0x30, 8, 8)) {
 +    recordTransport (kIOReturnTimeout, 15);
 +    *why = "UIC command not ready";
-+    return false;
-+  }
+     return false;
+   }
+-  if (gHost.ready) {
+-    return true;
 +  const bool hibern8Exit = command == 0x18;
 +  const uint32_t completion = hibern8Exit ? 0x420 : 0x400;
 +  const uint64_t budget = uint64_t (eldenUicCounterHz ()) * (hibern8Exit ? 600 : 100) / 1000;
@@ -218,10 +220,8 @@
 +  if (!done || gEldenLinkResult || (gEldenUicStatus & errors)) {
 +    recordTransport ((gEldenUicStatus & errors) || done ? kIOReturnIOError : kIOReturnTimeout, 15);
 +    *why = "UIC link command failed";
-     return false;
-   }
--  if (gHost.ready) {
--    return true;
++    return false;
++  }
 +  if (hibern8Exit && ((read32 (gHost.hc, 0x30) >> 8) & 7) != 1) {
 +    recordTransport (kIOReturnIOError, 15);
 +    *why = "UIC power status";
@@ -443,15 +443,25 @@
    unsigned diagnostic = 0;
    PE_parse_boot_argn ("native-ufs-diagnostics", &diagnostic, sizeof (diagnostic));
    gRootDiagnosticEnabled = diagnostic == 1;
-@@ -1849,21 +2001,18 @@
+@@ -1849,21 +2001,36 @@
      adoptAndRead (probe);
    }
    if (probe == 10) {
 -    // Read-only check before anything is flashed: LUN 0 GPT -> "userdata" -> its first block.
 -    const char *why = "";
--    if (!hostBringUp (&why)) {
++    const char *why = "GPT header read";
+     if (!hostBringUp (&why)) {
 -      panic ("NATIVE_UFS root check: bring-up failed: %s", why);
--    }
++      rootDiagnosticFailure (why);
++      IOLog ("NativeUfs: Elden read-only probe failed: %s\n", why);
++      return false;
++    }
++    gRootDiagnostic.stage = why;
++    if (hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) {
++      rootDiagnosticFailure (why);
++      IOLog ("NativeUfs: Elden LUN 0 GPT header read failed\n");
++      return false;
+     }
 -    RootLayout *layout = static_cast<RootLayout *> (IOMalloc (sizeof (RootLayout)));
 -    if (!layout || !findRootLayout (layout, &why)) {
 -      panic ("NATIVE_UFS root check: %s", why);
@@ -462,18 +472,24 @@
 -           "manifest status=%u windows=%u",
 -           layout->userdataFirst, layout->userdataLast, layout->magic0, layout->magic1,
 -           layout->ext4Magic, layout->ext4Blocks, layout->manifestStatus, layout->windows);
-+    const char *why = "GPT header read";
-+    if (!hostBringUp (&why) || hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) {
-+      rootDiagnosticFailure (why);
-+      IOLog ("NativeUfs: Elden read-only probe failed: %s\n", why);
-+      return false;
-+    }
++    gRootDiagnostic.stage = "GPT header validation";
 +    const uint32_t bytes = le32 (gScratch + 12);
++    const uint32_t expected = le32 (gScratch + 16);
 +    const bool valid = !memcmp (gScratch, "EFI PART", 8) &&
 +                       bytes >= 92 && bytes <= 4096 && le64 (gScratch + 24) == 1 &&
-+                       rootCrc32 (gScratch, bytes, true) == le32 (gScratch + 16);
-+    IOLog ("NativeUfs: Elden LUN 0 GPT header %s\n", valid ? "read and CRC verified" : "rejected");
-+    return valid;
++                       rootCrc32 (gScratch, bytes, true) == expected;
++    if (!valid) {
++      gRootDiagnostic.result = static_cast<uint32_t> (kIOReturnBadMedia);
++      rootDiagnosticFailure ("GPT header rejected");
++      IOLog ("NativeUfs: Elden LUN 0 GPT header rejected\n");
++      return false;
++    }
++    // Keep the result on the display for probe 10 with diagnostics enabled.
++    if (gRootDiagnosticEnabled) {
++      panic ("ELDEN UFS PROBE PASS: LUN 0 LBA 1 GPT header CRC verified (%08x)", expected);
++    }
++    IOLog ("NativeUfs: Elden LUN 0 GPT header read and CRC verified\n");
++    return true;
    }
    if (probe == 11) {
      // After the root image is flashed: manifest, then each window's own GPT (sector 1 of the

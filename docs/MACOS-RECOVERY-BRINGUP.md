@@ -663,8 +663,18 @@ one bit missing at timeout. The Mac build, storage ABI prelink, DarwinBoot
 preflight, and embedded image checks passed. The MacBook image is
 `~/Downloads/elden-macos26-4k-ufs-uic-ram.img` with SHA-256
 `b07b974f4819396fef30c1feab2a731e00a22d0aa2a36639de3afd6dca2d5b3d`.
-Bootloader fastboot accepted this RAM boot. The UFS probe result awaits
-selection in the UniXNU menu.
+Bootloader fastboot accepted this RAM boot. The owner photo shows IOKit,
+APFS registration, and the default `Apple_HFS` root-device wait. The
+earlier panic was absent from the captured screen. The visible log
+does not include the `NativeUfs` GPT result.
+
+With probe 10 and diagnostics enabled, the next image uses the existing
+panic display to hold `ELDEN UFS PROBE PASS` and the CRC on screen after
+one successful LUN 0 LBA 1 read and header verification. A failed
+transfer or invalid header stops with its stage and reason. Normal
+probe mode without diagnostics continues after logging success. The
+MacBook image is `~/Downloads/elden-macos26-4k-ufs-result-ram.img` with
+SHA-256 `0adacbc5f0b68f040f9864e930abea24ebbef508ccb1795fef3108cd64aa4fe0`.
 
 On 2026-11-10, TWRP's `baseband_guard` denied writes to the Linux
 `rootfs`. A RAM boot of the installed mainline Linux kernel with a
