@@ -4,6 +4,7 @@
 import argparse
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 
 
@@ -20,8 +21,8 @@ def main() -> None:
 
     output = root / "out/elden-macos26-4k-bootstrap"
     output.mkdir(parents=True, exist_ok=True)
-    overlay = (Path(__file__).resolve().parents[1] / "patches/macos-recovery/"
-               "elden-macos26-4k-user-va.patch")
+    patches = Path(__file__).resolve().parents[1] / "patches/macos-recovery"
+    overlay = patches / "elden-macos26-4k-user-va.patch"
     staged_overlay = output / overlay.name
     shutil.copyfile(overlay, staged_overlay)
     prepare = build.prepare
@@ -44,10 +45,16 @@ def main() -> None:
         header = output / "source/pexpert/pexpert/arm64/SHENG.h"
         if "__ARM_16K_PG__" in header.read_text():
             raise ValueError("staged SHENG source still requests the 16 KiB granule")
+        trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
+        source = output / "source"
+        subprocess.run(["git", "-C", source, "apply", trace_overlay], check=True)
         record["elden_bootstrap"] = {
             "page_bytes": 4096,
             "arm64_large_memory": False,
             "link_address": "0xfffffff007004000",
+            "bootstrap_trace_overlay_sha256": build.sha(trace_overlay),
+            "bootstrap_trace_header_sha256": build.sha(
+                source / "osfmk/arm64/sheng_bootstrap_trace.h"),
             "hardware_verified": False,
         }
         build.save(record)

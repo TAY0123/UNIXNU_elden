@@ -1,0 +1,98 @@
+diff --git a/osfmk/arm64/sheng_bootstrap_trace.h b/osfmk/arm64/sheng_bootstrap_trace.h
+index 2101be4..a2af9cb 100644
+--- a/osfmk/arm64/sheng_bootstrap_trace.h
++++ b/osfmk/arm64/sheng_bootstrap_trace.h
+@@ -61,7 +61,7 @@
+ #endif
+ .endmacro
+ 
+-/* With tables ready and the MMU off, map at most two 32 MiB blocks containing the stage strip. */
++/* Map the early diagnostic panel and stage strip before enabling the MMU. */
+ .macro SHENG_BOOTSTRAP_MAP_TRACE
+ #if SHENG
+ 	cbnz x21, 9f
+@@ -85,20 +85,18 @@
+ 	mov x2, #65536
+ 	cmp x1, x2
+ 	b.hi 9f
+-	mov x2, #568
+-	madd x0, x1, x2, x0
+-	mov x2, #11
++	// Keep the framebuffer base for the exception panel. Include the last strip pixel.
++	mov x2, #579
+ 	madd x1, x1, x2, x0
+ 	add x1, x1, #2415
+-	// Reject wraparound and addresses outside the current 47-bit TTBR0 window.
+ 	cmp x1, x0
+ 	b.lo 9f
+-	lsr x2, x1, #47
++	lsr x2, x1, #(64 - T0SZ_BOOT)
+ 	cbnz x2, 9f
+-	and x0, x0, #0xfffffffffe000000
+-	and x1, x1, #0xfffffffffe000000
+-	lsr x2, x0, #36
+-	lsr x3, x1, #36
++	and x0, x0, #(ARM_TTE_BLOCK_L2_MASK)
++	and x1, x1, #(ARM_TTE_BLOCK_L2_MASK)
++	lsr x2, x0, #(ARM_TT_L1_SHIFT)
++	lsr x3, x1, #(ARM_TT_L1_SHIFT)
+ 	cmp x2, x3
+ 	b.ne 9f
+ 	add x2, x25, x2, lsl #3
+@@ -106,7 +104,7 @@
+ 	cbnz x3, 2f
+ 	SHENG_EARLY_ADDRESS x4, EXT(sheng_bootstrap_fb_l2)
+ 	mov x5, x4
+-	mov x6, #2048
++	mov x6, #(TTE_PGENTRIES)
+ 1:
+ 	str xzr, [x5], #8
+ 	subs x6, x6, #1
+@@ -118,30 +116,35 @@
+ 	and x4, x3, #3
+ 	cmp x4, #3
+ 	b.ne 9f
+-	and x4, x3, #0x0000ffffffffc000
+-	// Existing L2 tables must belong to the native bootstrap pool; never follow arbitrary writable pointers.
++	and x4, x3, #(ARM_TTE_TABLE_MASK)
++	// Existing L2 tables must belong to the native bootstrap pool.
+ 	cmp x4, x25
+ 	b.lo 9f
+ 	add x5, x25, #(BOOTSTRAP_TABLE_BYTES >> 12), lsl #12
+ 	cmp x4, x5
+ 	b.hs 9f
+ 3:
+-	ubfx x5, x0, #25, #11
++	ubfx x5, x0, #(ARM_TT_L2_SHIFT), #(ARM_TT_L1_SHIFT - ARM_TT_L2_SHIFT)
+ 	add x5, x4, x5, lsl #3
+-	ubfx x6, x1, #25, #11
++	ubfx x6, x1, #(ARM_TT_L2_SHIFT), #(ARM_TT_L1_SHIFT - ARM_TT_L2_SHIFT)
+ 	add x6, x4, x6, lsl #3
+-	// Validate the entire range before writing; preserve the kernel and existing mappings.
+-	ldr x7, [x5]
++	// Check every slot before changing the identity table.
++	mov x4, x5
++4:
++	ldr x7, [x4], #8
+ 	cbnz x7, 9f
+-	ldr x7, [x6]
+-	cbnz x7, 9f
+-	// MAIR slot 3 is Device-nGnRnE; disable execution at both levels and allow EL1 reads and writes.
++	cmp x4, x6
++	b.ls 4b
++	// MAIR slot 3 is Device-nGnRnE. Keep the diagnostic region non-executable.
+ 	mov x7, #0x60d
+ 	orr x7, x7, #0x0060000000000000
++	mov x4, #(ARM_TT_L2_SIZE)
++5:
+ 	orr x2, x0, x7
+-	str x2, [x5]
+-	orr x2, x1, x7
+-	str x2, [x6]
++	str x2, [x5], #8
++	add x0, x0, x4
++	cmp x5, x6
++	b.ls 5b
+ 	mov x2, #1
+ 	str x2, [x8]
+ 	dsb sy

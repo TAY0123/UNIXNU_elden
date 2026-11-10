@@ -339,6 +339,18 @@ MAIR before enabling the MMU. The blue D–F markers indicate a
 prepared framebuffer mapping. The first translated instruction
 and C entry remain unverified. Recovery media was absent.
 
+The first kernel carried the reference diagnostic mapper's 16 KiB
+table indexes into the 4 KiB build. The retest uses XNU's selected
+L1 and L2 geometry and checks each L2 slot before writing any block
+descriptors. For the tablet's framebuffer base and stride, the
+diagnostic region fits in three consecutive 2 MiB blocks under
+TTBR0 L1 index 3. The build, disassembly, and embedded-image checks
+passed using the same firmware and ADT as the first test.
+
+The MacBook retest image is `~/Downloads/elden-macos26-4k-r2-ram.img`
+with SHA-256 `1f6faa01602ad8781d4bb066950eb256e784d0432bea5cd096a37350b76e3069`.
+Elden accepted the RAM boot. The test uses the same menu entry.
+
 ### UniXNU firmware TTY commands
 
 The opt-in menu reads newline-terminated commands from the existing
