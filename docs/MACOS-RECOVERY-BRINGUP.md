@@ -147,9 +147,11 @@ sample.
 
 ## Stage 4 · Elden hardware
 
-Qualify EL1 PAC and 16 KiB translation on the tablet before adapting the
-loader, memory map, and UFS path. Use the repository's owner-operated
-RAM-boot procedure for hardware tests.
+Qualify EL1 PAC and the available translation granule on the tablet
+before adapting the loader, memory map, and UFS path. The tablet's
+current EL1 environment reports 4 KiB support and no 16 KiB support.
+Use the repository's owner-operated RAM-boot procedure for hardware
+tests.
 
 The exact UFS candidate reached `arm_init` with a 256 MiB owned window
 through the ARM64e-aware loader in QEMU. Its occupied virtual span is
@@ -227,8 +229,36 @@ on the MacBook. Elden's bootloader returned `OKAY` for both the
 transfer and the RAM-boot command. Select **ELDEN 2.3 PROBE - EL1
 16K 47-bit DIRECT**.
 Capture `execute`, `registers`, and `firmware-restored` or the
-reported trap stage. Direct execution and EL1 PAC remain unqualified
-on the tablet.
+reported trap stage.
+
+The tablet photo shows `execute=FAIL registers=PASS firmware-restored=PASS`.
+Firmware TCR was `0x480803514`, active TCR was `0x475113514`, and active
+TTBR1 was `0xccc64000`. The first direct instruction fetch
+at `0xffff800000004000` faulted at probe checkpoint 2 with `ESR=0x86000002`
+and the same FAR and ELR. The syndrome is an Instruction Abort with a
+level-2 address size fault.
+
+`ID_AA64MMFR0_EL1=0x2100122100001024` reports stage-1 `TGran16=0`
+and `TGran4=0`, which encode unsupported 16 KiB and supported 4 KiB.
+Readback of the requested TG1 field establishes that its value was
+written. The reported granule support and fault apply to Elden's
+current EL1 environment. The existing macOS kernel was built for
+16 KiB pages. [Arm feature register encoding](https://documentation-service.arm.com/static/62c410c8b334256d9ea8dffb)
+
+### Elden 4 KiB execution control
+
+Apply `patches/macos-recovery/elden-el1-4k-control.patch` after the
+direct-execution patch. The control uses four-level 4 KiB tables for the
+same 47-bit addresses, code, and data, and retains the original
+TTBR0 configuration. An independent host table walk checked both
+executable aliases, writable non-executable data, and an unmapped
+address. The build and embedded image checks passed.
+
+The MacBook copy is `~/Downloads/elden-el1-native47-4k-ram.img` with
+SHA-256 `8f4103d10c065a5ee652f92872b8b32e26377ba227da48365dfc3972857dafef`.
+Elden bootloader fastboot accepted the image and the RAM-boot command.
+Select **ELDEN 2.3 PROBE - EL1 4K 47-bit CONTROL** and record the
+execution and restoration results. EL1 PAC requires a separate test.
 
 ### UniXNU firmware TTY commands
 
