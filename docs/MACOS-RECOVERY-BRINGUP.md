@@ -712,3 +712,16 @@ retains the verified Elden kernel text policy. The MacBook image is
 `15fe0bd06d6fca5ab0668bba5e9abef5fecaf45134649483ac12439950947043`.
 Bootloader fastboot accepted the RAM boot. Select **Elden macOS 26.5 -
 Recovery Root** to test read-only media publication and the APFS mount.
+
+The owner photo shows `Root mounted` recorded in the progress bitmap and
+`launchd exec` as the latest stage. PID 1 recorded one exec and zero
+exits. At 93 seconds there was no later stage or recorded start of
+`recoveryosd`, RecoveryOS Agent, WindowServer, or Language Chooser. The
+APFS root mount and PID 1 exec are device-verified. The image does not
+establish that `launchd` reached its main function.
+
+The next RAM image adds `sheng-stderr-log=2 sheng-stderr-name=launchd`
+to capture PID 1 output with the same kernel and Recovery ADT. The
+MacBook copy is `~/Downloads/elden-macos26-4k-recovery-pid1-ram.img`
+with SHA-256 `76d640cd8124296ddf60503f208bc4d47bca3056aefe0999292ba35751053206`.
+The image passed the DarwinBoot and embedded payload checks.
