@@ -172,6 +172,10 @@ build output. The six standalone assembly cases passed in QEMU. The
 EFI app also reached EL1 in QEMU, where it declined a RAM allocation
 below its admitted physical range.
 
+The tablet reported product `elden_prc_wifi` and `is-userspace: no`
+over MacBook USB. Bootloader fastboot accepted the image transfer and
+the RAM-boot command. The on-screen probe result is still pending.
+
 The verified copy is in `~/Downloads/elden-el1-native47-ram.img` on the
 MacBook. For the owner-operated run, enter the tablet bootloader and
 run the following from the MacBook.
