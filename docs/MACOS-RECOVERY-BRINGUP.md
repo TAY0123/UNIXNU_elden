@@ -223,7 +223,9 @@ passed the phase-2.3 verification and the MacBook copy matched
 SHA-256 `6ec54f8b0f5be83065e4cf365f5318d6c6521a87069b0846be36833feb99e657`.
 
 The follow-up is at `~/Downloads/elden-el1-native47-direct-ram.img`
-on the MacBook. Select **ELDEN 2.3 PROBE - EL1 16K 47-bit DIRECT**.
+on the MacBook. Elden's bootloader returned `OKAY` for both the
+transfer and the RAM-boot command. Select **ELDEN 2.3 PROBE - EL1
+16K 47-bit DIRECT**.
 Capture `execute`, `registers`, and `firmware-restored` or the
 reported trap stage. Direct execution and EL1 PAC remain unqualified
 on the tablet.
