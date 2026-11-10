@@ -1,0 +1,291 @@
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Config.c b/package/UniXNUPkg/Library/UniXNULib/Config.c
+index ed39c6b..22c9491 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Config.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Config.c
+@@ -1389,6 +1389,7 @@ ApplyRoot (
+   Config->RotateSeconds   = (UINTN)MAX (0, TomlGetInteger (Boot, "rotate", 0));
+   Config->FallbackTimeout = (UINTN)MAX (1, TomlGetInteger (Boot, "fallback_timeout", 10));
+   Config->ConnectAll      = TomlGetBoolean (Boot, "connect_all", TRUE);
++  Config->SerialCommands  = TomlGetBoolean (Boot, "serial_commands", FALSE);
+ 
+   Ui              = TomlGet (Root, "ui");
+   Config->Title   = UniXNUAsciiToUnicode (TomlGetString (Ui, "title", "UniXNU"));
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Internal.h b/package/UniXNUPkg/Library/UniXNULib/Internal.h
+index 2524c40..9255927 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Internal.h
++++ b/package/UniXNUPkg/Library/UniXNULib/Internal.h
+@@ -47,6 +47,16 @@ UniXNULogInit (
+   VOID
+   );
+ 
++BOOLEAN
++UniXNUSerialAvailable (
++  VOID
++  );
++
++BOOLEAN
++UniXNUSerialReadByte (
++  OUT CHAR8  *Byte
++  );
++
+ VOID
+ EFIAPI
+ UniXNULog (
+@@ -258,6 +268,7 @@ typedef struct {
+   UINTN          RotateSeconds;    ///< Idle highlight rotation step, 0 = off.
+   UINTN          FallbackTimeout;  ///< Used when Timeout < 0 and no input exists.
+   BOOLEAN        ConnectAll;       ///< ConnectController all handles after drivers.
++  BOOLEAN        SerialCommands;  ///< Accept line commands from EFI Serial I/O.
+   //
+   // [ui]
+   //
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Main.c b/package/UniXNUPkg/Library/UniXNULib/Main.c
+index 482f4d6..cd2969c 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Main.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Main.c
+@@ -21,6 +21,33 @@ UniXNULogInit (
+   }
+ }
+ 
++BOOLEAN
++UniXNUSerialAvailable (
++  VOID
++  )
++{
++  return mSerial != NULL;
++}
++
++BOOLEAN
++UniXNUSerialReadByte (
++  OUT CHAR8  *Byte
++  )
++{
++  UINT32  Control;
++  UINTN   Size;
++
++  if ((mSerial == NULL) ||
++      EFI_ERROR (mSerial->GetControl (mSerial, &Control)) ||
++      ((Control & EFI_SERIAL_INPUT_BUFFER_EMPTY) != 0))
++  {
++    return FALSE;
++  }
++
++  Size = 1;
++  return !EFI_ERROR (mSerial->Read (mSerial, &Size, Byte)) && (Size == 1);
++}
++
+ VOID
+ EFIAPI
+ UniXNULog (
+@@ -103,6 +130,9 @@ UniXNURun (
+   ZeroMem (&Stats, sizeof (Stats));
+   UniXNUInjectDrivers (ImageHandle, &Config, &Stats);
+   UniXNUInjectAcpi (&Config, &Stats);
++  if (Config.SerialCommands) {
++    UniXNULogInit ();
++  }
+ 
+   UniXNUUiInit (&Config, &Ui);
+ 
+diff --git a/package/UniXNUPkg/Library/UniXNULib/Menu.c b/package/UniXNUPkg/Library/UniXNULib/Menu.c
+index e3e4619..63d9483 100644
+--- a/package/UniXNUPkg/Library/UniXNULib/Menu.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Menu.c
+@@ -15,6 +15,8 @@
+ 
+ #define TICK_MS             100
+ #define DEFAULT_ROTATE_SEC  2
++#define SERIAL_LINE_BYTES   64
++#define SERIAL_POLL_BYTES   64
+ 
+ #ifndef SCAN_SUSPEND
+ #define SCAN_SUSPEND  0x0102
+@@ -83,6 +85,126 @@ DrawCountdown (
+   UniXNUUiDrawStatus (Ui, 0, Line);
+ }
+ 
++STATIC
++BOOLEAN
++SerialCommand (
++  IN CONST CHAR8         *Line,
++  IN CONST UNIXNU_CONFIG *Config,
++  IN UINTN               Selected,
++  OUT UINTN              *BootIndex
++  )
++{
++  UINTN              Index;
++  UINTN              Match;
++  CONST UNIXNU_ENTRY *Entry;
++
++  if (AsciiStrCmp (Line, "help") == 0) {
++    UniXNULog ("tty: help | list | status | boot <id>");
++    return TRUE;
++  }
++
++  if (AsciiStrCmp (Line, "status") == 0) {
++    UniXNULog ("tty: selected=%u default=%u entries=%u", (UINT32)Selected,
++               (UINT32)Config->DefaultIndex, (UINT32)Config->EntryCount);
++    return TRUE;
++  }
++
++  if (AsciiStrCmp (Line, "list") == 0) {
++    for (Index = 0; Index < Config->EntryCount; Index++) {
++      Entry = &Config->Entries[Index];
++      UniXNULog ("tty: entry %u id=%a %s%a", (UINT32)Index,
++                 Entry->Id != NULL ? Entry->Id : "?", Entry->Title,
++                 Entry->Confirm != NULL ? " [local confirmation]" : "");
++    }
++
++    return TRUE;
++  }
++
++  if ((AsciiStrnCmp (Line, "boot ", 5) != 0) || (Line[5] == '\0')) {
++    UniXNULog ("tty: unknown command, type help");
++    return FALSE;
++  }
++
++  Match = MAX_UINTN;
++  for (Index = 0; Index < Config->EntryCount; Index++) {
++    Entry = &Config->Entries[Index];
++    if ((Entry->Id == NULL) || (AsciiStrCmp (Line + 5, Entry->Id) != 0)) {
++      continue;
++    }
++
++    if (Match != MAX_UINTN) {
++      UniXNULog ("tty: ambiguous entry ID");
++      return FALSE;
++    }
++
++    Match = Index;
++  }
++
++  if (Match == MAX_UINTN) {
++    UniXNULog ("tty: entry ID not found");
++    return FALSE;
++  }
++
++  if (Config->Entries[Match].Confirm != NULL) {
++    UniXNULog ("tty: entry requires local confirmation");
++    return TRUE;
++  }
++
++  UniXNULog ("tty: booting %a", Config->Entries[Match].Id);
++  *BootIndex = Match;
++  return TRUE;
++}
++
++typedef struct {
++  CHAR8    Bytes[SERIAL_LINE_BYTES];
++  UINTN    Length;
++  BOOLEAN  Invalid;
++} SERIAL_LINE;
++
++STATIC
++BOOLEAN
++PollSerial (
++  IN OUT SERIAL_LINE          *Line,
++  IN CONST UNIXNU_CONFIG      *Config,
++  IN UINTN                    Selected,
++  OUT UINTN                   *BootIndex
++  )
++{
++  UINTN    Index;
++  CHAR8    Byte;
++  BOOLEAN  Active;
++
++  Active = FALSE;
++  for (Index = 0; Index < SERIAL_POLL_BYTES && UniXNUSerialReadByte (&Byte); Index++) {
++    if ((Byte == '\r') || (Byte == '\n')) {
++      if (Line->Invalid) {
++        UniXNULog ("tty: invalid or overlong command");
++      } else if (Line->Length != 0) {
++        Line->Bytes[Line->Length] = '\0';
++        Active = SerialCommand (Line->Bytes, Config, Selected, BootIndex) || Active;
++      }
++
++      Line->Length = 0;
++      Line->Invalid = FALSE;
++      if (*BootIndex != MAX_UINTN) {
++        break;
++      }
++    } else if (Line->Invalid) {
++      continue;
++    } else if ((Byte == 8) || (Byte == 127)) {
++      if (Line->Length != 0) {
++        Line->Length--;
++      }
++    } else if ((Byte < 32) || (Byte > 126) || (Line->Length == sizeof (Line->Bytes) - 1)) {
++      Line->Invalid = TRUE;
++    } else {
++      Line->Bytes[Line->Length++] = Byte;
++    }
++  }
++
++  return Active;
++}
++
+ UINTN
+ UniXNUMenuRun (
+   IN UNIXNU_UI      *Ui,
+@@ -101,15 +223,19 @@ UniXNUMenuRun (
+   UINTN          Index;
+   BOOLEAN        HasInput;
+   BOOLEAN        UserActive;
++  BOOLEAN        UseSerial;
+   INTN           RemainingMs;
+   UINTN          RotateMs;
+   UINTN          RotateAccum;
+   INTN           LastShownSecond;
+   UINTN          Count;
++  SERIAL_LINE    Line;
+ 
+   Count    = Config->EntryCount;
+   Selected = Config->DefaultIndex;
+   HasInput = (CountInputDevices () > 0);
++  UseSerial = Config->SerialCommands && UniXNUSerialAvailable ();
++  ZeroMem (&Line, sizeof (Line));
+ 
+   if (!Countdown) {
+     RemainingMs = HasInput ? -1 : (INTN)Config->FallbackTimeout * 1000;
+@@ -185,6 +311,20 @@ UniXNUMenuRun (
+ 
+     Previous = Selected;
+     if (Signaled == 0) {
++      if (UseSerial) {
++        UINTN  BootIndex = MAX_UINTN;
++
++        if (PollSerial (&Line, Config, Selected, &BootIndex)) {
++          UserActive = TRUE;
++          RemainingMs = -1;
++        }
++
++        if (BootIndex != MAX_UINTN) {
++          Selected = BootIndex;
++          break;
++        }
++      }
++
+       if (RemainingMs > 0) {
+         RemainingMs -= TICK_MS;
+         if (RemainingMs <= 0) {
+@@ -206,6 +346,12 @@ UniXNUMenuRun (
+         continue;
+       }
+ 
++      // A terminal bound to the same port may also expose incoming bytes
++      // through ConIn. A partial command must not act as a menu shortcut.
++      if (UseSerial && (Key.UnicodeChar != 0)) {
++        continue;
++      }
++
+       if (!UserActive) {
+         //
+         // The first key takes over: no more countdown or rotation, and the
+@@ -359,6 +505,7 @@ UniXNUMenuRunTools (
+   Tools.EntryCount   = PluginCount + 1;
+   Tools.DefaultIndex = 0;
+   Tools.Timeout      = -1;
++  Tools.SerialCommands = FALSE;
+   Tools.Error[0]     = '\0';
+   Tools.Notice[0]    = '\0';
+ 

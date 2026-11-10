@@ -230,6 +230,42 @@ Capture `execute`, `registers`, and `firmware-restored` or the
 reported trap stage. Direct execution and EL1 PAC remain unqualified
 on the tablet.
 
+### UniXNU firmware TTY commands
+
+The opt-in menu reads newline-terminated commands from the existing
+EFI Serial I/O protocol and writes replies to the same port. Set
+`serial_commands = true` in the payload's `[boot]` section. Send
+`help`, `list`, or `status` to inspect the menu, and `boot <id>` to run
+a configured entry. Entries with a confirmation prompt require local
+selection. A recognized command stops the countdown. While the serial
+reader is active, volume-key scan-code navigation remains available
+and text shortcuts are suppressed so command bytes cannot select a
+menu item through a shared terminal.
+
+Apply the overlay to the pinned device-side UniXNU checkout and build
+into a separate output directory:
+
+```sh
+git -C third_party/UniXNU apply "$PWD/patches/uefi/serial-menu-commands.patch"
+python3 scripts/build_phase2_firmware.py --toolchain "$LLVM_BIN" \
+  --crypto-path "$PWD/.cache/phase1/basecrypto" --output-dir out/elden-tty/firmware
+```
+
+Package the direct-execution probe as above with `serial_commands`
+enabled. The verified RAM image is `~/Downloads/elden-tty-ram.img`
+on the MacBook, with SHA-256
+`6fb0e19c02f671bd3855c00d2eba43edf1593b664aeadd9e134b7d9e3ee7022c`.
+The parser passed host tests for split input, CRLF, overflow,
+invalid bytes, duplicate IDs, and entries requiring confirmation.
+The Elden firmware and embedded payload passed the build and image
+checks. Tablet TTY input and output remain unverified.
+
+This stage relies on firmware exposing a working serial port. The
+existing Elden USB CDC adapter runs after XNU starts. A pre-boot CDC
+transport still needs to publish a serial port for the MacBook's
+USB-C connection. Child EFI applications currently use their own
+console for output and key prompts.
+
 ### Elden framebuffer driver
 
 On 2026-11-10, a read-only query of the running tablet's Linux MSM DRM driver

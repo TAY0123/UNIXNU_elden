@@ -8,8 +8,8 @@ touched.  The build defines ELDEN_PHASE2, which:
   * adds UniXNURamDiskDxe to the DXE FV,
   * compiles the PrePi FDT handoff into SEC.
 
-The output FD is copied to out/phase2.3/ together with a small manifest.  This
-script never invokes fastboot.
+The output FD and manifest default to out/phase2.3/. Use --output-dir for an
+isolated candidate. This script never invokes fastboot.
 """
 
 from __future__ import annotations
@@ -54,6 +54,8 @@ def main() -> None:
         help="directory containing Driver/Bin/CryptoDriver.inc.dsc",
     )
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--output-dir", type=Path, default=OUT,
+                        help="directory for the firmware FD and manifest")
     parser.add_argument(
         "--keep-build-tree",
         action="store_true",
@@ -88,20 +90,21 @@ def main() -> None:
     if fd.stat().st_size != 0x400000:
         raise SystemExit(f"{fd} is {fd.stat().st_size} bytes, expected 0x400000")
 
-    OUT.mkdir(parents=True, exist_ok=True)
-    destination = OUT / "SILICIUM_UEFI.fd"
+    output_dir = args.output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    destination = output_dir / "SILICIUM_UEFI.fd"
     destination.write_bytes(fd.read_bytes())
     report = {
         "schema": "unixnu-elden-phase2.3-firmware/v1",
         "defines": {"ELDEN_PHASE2": "1", "ELDEN_INITRD_HANDOFF": "1"},
         "artifacts": {
-            str(destination.relative_to(ROOT)): {
+            str(destination.relative_to(ROOT) if destination.is_relative_to(ROOT) else destination): {
                 "bytes": destination.stat().st_size,
                 "sha256": sha256(destination),
             }
         },
     }
-    report_path = OUT / "firmware.json"
+    report_path = output_dir / "firmware.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     print(f"firmware: {destination} ({sha256(destination)})")
     print(f"report:   {report_path}")
