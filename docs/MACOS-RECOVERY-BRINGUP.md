@@ -151,6 +151,40 @@ Qualify EL1 PAC and 16 KiB translation on the tablet before adapting the
 loader, memory map, and UFS path. Use the repository's owner-operated
 RAM-boot procedure for hardware tests.
 
+### Elden EL1 RAM probe
+
+The standalone 47-bit UEFI app from the pinned reference checks 16 KiB
+TTBR1 walks, high-address instruction fetch, access permissions, and
+restoration of the firmware registers. The Android v4 RAM image is
+2,727,936 bytes and has SHA-256
+`5ef0a3fe7350d47a7db4c595648cc375cee422322e097372b4094afb873b3c1f`.
+The phase-2.3 verifier accepted the BootShim, 4 MiB firmware volume,
+and embedded 8 MiB FAT. Reading back the EFI file from FAT matched its
+build output. The six standalone assembly cases passed in QEMU. The
+EFI app also reached EL1 in QEMU, where it declined a RAM allocation
+below its admitted physical range.
+
+The verified copy is in `~/Downloads/elden-el1-native47-ram.img` on the
+MacBook. For the owner-operated run, enter the tablet bootloader and
+run the following from the MacBook.
+
+```sh
+"$HOME/Library/Android/sdk/platform-tools/fastboot" boot "$HOME/Downloads/elden-el1-native47-ram.img"
+```
+
+Select **ELDEN 2.3 PROBE - EL1 16K 47-bit**, then follow the on-screen
+key prompt. Capture the `walks`, `execute`, `controls`, and
+`firmware-restored` results. This probe executes before XNU. The
+separate EL1 PAC checkpoint still requires tablet evidence.
+
+To rebuild the payload, place the reference build's `ShengNativeEl1.efi`
+at `EFI/UniXNU/Payloads/Native47.efi` on an 8 MiB FAT16 image labeled
+`ELDENPROBE`, with `package/elden-el1-native47-unixnu.toml` at
+`EFI/UniXNU/unixnu.toml`. Use `build_phase2_firmware.py` and
+`build_phase2_image.py --kind probe --embed-payload` with that FAT image,
+then verify with `verify_phase2_artifact.py --kind probe --embed-payload
+--expect-default native47`.
+
 ### Elden framebuffer driver
 
 On 2026-11-10, a read-only query of the running tablet's Linux MSM DRM driver

@@ -1,0 +1,18 @@
+version = 1
+[boot]
+timeout = -1
+default = "native47"
+[kits]
+autoload = false
+[ui]
+scale = 4
+[[entry]]
+id = "native47"
+title = "ELDEN 2.3 PROBE - EL1 16K 47-bit"
+type = "efi"
+path = "Payloads/Native47.efi"
+[[entry]]
+id = "reset"
+title = "Restart"
+type = "action"
+action = "reset"
