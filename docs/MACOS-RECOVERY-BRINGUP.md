@@ -64,10 +64,29 @@ See the [pinned reference procedure](https://github.com/CrossDarwin/macOS-ForShe
 
 ## Stage 3 · Reference Recovery boot in QEMU
 
-Use a matching ARM64e kernel build and its build record from the reference
-macOS toolchain, alongside the reference DarwinBoot and the paired Recovery
-inputs. Capture kernel entry, root mount, `launchd`, and the graphical
-Recovery language chooser as separate checkpoints.
+The pinned ARM64e XNU source passed preparation with 78 patches. The
+DarwinBoot EFI driver built on Linux with Clang/LLD 23.1.1. COFF inspection
+confirmed that `DarwinEnter` and `DarwinEnterEnd` share a section, so the
+loader can use the end label to bound cache cleaning. The original
+function macro put the end label in an empty section that LLD discarded.
+
+After applying the reference's integration patches and building its Mu
+BaseTools, apply the Elden compatibility patch and build the loader:
+
+```sh
+git -C UniXNU/drivers/DarwinBoot apply \
+  "$ELDEN_REPO/patches/macos-recovery/darwinboot-handoff-end-label.patch"
+bash scripts/build_native_loader.sh "$LLVM_BIN"
+```
+
+Set `ELDEN_REPO` to the device checkout and `LLVM_BIN` to the directory
+containing Clang, LLD and the LLVM binary tools. The verified driver is at
+`out/native-loader/RELEASE_CLANGPDB/AARCH64/DarwinBoot.efi`, with SHA-256
+`810082d8a58723d462a8da5952bb6eabea451eee20e4d9cbaea954d1dcb38a1e`.
+
+Capture kernel entry, root mount, `launchd`, and the graphical Recovery
+language chooser as separate runtime checkpoints with the linked ARM64e
+kernel and matching build record.
 
 ## Stage 4 · Elden hardware
 
