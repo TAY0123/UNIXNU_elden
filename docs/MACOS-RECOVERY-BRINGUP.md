@@ -349,7 +349,14 @@ passed using the same firmware and ADT as the first test.
 
 The MacBook retest image is `~/Downloads/elden-macos26-4k-r2-ram.img`
 with SHA-256 `1f6faa01602ad8781d4bb066950eb256e784d0432bea5cd096a37350b76e3069`.
-Elden accepted the RAM boot. The test uses the same menu entry.
+The device's `SHENG-PANIC-1` record matched the linked kernel UUID
+`FB8F5446-4A2F-3991-916F-148E0D3DB677`. XNU passed the MMU transition
+and `arm_init` and reached `kmem_range_init`. It stopped at
+`vm_kern.c:3220` for `kmem_data_private_range`, with hole size
+`0xb8001b000` and requested size `0x5555554df5536000`. The 128 GiB
+macOS zone claim exceeded the largest hole of about 46 GiB. The
+unsigned subtraction in `kmem_add_extra_claims` wrapped before
+dividing the remainder among pointer and data ranges.
 
 ### UniXNU firmware TTY commands
 
