@@ -2,6 +2,7 @@
 """Build the Elden 4 KiB ARM64e XNU candidate on the macOS build host."""
 
 import argparse
+import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,8 +24,11 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     patches = Path(__file__).resolve().parents[1] / "patches/macos-recovery"
     overlay = patches / "elden-macos26-4k-user-va.patch"
+    kmem_overlay = patches / "elden-macos26-small-kmem.patch"
     staged_overlay = output / overlay.name
+    staged_kmem = output / kmem_overlay.name
     shutil.copyfile(overlay, staged_overlay)
+    shutil.copyfile(kmem_overlay, staged_kmem)
     prepare = build.prepare
     run = build.run
 
@@ -39,7 +43,7 @@ def main() -> None:
         filtered = output / "0007-elden-4k-page-layout.patch"
         filtered.write_text(original[:start] + original[end:])
         build.PATCHES[build.PATCHES.index(patch)] = filtered
-        build.PATCHES.append(staged_overlay)
+        build.PATCHES.extend((staged_overlay, staged_kmem))
 
         record = prepare()
         header = output / "source/pexpert/pexpert/arm64/SHENG.h"
@@ -48,6 +52,8 @@ def main() -> None:
         trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay], check=True)
+        source_diff = subprocess.check_output(["git", "-C", source, "diff", "HEAD", "--binary"])
+        record["source_diff_sha256"] = hashlib.sha256(source_diff).hexdigest()
         record["elden_bootstrap"] = {
             "page_bytes": 4096,
             "arm64_large_memory": False,

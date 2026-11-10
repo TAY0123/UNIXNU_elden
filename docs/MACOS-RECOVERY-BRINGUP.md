@@ -358,6 +358,15 @@ macOS zone claim exceeded the largest hole of about 46 GiB. The
 unsigned subtraction in `kmem_add_extra_claims` wrapped before
 dividing the remainder among pointer and data ranges.
 
+The third image uses XNU's existing 24 GiB zone VA and 8 GiB wired
+cap on small SHENG maps. If fixed claims exhaust the largest hole,
+XNU now reports the two sizes before subtracting them. The linked
+zone claim was checked directly in the Mach-O startup data.
+The verified MacBook image is `~/Downloads/elden-macos26-4k-r3-ram.img`
+with SHA-256 `7a4c686c457c8660313ca77b4be8ca43319fa5099990f10ccd585283a605e9b3`.
+Elden accepted the RAM boot. The kernel UUID is
+`3021AE3E-E615-31E6-9E7C-3A85656F42E0`.
+
 ### UniXNU firmware TTY commands
 
 The opt-in menu reads newline-terminated commands from the existing

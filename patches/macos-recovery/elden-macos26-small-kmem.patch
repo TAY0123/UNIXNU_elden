@@ -1,0 +1,28 @@
+diff --git a/osfmk/kern/zalloc.c b/osfmk/kern/zalloc.c
+--- a/osfmk/kern/zalloc.c
++++ b/osfmk/kern/zalloc.c
+@@ -167,7 +167,8 @@
+ #define ZONE_MAX_CHUNK_ALLOC_NUM        (10)
+ #endif /* ZSECURITY_CONFIG(SAD_FENG_SHUI) */
+ 
+-#if   XNU_PLATFORM_MacOSX
++/* The small SHENG kernel map cannot hold the 128 GiB macOS zone range. */
++#if XNU_PLATFORM_MacOSX && (!SHENG || defined(ARM_LARGE_MEMORY))
+ #define ZONE_MAP_MAX            (32ULL << 30)
+ #define ZONE_MAP_VA_SIZE        (128ULL << 30)
+ #else
+diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
+--- a/osfmk/vm/vm_kern.c
++++ b/osfmk/vm/vm_kern.c
+@@ -3044,7 +3044,10 @@ kmem_add_extra_claims(struct mach_vm_range km_range)
+ 	}
+ 	assert((total_claims & PAGE_MASK) == 0);
+ 
+-
++	if (total_claims >= free_size) {
++		panic("kmem_range_init: fixed claims %#llx exhaust largest hole %#llx",
++		    total_claims, free_size);
++	}
+ 	free_size -= total_claims;
+ 
+ 	/*
