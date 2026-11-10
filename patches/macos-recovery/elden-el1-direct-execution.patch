@@ -1,0 +1,142 @@
+diff --git a/probes/el1-native/Native47.c b/probes/el1-native/Native47.c
+index f8d6d79..79402c9 100644
+--- a/probes/el1-native/Native47.c
++++ b/probes/el1-native/Native47.c
+@@ -10,19 +10,19 @@
+ EFI_STATUS EFIAPI
+ UefiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+ {
+-  UINT64 El, Tcr, Ttbr0, Ttbr1, Mair, Sctlr, SpSel, Sp;
++  UINT64 El, Tcr, Ttbr0, Ttbr1, Mair, Sctlr, SpSel, Sp, Mmfr0, ProbeTcr;
+   UINT64 AfterTcr, AfterTtbr0, AfterTtbr1, AfterMair, AfterSctlr;
+-  sheng47_u64 Result[14] = {0};
++  sheng47_u64 Result[16] = {0};
+   sheng47_u64 *Pages;
+   UINTN Progress, Stride, CodeBytes, Attribute;
+   UINT64 Status;
+-  BOOLEAN Restored, Walks, Execute, Permissions;
++  BOOLEAN Restored, Execute, RegistersMatch;
+ 
+   (VOID)ImageHandle;
+   (VOID)SystemTable;
+   gST->ConOut->ClearScreen(gST->ConOut);
+   __asm__ volatile("mrs %0,CurrentEL" : "=r"(El));
+-  Print(L"SHENG-47: EL=%lu - 16K instruction fetch in 47-bit TTBR1\r\n", El >> 2);
++  Print(L"ELDEN-47 DIRECT: EL=%lu - 16K instruction fetch in 47-bit TTBR1\r\n", El >> 2);
+   if (El != 4) {
+     return ShengProbeFinish(EFI_UNSUPPORTED);
+   }
+@@ -70,32 +70,35 @@ UefiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
+   Print(L"SHENG-47: code=%lx / %lx data=%lx\r\n",
+         (UINT64)SHENG47_LOW, (UINT64)SHENG47_CODE, (UINT64)SHENG47_DATA);
+   Print(L"SHENG-47: firmware TTBR0/TG0, MAIR and SCTLR retained\r\n");
++  __asm__ volatile("mrs %0,id_aa64mmfr0_el1" : "=r"(Mmfr0));
++  ProbeTcr = sheng47_tcr(Tcr);
++  Print(L"ELDEN-47: TCR before=%lx request=%lx\r\n", Tcr, ProbeTcr);
++  Print(L"ELDEN-47: table=%lx MMFR0=%lx\r\n", (UINT64)(UINTN)Pages, Mmfr0);
+   ShengProbePause(L"Press a key to run the 47-bit execution probe");
+   Print(L"SHENG-47: probe starting\r\n");
+-  Status = ShengEl1Layout47Probe(Pages, Result, sheng47_tcr(Tcr), Progress, Stride);
++  Status = ShengEl1Layout47Probe(Pages, Result, ProbeTcr, Progress, Stride);
+   __asm__ volatile("mrs %0,tcr_el1; mrs %1,ttbr0_el1; mrs %2,ttbr1_el1;"
+                    "mrs %3,mair_el1; mrs %4,sctlr_el1"
+                    : "=r"(AfterTcr), "=r"(AfterTtbr0), "=r"(AfterTtbr1),
+                      "=r"(AfterMair), "=r"(AfterSctlr));
+   Restored = Tcr == AfterTcr && Ttbr0 == AfterTtbr0 && Ttbr1 == AfterTtbr1 &&
+              Mair == AfterMair && Sctlr == AfterSctlr;
+-  Walks = !(Result[0] & 1) && !(Result[1] & 1) && !(Result[2] & 1) &&
+-          (Result[0] & 0x0000fffffffff000ULL) == (UINTN)Pages + 6 * 16384 &&
+-          (Result[1] & 0x0000fffffffff000ULL) == (UINTN)Pages + 6 * 16384 &&
+-          (Result[2] & 0x0000fffffffff000ULL) == (UINTN)Pages + 7 * 16384;
++  RegistersMatch = Result[14] == ProbeTcr && Result[15] == (UINT64)(UINTN)Pages;
+   Execute = Result[4] == SHENG47_LOW && Result[5] == SHENG47_CODE &&
+             Result[6] == 0x4747 && Result[7] == 0x5757 && Result[8] == 0x5757;
+-  Permissions = (Result[3] & 1) && (Result[9] & 1);
+-  Print(L"SHENG-47: walks=%s execute=%s controls=%s firmware-restored=%s\r\n",
+-        Walks ? L"PASS" : L"FAIL", Execute ? L"PASS" : L"FAIL",
+-        Permissions ? L"PASS" : L"FAIL", Restored ? L"PASS" : L"FAIL");
++  Print(L"ELDEN-47: TCR active=%lx TTBR1 active=%lx\r\n", Result[14], Result[15]);
++  Print(L"ELDEN-47: execute=%s registers=%s firmware-restored=%s\r\n",
++        Execute ? L"PASS" : L"FAIL", RegistersMatch ? L"PASS" : L"FAIL",
++        Restored ? L"PASS" : L"FAIL");
+   Print(L"SHENG-47: PC low=%lx high=%lx data=%lx\r\n", Result[4], Result[5], Result[8]);
+   if (Status) {
+-    Print(L"SHENG-47: trap stage=%lu ESR=%lx FAR=%lx ELR=%lx\r\n",
+-          Result[13], Result[10], Result[11], Result[12]);
++    Print(L"ELDEN-47: trap stage=%lu ESR=%lx FAR=%lx\r\n",
++          Result[13], Result[10], Result[11]);
++    Print(L"ELDEN-47: trap ELR=%lx probe=%lx\r\n",
++          Result[12], (UINT64)(UINTN)ShengEl1Layout47Probe);
+   }
+   FreeAlignedPages(Pages, SHENG47_BYTES / 4096);
+   Print(L"SHENG-47: standalone EL1 execution; XNU and arm64e userspace not started\r\n");
+-  return ShengProbeFinish(!Status && Walks && Execute && Permissions && Restored ?
++  return ShengProbeFinish(!Status && RegistersMatch && Execute && Restored ?
+                           EFI_SUCCESS : EFI_DEVICE_ERROR);
+ }
+diff --git a/probes/el1-native/layout47.S b/probes/el1-native/layout47.S
+index 6cf15da..7eb3980 100644
+--- a/probes/el1-native/layout47.S
++++ b/probes/el1-native/layout47.S
+@@ -47,34 +47,12 @@ ShengEl1Layout47Probe:
+     isb
+     mov x28,#3
+     bl .Lmark47
+-    ldr x10,=SHENG47_LOW
+-    at s1e1r,x10
+-    isb
+-    mrs x9,par_el1
+-    str x9,[x19]
+-    mov x28,#4
+-    bl .Lmark47
+-    ldr x10,=SHENG47_CODE
+-    at s1e1r,x10
+-    isb
+-    mrs x9,par_el1
+-    str x9,[x19,#8]
+-    mov x28,#5
+-    bl .Lmark47
+-    ldr x10,=SHENG47_DATA
+-    at s1e1w,x10
+-    isb
+-    mrs x9,par_el1
+-    str x9,[x19,#16]
+-    mov x28,#6
+-    bl .Lmark47
+-    ldr x10,=SHENG47_CODE
+-    at s1e1w,x10
+-    isb
+-    mrs x9,par_el1
+-    str x9,[x19,#24]
+-    mov x28,#7
+-    bl .Lmark47
++    // The Elden probe trapped at the first AT of the new mapping.
++    // Try actual fetch and data access with the same tables and TCR.
++    mrs x9,tcr_el1
++    str x9,[x19,#112]
++    mrs x9,ttbr1_el1
++    str x9,[x19,#120]
+     mov x9,#2
+     str x9,[x19,#104]
+ #ifdef SHENG_LAYOUT47_INJECT_FAULT
+@@ -98,18 +76,13 @@ ShengEl1Layout47Probe:
+     str x2,[x19,#56]
+     mov x28,#9
+     bl .Lmark47
++    mov x9,#4
++    str x9,[x19,#104]
+     ldr x1,=SHENG47_DATA
+     ldr x9,[x1]
+     str x9,[x19,#64]
+     mov x28,#10
+     bl .Lmark47
+-    ldr x10,=SHENG47_HOLE
+-    at s1e1r,x10
+-    isb
+-    mrs x9,par_el1
+-    str x9,[x19,#72]
+-    mov x28,#11
+-    bl .Lmark47
+     b .Lrestore47
+ .Lfault47:
+     mrs x9,esr_el1

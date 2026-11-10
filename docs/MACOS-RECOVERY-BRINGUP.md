@@ -174,7 +174,15 @@ below its admitted physical range.
 
 The tablet reported product `elden_prc_wifi` and `is-userspace: no`
 over MacBook USB. Bootloader fastboot accepted the image transfer and
-the RAM-boot command. The on-screen probe result is still pending.
+the RAM-boot command. The tablet photo shows that the app ran at EL1,
+raised a recoverable exception, and restored the firmware registers.
+The reported values were `walks=FAIL execute=FAIL controls=FAIL
+firmware-restored=PASS`, `stage=1`, `ESR=0x96000010`,
+`FAR=0xffff800000004000`, and `ELR=0xcccb80a8`.
+The shipped probe's instruction at offset `0xa8` is the first
+`AT S1E1R` for the low TTBR1 alias. The syndrome is a synchronous
+external Data Abort. The probe restored state before reaching either
+indirect call, so direct 16 KiB instruction fetch is still open.
 
 The verified copy is in `~/Downloads/elden-el1-native47-ram.img` on the
 MacBook. For the owner-operated run, enter the tablet bootloader and
@@ -196,6 +204,29 @@ at `EFI/UniXNU/Payloads/Native47.efi` on an 8 MiB FAT16 image labeled
 `build_phase2_image.py --kind probe --embed-payload` with that FAT image,
 then verify with `verify_phase2_artifact.py --kind probe --embed-payload
 --expect-default native47`.
+
+### Elden direct instruction-fetch follow-up
+
+Apply `patches/macos-recovery/elden-el1-direct-execution.patch` with
+`patch --batch --fuzz=0 -p1` in an isolated copy of the reference
+probe sources. Rebuild `ci/preflight.dsc` with
+`-D SHENG_NATIVE_EL1_PROBE=1` and use the same 8 MiB payload and
+phase-2.3 firmware. Append `DIRECT` to the probe menu title and
+keep the default entry ID `native47`.
+
+This variant keeps the same 47-bit, 16 KiB table layout and attempts
+the two indirect calls and data accesses before restoration. The
+temporary TTBR1 phase does not execute the `AT` controls. The app
+prints the requested and active TCR, active TTBR1, and any fault
+location. The EFI disassembly shows two indirect calls. The image
+passed the phase-2.3 verification and the MacBook copy matched
+SHA-256 `6ec54f8b0f5be83065e4cf365f5318d6c6521a87069b0846be36833feb99e657`.
+
+The follow-up is at `~/Downloads/elden-el1-native47-direct-ram.img`
+on the MacBook. Select **ELDEN 2.3 PROBE - EL1 16K 47-bit DIRECT**.
+Capture `execute`, `registers`, and `firmware-restored` or the
+reported trap stage. Direct execution and EL1 PAC remain unqualified
+on the tablet.
 
 ### Elden framebuffer driver
 
