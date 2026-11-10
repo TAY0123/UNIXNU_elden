@@ -191,3 +191,49 @@ mapping it. Recovery still reached `launchd` in that control run.
 The captured screen still showed the boot console. No composited frame or
 language chooser was observed. Display tests on Elden, panel modesetting,
 backlight control, and GPU acceleration remain separate milestones.
+
+### Elden UFS controller
+
+A read-only query on 2026-11-10 against Elden Linux
+`7.2.8-y700-r2-androidcrypt1` found the SM8750 host at `0x1d84000`, six
+LUNs with 4 KiB logical sectors, and the legacy request queue in use.
+Linux reported MCQ disabled. LUN 0 did not have a `macosroot` partition.
+
+The macOS 26.5 ARM64e adapter extends the pinned `NativeUfs` transport.
+It requires the Elden ADT, powered GCC branches, a legacy UFSHCI queue,
+and firmware's inherited identity DMA route for stream `0x60`. It verifies
+that route before changing the request list and leaves the SMMU untouched.
+The DMA arena is aligned to 16 KiB. Reads stay within the reported LUN 0
+capacity, and the submission path rejects writes to media. The adapter
+retains the DMA arena and quarantines the transport after a failed takeover
+that may have left the controller in ownership of the buffer.
+
+Apply the Elden overlays to the pinned macOS-ForSheng checkout and build on
+the Mac host:
+
+```sh
+git apply "$ELDEN_REPO/patches/macos-recovery/elden-gop-display.patch"
+git apply "$ELDEN_REPO/patches/macos-recovery/elden-ufs-build.patch"
+.venv/bin/python scripts/build_macos26_xnu.py --arch arm64e --link-kernel \
+  --build-ufs-driver --elden-ufs-device "$ELDEN_REPO" \
+  --build-gop-display --elden-gop-board "$ELDEN_REPO/board.toml" \
+  --kdk-root "$KDK_ROOT" -j 8
+```
+
+The MacBook built and prelinked the ARM64e candidate
+`7e4d2664f29195f3bef698bbbd39a15ca3a77581feb2a2728f5847ebebca06af`
+for macOS 26.5 (25F71). Its 326-slot storage ABI and pointer-authentication
+audit passed. Sanitized host tests exercised the command and queue path,
+including full-width DMA, capacity and LUN bounds, write rejection, and
+quarantine after a transport failure. The QEMU control reached
+`IOFindBSDRoot` with the probe requested and refused the non-Elden ADT
+before mapping controller registers or publishing media.
+
+After the Elden macOS handoff is qualified, the first owner-operated RAM
+boot can select `native-ufs-elden=1 native-ufs-probe=10 native-ufs-diagnostics=1`.
+This reads LUN 0's GPT header and checks its CRC without needing a
+`macosroot` partition. The next checkpoint is read-only Recovery media
+publication with `native-ufs-elden=1 native-ufs-root=1` and matching
+BaseSystem on a dedicated `macosroot` partition. Cold initialization of
+the PHY, controller reset, MCQ, and persistent writes are outside this
+firmware-handoff implementation.

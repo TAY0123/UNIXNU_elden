@@ -1,0 +1,376 @@
+--- a/NativeUfs.cpp
++++ b/NativeUfs.cpp
+@@ -28,11 +28,16 @@
+ #include <libkern/c++/OSString.h>
+ #include <libkern/libkern.h>
+ #include <pexpert/pexpert.h>
++#include <pexpert/device_tree.h>
+ #include <kern/debug.h>
+ #include "GccUfs.h"
+ #include "RootDiagnostics.h"
+ #include "TransferPoll.h"
+-#include "SmmuTakeover.h"
++#include "EldenUfsHandoff.h"
++#include "EldenUfsIdentity.h"
++
++#undef UFS_HC_BASE
++#define UFS_HC_BASE ELDEN_UFS_HOST
+ 
+ static UfsRootDiagnostics gRootDiagnostic;
+ static bool gRootDiagnosticEnabled;
+@@ -80,7 +85,11 @@
+ 
+ static uint32_t read32 (uintptr_t base, unsigned offset)
+ {
+-  return *reinterpret_cast<volatile uint32_t *> (base + offset);
++  // The inherited SMMU register window requires a fixed-address load on Elden.
++  const uintptr_t address = base + offset;
++  uint32_t value;
++  __asm__ volatile ("ldr %w0, [%1]" : "=r" (value) : "r" (address) : "memory");
++  return value;
+ }
+ 
+ static void write32 (uintptr_t base, unsigned offset, uint32_t value)
+@@ -125,10 +134,10 @@
+   bool match = false;
+   if (data) {
+     const char *text = static_cast<const char *> (data->getBytesNoCopy ());
+-    match = text && contains (text, data->getLength (), "qcom,sm8550-ufshc");
++    match = text && contains (text, data->getLength (), "qcom,sm8750-ufshc");
+   } else if (string) {
+     const char *text = string->getCStringNoCopy ();
+-    match = text && contains (text, string->getLength (), "qcom,sm8550-ufshc");
++    match = text && contains (text, string->getLength (), "qcom,sm8750-ufshc");
+   }
+   if (!match) {
+     return nullptr;
+@@ -267,59 +276,27 @@
+ }
+ 
+ 
+-// Give the UFS stream a pass-through mapping the way Linux does on this firmware.
+-// Hardware 2026-10-17: after hand-off apps_smmu has sCR0 = 0x002f0406 (USFCFG=1, unmatched
+-// streams fault), no stream-match entry for the UFS host (ID 0x60, `iommus = <&apps_smmu 0x60
+-// 0x0>` in the board DT), a TYPE=BYPASS S2CR reads back as FAULT, and sCR0 writes are ignored.
+-// Linux (drivers/iommu/arm/arm-smmu/arm-smmu-qcom.c, qcom_smmu_cfg_probe + qcom_smmu_write_s2cr,
+-// "bypass_quirk") meets exactly this: it reserves the LAST context bank (num_context_banks-1),
+-// writes SCTLR=0 (stage 1 disabled) and CBAR.TYPE=S1_TRANS_S2_BYPASS there, and maps a bypass
+-// stream as S2CR TYPE=TRANSLATE with CBNDX = that bank. S2CR is written before SMR
+-// (arm_smmu_write_sme). ARM IHI 0062D.c table 3-1 additionally requires VA64=1
+-// for inputs above 32 bits even with SCTLR.M=0. Storage DMA path only; this
+-// is physical pass-through, not a page-table or Adreno 4 KiB qualification.
+-static void smmuBypassStream (uint16_t stream, OSSharedPtr<IOMemoryMap> &keep, uint32_t *report,
+-                              uint64_t dma, uint64_t bytes)
+-{
+-  uintptr_t smmu = mapPhys (0x15000000ULL, 0xd0000, keep);
+-  if (!smmu) {
+-    panic ("NATIVE_UFS smmu: map failed");
+-  }
+-  UfsSmmuPlan plan = planUfsSmmu (stream, dma, bytes, [smmu](unsigned offset) { return read32 (smmu, offset); });
+-  gRootDiagnostic.smmuId1 = read32 (smmu, 0x24);
+-  gRootDiagnostic.smmuId2 = read32 (smmu, 0x28);
+-  gRootDiagnostic.smmuSlot = plan.slot;
+-  if (plan.error) {
+-    gRootDiagnostic.stage = "SMMU planning";
+-    gRootDiagnostic.result = static_cast<uint32_t> (kIOReturnNotReady);
+-    gRootDiagnostic.smr = plan.smr; gRootDiagnostic.s2cr = plan.s2cr;
+-    rootDiagnosticFailure (plan.error);
+-    panic ("NATIVE_UFS smmu: %s slot=%u smr=%x s2cr=%x", plan.error, plan.slot, plan.smr, plan.s2cr);
+-  }
+-  unsigned bank = plan.bank, index = plan.slot;
+-  uintptr_t cb = smmu + (plan.pages + bank) * 4096;
+-  const char *failure = configureUfsSmmu (plan, stream,
+-    [smmu](unsigned offset) { return read32 (smmu, offset); },
+-    [smmu](unsigned offset, uint32_t value) {
+-      write32 (smmu, offset, value);
+-      __asm__ volatile ("dsb sy" ::: "memory");
+-    });
+-  uint32_t smr = read32 (smmu, 0x800 + 4 * index), s2cr = read32 (smmu, 0xc00 + 4 * index);
+-  uint32_t cbar = read32 (smmu, 0x1000 + 4 * bank), sctlr = read32 (cb, 0x0);
+-  gRootDiagnostic.smr = smr; gRootDiagnostic.s2cr = s2cr;
+-  gRootDiagnostic.cbar = cbar; gRootDiagnostic.sctlr = sctlr;
+-  gRootDiagnostic.smmuId2 = read32 (smmu, 0x28);
+-  gRootDiagnostic.cba2r = read32 (smmu, 0x1800 + 4 * bank);
+-  if (failure) {
+-    gRootDiagnostic.stage = "SMMU readback";
+-    gRootDiagnostic.result = static_cast<uint32_t> (kIOReturnNotReady);
+-    rootDiagnosticFailure (failure);
+-    panic ("NATIVE_UFS smmu: %s idx=%u bank=%u cba2r=%x", failure, index, bank,
+-           gRootDiagnostic.cba2r);
+-  }
+-  report[0] = index | (bank << 16);
+-  report[1] = cbar;
+-  report[2] = sctlr;
++// Admit only the DMA route already established by firmware.
++static bool checkEldenUfsDma (OSSharedPtr<IOMemoryMap> &keep, uint32_t *report,
++                             uint64_t dma, uint64_t bytes)
++{
++  uintptr_t smmu = mapPhys (ELDEN_UFS_SMMU, 0x100000, keep);
++  if (!smmu) return false;
++  auto route = eldenUfsIdentity (ELDEN_UFS_STREAM, dma, bytes,
++    [smmu](unsigned offset) { return read32 (smmu, offset); });
++  gRootDiagnostic.smmuId1 = route.id1;
++  gRootDiagnostic.smmuId2 = route.id2;
++  gRootDiagnostic.smmuSlot = route.slot;
++  gRootDiagnostic.smr = route.smr;
++  gRootDiagnostic.s2cr = route.s2cr;
++  gRootDiagnostic.cbar = route.cbar;
++  gRootDiagnostic.cba2r = route.cba2r;
++  gRootDiagnostic.sctlr = route.sctlr;
++  if (route.error) return false;
++  report[0] = route.slot | (route.bank << 16);
++  report[1] = route.cbar;
++  report[2] = route.sctlr;
++  return true;
+ }
+ 
+ void NativeUfs::adoptAndRead (unsigned level)
+@@ -367,7 +344,8 @@
+   unsigned stopLoops = 10000;
+   while ((read32 (hc, 0x60) & 1) && stopLoops--) IODelay (10);
+   if (read32 (hc, 0x60) & 1) panic ("NATIVE_UFS adopt: request list did not stop");
+-  smmuBypassStream (0x60, smmuMap, smmuReport, phys, 16384);
++  if (!checkEldenUfsDma (smmuMap, smmuReport, phys, 16384))
++    panic ("NATIVE_UFS: inherited Elden DMA route unavailable");
+   write32 (hc, 0x50, static_cast<uint32_t> (phys));
+   write32 (hc, 0x54, static_cast<uint32_t> (phys >> 32));
+   write32 (hc, 0x20, 0xffffffffU);  // clear stale status
+@@ -876,19 +854,20 @@
+ 
+ #include "RootQueue.h"
+ 
++static uint32_t gEldenLastLba;
++static bool gEldenQueueTouched;
+ #include "RootCommands.h"
+ 
+-// Bring the live controller up for reading: map, SMMU pass-through for the UFS stream, take over
+-// the request list, wake the device from UFS-PowerDown and wait for LUN 0 to be ready.
+-// `why` receives a short reason on failure.
+-static bool hostBringUp (const char **why)
+-{
+-  if (gHost.poisoned) {
+-    *why = "transport quarantined";
+-    return false;
+-  }
+-  if (gHost.ready) {
+-    return true;
++// Attach to the powered legacy controller without resetting its link.
++static bool hostInitialize (const char **why)
++{
++  gRootDiagnostic.stage = "SM8750 GCC";
++  OSSharedPtr<IOMemoryMap> gccMap;
++  const uintptr_t gcc = mapPhys (ELDEN_UFS_GCC_PAGE, 0x1000, gccMap);
++  if (!gcc || !eldenUfsClocksReady (read32 (gcc, kEldenUfsGdsc), read32 (gcc, kEldenUfsAxi),
++                                   read32 (gcc, kEldenUfsAhb), read32 (gcc, kEldenUfsAggregate))) {
++    *why = "SM8750 UFS clocks or power unavailable";
++    return false;
+   }
+   gRootDiagnostic.stage = "controller map";
+   gHost.hc = mapPhys (UFS_HC_BASE, UFS_HC_SIZE, gHost.hcMap);
+@@ -896,17 +875,26 @@
+     *why = "controller map";
+     return false;
+   }
+-  if (gRootDiagnosticEnabled) {
+-    gRootDiagnostic.cap = read32 (gHost.hc, 0x00);
+-    gRootDiagnostic.version = read32 (gHost.hc, 0x08);
+-    gRootDiagnostic.hcs = read32 (gHost.hc, 0x30);
+-    gRootDiagnostic.hce = read32 (gHost.hc, 0x34);
++  native_ufs_mapped = 1;
++  const uint32_t cap = read32 (gHost.hc, 0x00);
++  const uint32_t version = read32 (gHost.hc, 0x08);
++  gRootDiagnostic.cap = cap;
++  gRootDiagnostic.version = version;
++  gRootDiagnostic.hcs = read32 (gHost.hc, 0x30);
++  gRootDiagnostic.hce = read32 (gHost.hc, 0x34);
++  if (!eldenUfsLegacyQueue (version, 0)) {
++    *why = "unsupported UFSHCI version";
++    return false;
++  }
++  if ((cap & 0x40000000U) && !eldenUfsLegacyQueue (version, read32 (gHost.hc, 0x300))) {
++    *why = "MCQ enabled";
++    return false;
+   }
+   gRootDiagnostic.stage = "DMA allocation";
+   gHost.dma = IOBufferMemoryDescriptor::inTaskWithOptions (
+     kernel_task, static_cast<IOOptionBits> (kIODirectionInOut) | static_cast<IOOptionBits> (kIOMemoryPhysicallyContiguous) |
+     static_cast<IOOptionBits> (kIOMemoryMapperNone),
+-    kDmaBytes, 4096);
++    kDmaBytes, 16384);
+   gHost.lock = IOLockAlloc ();
+   if (!gHost.dma || !gHost.lock) {
+     *why = "dma buffer";
+@@ -917,26 +905,31 @@
+   gHost.phys = gHost.dma->getPhysicalSegment (0, &contiguous, kIOMemoryMapperNone);
+   gRootDiagnostic.dma = gHost.phys;
+   gRootDiagnostic.contiguous = contiguous;
+-  if (!gHost.virt || !gHost.phys || (gHost.phys & 4095) || contiguous < kDmaBytes ||
+-      (!(read32 (gHost.hc, 0) & 0x01000000) && gHost.phys + kDmaBytes > 0x100000000ULL)) {
++  if (!gHost.virt || !gHost.phys || (gHost.phys & 16383) || contiguous < kDmaBytes ||
++      gHost.phys > UINT64_MAX - kDmaBytes ||
++      (!(cap & 0x01000000U) && gHost.phys + kDmaBytes > 0x100000000ULL)) {
+     *why = "DMA address/contiguity";
+     return false;
+   }
+   bzero (gHost.virt, kDmaBytes);
+   cacheCivac (gHost.virt, kDmaBytes);
+   uint32_t report[3] = { 0, 0, 0 };
+-  gRootDiagnostic.stage = "SMMU and request list";
++  gRootDiagnostic.stage = "inherited SMMU route";
++  if (!checkEldenUfsDma (gHost.smmuMap, report, gHost.phys, kDmaBytes)) {
++    *why = "inherited Elden DMA route unavailable";
++    return false;
++  }
++  gHost.smmu = gHost.smmuMap->getVirtualAddress ();
++  const uint32_t idr1 = gRootDiagnostic.smmuId1;
++  if (((gRootDiagnostic.s2cr >> 16) & 3U) == 0) {
++    gHost.cb = gHost.smmu + ((1U << (((idr1 >> 28) & 7) + 1)) + (report[0] >> 16)) * 4096;
++    if (gRootDiagnosticEnabled) gRootDiagnostic.fsrBefore = read32 (gHost.cb, 0x58);
++  }
++  if (gRootDiagnosticEnabled) gRootDiagnostic.gfsrBefore = read32 (gHost.smmu, 0x48);
++  gRootDiagnostic.stage = "legacy request list";
++  // StopQueue can change registers before it reports a failure.
++  gEldenQueueTouched = true;
+   if (!hostStopQueue (why)) return false;
+-  smmuBypassStream (0x60, gHost.smmuMap, report, gHost.phys, kDmaBytes);
+-  gHost.smmu = gHost.smmuMap->getVirtualAddress ();
+-  uint32_t idr1 = read32 (gHost.smmu, 0x24);
+-  gHost.cb = gHost.smmu + ((1U << (((idr1 >> 28) & 7) + 1)) + (report[0] >> 16)) * 4096;
+-  if (gRootDiagnosticEnabled) {
+-    gRootDiagnostic.gfsrBefore = read32 (gHost.smmu, 0x48);
+-    gRootDiagnostic.fsrBefore = read32 (gHost.cb, 0x58);
+-    gRootDiagnostic.smmuId2 = read32 (gHost.smmu, 0x28);
+-    gRootDiagnostic.cba2r = read32 (gHost.smmu, 0x1800 + 4 * (report[0] >> 16));
+-  }
+   if (!hostStartQueue (why)) return false;
+   gRootDiagnostic.stage = "NOP OUT";
+   // NOP OUT proves the transport before touching the SCSI layer.
+@@ -970,7 +963,21 @@
+     uint8_t tur[6] = { 0, 0, 0, 0, 0, 0 };
+     uint32_t scsi = 0;
+     if (hostScsi (0, tur, 6, false, 0, 200000, &scsi) == kIOReturnSuccess) {
++      gRootDiagnostic.stage = "LUN 0 READ CAPACITY";
++      const uint8_t capacity[10] = { 0x25 };
++      if (hostScsi (0, capacity, sizeof (capacity), true, 8, 200000, &scsi) != kIOReturnSuccess) {
++        *why = "LUN 0 READ CAPACITY failed";
++        return false;
++      }
++      const uint8_t *data = gHost.virt + kDataOffset;
++      const uint32_t last = loadBe32 (data);
++      if (!last || last == UINT32_MAX || loadBe32 (data + 4) != 4096) {
++        *why = "LUN 0 requires 4 KiB blocks and READ(10) capacity";
++        return false;
++      }
++      gEldenLastLba = last;
+       gHost.ready = true;
++      IOLog ("NativeUfs: Elden legacy queue ready, LUN 0 last=%x block=4096\n", last);
+       return true;
+     }
+     if (gHost.poisoned) break;
+@@ -978,6 +985,30 @@
+   }
+   gHost.ready = false;
+   *why = "LUN 0 not ready";
++  return false;
++}
++
++static bool hostBringUp (const char **why)
++{
++  if (gHost.poisoned) {
++    *why = "transport quarantined";
++    return false;
++  }
++  if (gHost.ready || hostInitialize (why)) return true;
++  if (gEldenQueueTouched) {
++    // The controller may still own the DMA buffer. Keep it wired until reboot.
++    gHost.poisoned = true;
++    return false;
++  }
++  if (gHost.dma) gHost.dma->release ();
++  if (gHost.lock) IOLockFree (gHost.lock);
++  gHost.dma = nullptr;
++  gHost.lock = nullptr;
++  gHost.virt = nullptr;
++  gHost.phys = 0;
++  gHost.hc = 0;
++  gHost.smmuMap.reset ();
++  gHost.hcMap.reset ();
+   return false;
+ }
+ }
+@@ -1830,6 +1861,21 @@
+   if ((!probe && !rootMode) || !OSDynamicCast (IOPlatformExpertDevice, provider)) {
+     return false;
+   }
++  DTEntry root;
++  const void *compatible = nullptr;
++  unsigned length = 0;
++  unsigned elden = 0;
++  PE_parse_boot_argn ("native-ufs-elden", &elden, sizeof (elden));
++  if (elden != 1 || SecureDTLookupEntry (nullptr, "/", &root) != kSuccess ||
++      SecureDTGetProperty (root, "compatible", &compatible, &length) != kSuccess ||
++      !compatible || !eldenUfsBoardMatches (static_cast<const char *> (compatible), length)) {
++    IOLog ("NativeUfs: Elden firmware handoff not selected or board mismatched\n");
++    return false;
++  }
++  if ((probe && probe != 10) || (probe && rootMode) || rootMode > 1) {
++    IOLog ("NativeUfs: Elden supports either probe 10 or read-only root mode\n");
++    return false;
++  }
+   unsigned diagnostic = 0;
+   PE_parse_boot_argn ("native-ufs-diagnostics", &diagnostic, sizeof (diagnostic));
+   gRootDiagnosticEnabled = diagnostic == 1;
+@@ -1849,21 +1895,18 @@
+     adoptAndRead (probe);
+   }
+   if (probe == 10) {
+-    // Read-only check before anything is flashed: LUN 0 GPT -> "userdata" -> its first block.
+-    const char *why = "";
+-    if (!hostBringUp (&why)) {
+-      panic ("NATIVE_UFS root check: bring-up failed: %s", why);
+-    }
+-    RootLayout *layout = static_cast<RootLayout *> (IOMalloc (sizeof (RootLayout)));
+-    if (!layout || !findRootLayout (layout, &why)) {
+-      panic ("NATIVE_UFS root check: %s", why);
+-    }
+-    panic ("NATIVE_UFS root check\n"
+-           "userdata first=%llx last=%llx\n"
+-           "block0 magic %08x %08x ext4magic=%04x ext4blocks=%u\n"
+-           "manifest status=%u windows=%u",
+-           layout->userdataFirst, layout->userdataLast, layout->magic0, layout->magic1,
+-           layout->ext4Magic, layout->ext4Blocks, layout->manifestStatus, layout->windows);
++    const char *why = "GPT header read";
++    if (!hostBringUp (&why) || hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) {
++      rootDiagnosticFailure (why);
++      IOLog ("NativeUfs: Elden read-only probe failed: %s\n", why);
++      return false;
++    }
++    const uint32_t bytes = le32 (gScratch + 12);
++    const bool valid = !memcmp (gScratch, "EFI PART", 8) &&
++                       bytes >= 92 && bytes <= 4096 && le64 (gScratch + 24) == 1 &&
++                       rootCrc32 (gScratch, bytes, true) == le32 (gScratch + 16);
++    IOLog ("NativeUfs: Elden LUN 0 GPT header %s\n", valid ? "read and CRC verified" : "rejected");
++    return valid;
+   }
+   if (probe == 11) {
+     // After the root image is flashed: manifest, then each window's own GPT (sector 1 of the
+--- a/RootCommands.h
++++ b/RootCommands.h
+@@ -35,6 +35,7 @@
+   *ocs = 15;
+   if (!timeoutUs || dataBytes > kDataMax || (dataBytes & 3) ||
+       (dataBytes ? (direction != 1 && direction != 2) : direction != 0)) return kIOReturnBadArgument;
++  if (direction == 1) return kIOReturnNotWritable;
+   if (gHost.poisoned) return kIOReturnNotReady;
+   if (read32 (gHost.hc, 0x58) != 0) {
+     gHost.poisoned = true;
+@@ -240,7 +241,8 @@
+ // Read `blocks` (<= kDataMax / 4096) 4096-byte blocks of LUN `lun` starting at `lba` into dst.
+ static IOReturn hostRead4k (uint8_t lun, uint64_t lba, uint32_t blocks, void *dst)
+ {
+-  if (!gHost.ready || !dst || !blocks || blocks > kDataMax / 4096 || lba > 0xffffffffULL - (blocks - 1)) {
++  if (!gHost.ready || !dst || lun != 0 || !blocks || blocks > kDataMax / 4096 ||
++      lba > gEldenLastLba || blocks - 1 > gEldenLastLba - lba) {
+     return kIOReturnBadArgument;
+   }
+   IOLockLock (gHost.lock);

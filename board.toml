@@ -34,6 +34,11 @@ usb_debug_controller = "0x0a600000"
 usb_debug_sid = "0x40"
 usb_debug_resources = "soc/sm8750/include/EldenUsbResources.h"
 
+[board.hardware.ufs_handoff]
+gcc_page = 0x177000
+smmu_base = 0x15000000
+stream_id = 0x60
+
 [board.hardware.gop_framebuffer]
 # The firmware splash reservation bounds the inherited 32-bit scanout.
 base = 0xfc800000

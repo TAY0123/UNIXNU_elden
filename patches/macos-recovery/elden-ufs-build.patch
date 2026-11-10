@@ -1,0 +1,193 @@
+diff --git a/scripts/build_macos26_storage.py b/scripts/build_macos26_storage.py
+index ea9283a..cfbafe9 100644
+--- a/scripts/build_macos26_storage.py
++++ b/scripts/build_macos26_storage.py
+@@ -5,7 +5,9 @@ import hashlib
+ import json
+ from pathlib import Path
+ import plistlib
++import shutil
+ import subprocess
++import tomllib
+ import uuid
+ 
+ from native_macho import macho
+@@ -18,10 +20,49 @@ PROTOCOL_CHARACTERISTICS = {
+ }
+ 
+ 
++def stage_elden_ufs(device: Path, upstream: Path, destination: Path) -> tuple[Path, dict]:
++    board = tomllib.loads((device / 'board.toml').read_text())['board']
++    hardware = board['hardware']
++    handoff = hardware['ufs_handoff']
++    host = int(hardware['ufs_host'], 0)
++    gcc, smmu, stream = (handoff[name] for name in ('gcc_page', 'smmu_base', 'stream_id'))
++    if (board['name'] != 'elden' or board['soc'] != 'SM8750P'
++            or any(type(value) is not int or not 0 < value < (1 << 32) or value % 4096
++                   for value in (host, gcc, smmu))
++            or type(stream) is not int or not 0 < stream <= 0xffff):
++        raise ValueError('invalid Elden UFS handoff profile')
++
++    destination.mkdir(parents=True, exist_ok=True)
++    driver_patches = device / 'scripts/driver-patches'
++    resources = {
++        'NativeUfs.cpp': upstream,
++        'RootCommands.h': upstream.with_name('RootCommands.h'),
++        'EldenUfsIdentity.h': driver_patches / 'EldenUfsIdentity.h',
++        'EldenUfsHandoff.h': device / 'soc/sm8750/include/EldenUfsHandoff.h',
++    }
++    for name, path in resources.items():
++        shutil.copyfile(path, destination / name)
++    patch = driver_patches / 'elden-macos26-ufs.patch'
++    subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(patch.resolve())],
++                   cwd=destination, check=True, capture_output=True)
++    profile = destination / 'EldenUfsProfile.h'
++    profile.write_text(f'#define ELDEN_UFS_HOST {host:#x}ULL\n'
++                       f'#define ELDEN_UFS_GCC_PAGE {gcc:#x}ULL\n'
++                       f'#define ELDEN_UFS_SMMU {smmu:#x}ULL\n'
++                       f'#define ELDEN_UFS_STREAM {stream:#x}U\n')
++    files = {name: hashlib.sha256((destination / name).read_bytes()).hexdigest()
++             for name in (*resources, profile.name)}
++    return destination / upstream.name, dict(
++        board='elden', boot_argument='native-ufs-elden=1', read_only=True, inherited_dma=True,
++        legacy_queue=True, patch_sha256=hashlib.sha256(patch.read_bytes()).hexdigest(), files=files)
++
++
+ def build(root, out, compile_record, source, run, record, env, *, transport='virtio', gop_display=False,
+-          recovery_input=False, display_board=None):
++          recovery_input=False, display_board=None, elden_device=None):
+     if transport not in ('virtio', 'ufs'):
+         raise ValueError('unsupported native storage transport')
++    if elden_device is not None and transport != 'ufs':
++        raise ValueError('Elden UFS requires the UFS transport')
+     if recovery_input and not gop_display:
+         raise ValueError('the QEMU input experiment requires the GOP companion')
+     component = 'NativeVirtioBlock' if transport == 'virtio' else 'NativeUfs'
+@@ -42,6 +83,10 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+     include.mkdir(parents=True, exist_ok=True)
+     for header in (root / 'sources/macos26/IOStorageFamily').glob('*.h'):
+         (include / header.name).write_bytes(header.read_bytes())
++    driver = upstream
++    elden = None
++    if elden_device is not None:
++        driver, elden = stage_elden_ufs(elden_device, upstream, destination / 'elden-transport')
+     wrapper = destination / (component + '.cpp')
+     entry_prefix = 'sheng_virtio' if transport == 'virtio' else 'sheng_ufs'
+     recovery_prefix = ''
+@@ -70,19 +115,22 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+                 '#define NATIVE_UFS_ISC_DIGEST {' + ','.join(str(b) for b in isc_digest) + '}\n'
+                 f'#define NATIVE_UFS_ISC_UUID "{isc_uuid}"\n')
+         recovery_prefix += f'#include "{root / "platform/sheng/macos26/storage/recovery_root.h"}"\n'
+-        log = json.loads((root / 'config/macoslog.json').read_text())
+-        validate_contract(log)
+-        recovery_prefix += '#define NATIVE_MACOSLOG 1\n'
+-        for name, value in (('FILE', uuid.UUID(log['file_uuid']).bytes),
+-                            ('PARTITION', uuid.UUID(log['partition_uuid']).bytes_le),
+-                            ('TYPE', uuid.UUID(log['partition_type']).bytes_le)):
+-            recovery_prefix += '#define NATIVE_MACOSLOG_' + name + '_ID {' + ','.join(map(str, value)) + '}\n'
+-        recovery_prefix += f'#define NATIVE_MACOSLOG_WORKER "{root / "platform/sheng/macos26/storage/macoslog_worker.h"}"\n'
++        if elden:
++            recovery_prefix += f'#include "{driver.with_name("EldenUfsProfile.h")}"\n'
++        else:
++            log = json.loads((root / 'config/macoslog.json').read_text())
++            validate_contract(log)
++            recovery_prefix += '#define NATIVE_MACOSLOG 1\n'
++            for name, value in (('FILE', uuid.UUID(log['file_uuid']).bytes),
++                                ('PARTITION', uuid.UUID(log['partition_uuid']).bytes_le),
++                                ('TYPE', uuid.UUID(log['partition_type']).bytes_le)):
++                recovery_prefix += '#define NATIVE_MACOSLOG_' + name + '_ID {' + ','.join(map(str, value)) + '}\n'
++            recovery_prefix += f'#define NATIVE_MACOSLOG_WORKER "{root / "platform/sheng/macos26/storage/macoslog_worker.h"}"\n'
+     wrapper.write_text(
+         '#include <TargetConditionals.h>\n'
+         'static_assert(TARGET_OS_OSX == 1, "requires macOS storage ABI");\n'
+         + recovery_prefix +
+-        f'#include "{upstream}"\n' +
++        f'#include "{driver}"\n' +
+         (f'#include "{display["source"]}"\n' if display else '') +
+         '#include <mach/kmod.h>\n'
+         f'extern "C" kern_return_t {entry_prefix}_start(kmod_info_t *, void *) {{ return KERN_SUCCESS; }}\n'
+@@ -111,6 +159,8 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+         command[1:1] = ['-DNATIVE_QEMU_SCRATCH_BLOCK=1']
+     else:
+         command[1:1] = ['-DNATIVE_UFS_ROOT_PARTITION_NAME="macosroot"']
++    if elden:
++        command[1:1] = ['-I', str(upstream.parent)]
+     sdk = Path(subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip())
+     command += ['-I', str(source / 'osfmk'), '-I', str(sdk / 'usr/include'),
+                 '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
+@@ -189,11 +239,14 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+     if input_driver:
+         evidence['native_recovery_input'] = input_driver
+     if transport == 'ufs':
+-        evidence['macoslog'] = dict(contract=log, default_off=True,
+-            boot_argument='native-ufs-macoslog', read_only_mode=1, write_mode=2,
+-            writes_confined_to_preallocated_file=True, filesystem_metadata_writes=False,
+-            source_sha256={name: hashlib.sha256((root / 'platform/sheng/macos26/storage' / name).read_bytes()).hexdigest()
+-                           for name in ('macoslog_layout.h', 'macoslog_worker.h')})
++        if elden:
++            evidence['elden_ufs'] = elden
++        else:
++            evidence['macoslog'] = dict(contract=log, default_off=True,
++                boot_argument='native-ufs-macoslog', read_only_mode=1, write_mode=2,
++                writes_confined_to_preallocated_file=True, filesystem_metadata_writes=False,
++                source_sha256={name: hashlib.sha256((root / 'platform/sheng/macos26/storage' / name).read_bytes()).hexdigest()
++                               for name in ('macoslog_layout.h', 'macoslog_worker.h')})
+         evidence.update(root_partition='macosroot', root_lun=0,
+                         android_userdata_used=False, root_media_layout_qualified=False,
+                         recovery_root=recovery_root,
+diff --git a/scripts/build_macos26_xnu.py b/scripts/build_macos26_xnu.py
+index 873a6f7..0edf4f6 100644
+--- a/scripts/build_macos26_xnu.py
++++ b/scripts/build_macos26_xnu.py
+@@ -565,7 +565,8 @@ def compile_sources(args, record: dict) -> None:
+             if args.build_ufs_driver:
+                 build_storage(ROOT, OUT, compile_record, source, run, record, env,
+                               transport='ufs', gop_display=args.build_gop_display,
+-                              recovery_input=args.build_recovery_input, display_board=args.elden_gop_board)
++                              recovery_input=args.build_recovery_input, display_board=args.elden_gop_board,
++                              elden_device=args.elden_ufs_device)
+             save(record)
+ 
+ 
+@@ -650,6 +651,8 @@ def main() -> None:
+     parser.add_argument('--link-kernel', action='store_true', help='build runtime and attempt the native executable link')
+     parser.add_argument('--build-ufs-driver', action='store_true',
+                         help='compile the default-off sheng UFS transport with the paired ARM64E ABI')
++    parser.add_argument('--elden-ufs-device', type=Path,
++                        help='build the read-only SM8750 firmware-handoff transport from the Elden device repo')
+     parser.add_argument('--build-gop-display', action='store_true',
+                         help='include the default-off paired CPU GOP display in the UFS companion')
+     parser.add_argument('--build-qemu-gop-display', action='store_true',
+@@ -664,6 +667,8 @@ def main() -> None:
+     args = parser.parse_args()
+     if args.build_ufs_driver and (not args.link_kernel or args.arch != 'arm64e'):
+         parser.error('--build-ufs-driver requires --link-kernel --arch arm64e')
++    if args.elden_ufs_device and not args.build_ufs_driver:
++        parser.error('--elden-ufs-device requires --build-ufs-driver')
+     if args.build_gop_display and not args.build_ufs_driver:
+         parser.error('--build-gop-display requires --build-ufs-driver')
+     if args.build_qemu_gop_display and (not args.link_kernel or args.arch != 'arm64e'):
+diff --git a/scripts/native_storage_module.py b/scripts/native_storage_module.py
+index 58c742a..7c20a51 100644
+--- a/scripts/native_storage_module.py
++++ b/scripts/native_storage_module.py
+@@ -110,6 +110,19 @@ def prepare(directory: Path, base: int, native: dict, original: bytes,
+                 or evidence.get('read_only_transport') is not True
+                 or evidence.get('hardware_enable_required') is not True):
+             raise ValueError('UFS transport must restrict its read-only root to macosroot on LUN0')
++        if 'elden_ufs' in evidence:
++            profile = evidence['elden_ufs']
++            names = {'NativeUfs.cpp', 'RootCommands.h', 'EldenUfsIdentity.h',
++                     'EldenUfsHandoff.h', 'EldenUfsProfile.h'}
++            if (profile.get('board') != 'elden' or profile.get('boot_argument') != 'native-ufs-elden=1'
++                    or profile.get('read_only') is not True or profile.get('inherited_dma') is not True
++                    or profile.get('legacy_queue') is not True or 'macoslog' in evidence
++                    or names != profile.get('files', {}).keys()):
++                raise ValueError('requires the read-only Elden firmware handoff contract')
++            for name in names:
++                path = directory / 'elden-transport' / name
++                if hashlib.sha256(path.read_bytes()).hexdigest() != profile['files'][name]:
++                    raise ValueError('Elden UFS source differs from the compiled record')
+     display = evidence.get('native_gop_display')
+     input_driver = evidence.get('native_recovery_input')
+     allowed = {component, 'NativeGOPDisplay'} if display else {component}
