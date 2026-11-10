@@ -726,6 +726,12 @@ MacBook copy is `~/Downloads/elden-macos26-4k-recovery-pid1-ram.img`
 with SHA-256 `76d640cd8124296ddf60503f208bc4d47bca3056aefe0999292ba35751053206`.
 The image passed the DarwinBoot and embedded payload checks.
 
+The PID 1 log retest remained at `launchd exec` after 153 seconds. The
+photo shows one recorded PID 1 exec, zero exits, and zero recorded
+Recovery service starts. The visible log contains no PID 1 output.
+A snapshot of the PID 1 thread state would help distinguish a wait in
+dyld from a stall later in startup.
+
 ### Elden two-core Recovery test
 
 The separate RAM image requests `cpus=2 sheng-smp=1 armcpu-self-ipi=1`
@@ -738,6 +744,29 @@ PSCI result and receives both interrupt types.
 
 The verified MacBook image is `~/Downloads/elden-macos26-4k-recovery-smp2-ram.img`
 with SHA-256 `99646af150b0dcf250d9d9da3c93454415bed96fd84c1308b07666743191166e`.
-Secondary startup remains pending a device run. The cores at `0x10000`
-and `0x10100` also need an Aff2-aware secondary reset path and an audit
-of MPIDR-based cluster indexing before expanding the test to eight cores.
+Secondary startup remains pending a device run.
+
+### Elden cross-cluster CPU test
+
+The reset vector now preserves MPIDR Aff2 when locating the secondary
+CPU's data. ArmCpu compares the complete hardware affinity before
+enabling the core's redistributor. The Elden kernel uses one logical
+scheduler cluster and has the monitor disabled. The fix keeps that
+configuration and uses full hardware affinities for startup and GIC
+routing.
+
+The new ADT moves `0x10000` to the second CPU entry while preserving
+all eight CPU nodes. Select **CPU Aff2 Test** to exercise the former
+collision with boot affinity `0x0`. Select **Eight-core Test** after
+the two-core case records step 7, PSCI result 0, and timer and IPI
+delivery. Both choices use the same paired read-only UFS transport
+and installed BaseSystem.
+
+The MacBook rebuilt the 4 KiB ARM64e kernel. Disassembly verified the
+24-bit reset mask, and a host audit checked all 64 expected/observed
+affinity pairs. The prelink, DarwinBoot, and embedded payload checks
+passed. The MacBook image is
+`~/Downloads/elden-macos26-4k-recovery-smp-aff2-ram.img` with SHA-256
+`8a46c7522f52037c374161e2d0a6c63989f22c0e146581f82540299df4333c0a`.
+Bootloader fastboot accepted this RAM boot. Secondary CPU execution
+still needs a capture from the selected test entry.

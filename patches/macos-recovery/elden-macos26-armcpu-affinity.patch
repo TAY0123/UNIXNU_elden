@@ -1,0 +1,10 @@
+diff --git a/ArmCpu/ArmCpu.cpp b/ArmCpu/ArmCpu.cpp
+--- a/ArmCpu/ArmCpu.cpp
++++ b/ArmCpu/ArmCpu.cpp
+@@ -508,5 +508,5 @@ void ArmCpu::initCPU (bool boot)
+     __asm__ volatile ("mrs %0, mpidr_el1" : "=r" (mpidr));
+     armcpu_smp_seen_mpidr[logicalId] = static_cast<uint32_t> (mpidr);
+     // A failure is recorded and the core parked (rather than a panic that hides the other cores' state).
+-    if ((mpidr & 0xffff) != (affinity & 0xffff)) { armcpu_smp_fail[logicalId] = 1; for (;;) { __asm__ volatile ("wfe"); } }
++    if ((mpidr ^ affinity) & 0xff00ffffffULL) { armcpu_smp_fail[logicalId] = 1; for (;;) { __asm__ volatile ("wfe"); } }
+     if (!gRemoteGic && !wakeRedistributor (true)) { armcpu_smp_fail[logicalId] = 2; for (;;) { __asm__ volatile ("wfe"); } }

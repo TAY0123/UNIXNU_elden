@@ -1,0 +1,32 @@
+version = 1
+
+[boot]
+timeout = -1
+default = "aff2"
+serial_commands = true
+
+[kits]
+autoload = false
+
+[ui]
+scale = 4
+
+[[entry]]
+id = "aff2"
+title = "Elden macOS 26.5 - CPU Aff2 Test"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v debug=0x14e keepsyms=1 cpus=2 sheng-smp=1 armcpu-self-ipi=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1"
+
+[[entry]]
+id = "smp8"
+title = "Elden macOS 26.5 - Eight-core Test"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v debug=0x14e keepsyms=1 cpus=8 sheng-smp=1 armcpu-self-ipi=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1"
+
+[[entry]]
+id = "fastboot"
+title = "Reboot to Fastboot"
+type = "action"
+action = "fastboot"

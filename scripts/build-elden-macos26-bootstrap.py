@@ -13,6 +13,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sheng-root", type=Path, required=True)
     parser.add_argument("--kdk-root", type=Path, required=True)
+    parser.add_argument("--output-name", default="elden-macos26-4k-bootstrap",
+                        help="build directory name under the reference checkout's out directory")
     parser.add_argument("--elden-ufs-device", type=Path,
                         help="also compile the read-only UFS companion from this device checkout")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
@@ -22,7 +24,9 @@ def main() -> None:
     sys.path.insert(0, str(root / "scripts"))
     import build_macos26_xnu as build
 
-    output = root / "out/elden-macos26-4k-bootstrap"
+    if Path(args.output_name).name != args.output_name or args.output_name in ("", ".", ".."):
+        parser.error("--output-name must be a single directory name")
+    output = root / "out" / args.output_name
     output.mkdir(parents=True, exist_ok=True)
     patches = Path(__file__).resolve().parents[1] / "patches/macos-recovery"
     staged_patches = []
@@ -33,6 +37,10 @@ def main() -> None:
         staged_patches.append(staged_patch)
     prepare = build.prepare
     run = build.run
+    armcpu_patch = output / "elden-armcpu-inline-asm-and-affinity.patch"
+    armcpu_patch.write_bytes(build.CPU_ASM_PATCH.read_bytes() + b"\n" +
+                            (patches / "elden-macos26-armcpu-affinity.patch").read_bytes())
+    build.CPU_ASM_PATCH = armcpu_patch
 
     def prepare_elden():
         build.OUT = output
