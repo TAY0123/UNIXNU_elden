@@ -146,11 +146,13 @@ def adt_walk(data: bytes) -> dict:
         "window": 0,
         "window_offset": None,
         "keep_packed": False,
+        "memory_map": None,
     }
 
     def walk(offset: int, depth: int, parent_path: int) -> int:
         if depth > 64 or size - offset < 8:
             raise ValueError("ADT node header is truncated")
+        node_offset = offset
         properties = _u32(data, offset)
         children = _u32(data, offset + 4)
         offset += 8
@@ -204,6 +206,9 @@ def adt_walk(data: bytes) -> dict:
             path = 1
         if depth == 2 and parent_path == 1 and name == b"memory-map\0":
             path = 2
+            if result["memory_map"] is not None:
+                raise ValueError("ADT has more than one /chosen/memory-map node")
+            result["memory_map"] = (node_offset, offset)
         if path == 2 and candidate is not None:
             if result["ramdisk"] is not None:
                 raise ValueError("ADT has more than one RAMDisk placeholder")
@@ -232,6 +237,42 @@ def adt_walk(data: bytes) -> dict:
     if walk(0, 0, 3) != size:
         raise ValueError("ADT walk did not consume the whole tree")
     return result
+
+
+def with_trust_cache_placeholder(data: bytes) -> bytes:
+    tree = adt_walk(data)
+    if tree["trustcache"] is not None:
+        offset = tree["trustcache"]
+        if any(data[offset:offset + 16]):
+            raise ValueError("ADT TrustCache placeholder must be zero")
+        return data
+    if tree["memory_map"] is None:
+        raise ValueError("ADT is missing /chosen/memory-map")
+    node, end = tree["memory_map"]
+    count = struct.pack("<I", _u32(data, node) + 1)
+    prop = struct.pack("<32sI16x", b"TrustCache", 16)
+    return data[:node] + count + data[node + 4:end] + prop + data[end:]
+
+
+def validate_trust_cache(data: bytes) -> None:
+    """Check the version-2 module bundle accepted by DarwinBoot."""
+    if not 8 <= len(data) <= 16 << 20:
+        raise ValueError("TrustCache bundle size is invalid")
+    count = _u32(data, 0)
+    if not 1 <= count <= min(128, (len(data) - 4) // 4):
+        raise ValueError("TrustCache bundle module count is invalid")
+    offsets = (*struct.unpack_from(f"<{count}I", data, 4), len(data))
+    for start, end in zip(offsets, offsets[1:]):
+        if not 4 + count * 4 <= start <= end - 24 or end > len(data) or start & 3:
+            raise ValueError("TrustCache module bounds are invalid")
+        if _u32(data, start) != 2 or end - start != 24 + 24 * _u32(data, start + 20):
+            raise ValueError("TrustCache module format is invalid")
+        previous = b""
+        for offset in range(start + 24, end, 24):
+            cdhash = data[offset:offset + 20]
+            if cdhash <= previous or not 1 <= data[offset + 20] <= 4:
+                raise ValueError("TrustCache entries are unordered or have an invalid hash type")
+            previous = cdhash
 
 
 def set_owned_memory_size(data: bytes, size: int) -> bytes:
@@ -278,6 +319,11 @@ def main() -> None:
             raise SystemExit(f"{name} sidecar is present but the ADT has no matching placeholder")
         if not present_here and placeholder is not None:
             raise SystemExit(f"ADT has a {name} placeholder but the sidecar is missing")
+    if present["trustcache"]:
+        offset = tree["trustcache"]
+        if any(adt[offset:offset + 16]):
+            raise ValueError("ADT TrustCache placeholder must be zero")
+        validate_trust_cache(sidecars["trustcache"].read_bytes())
     print(
         f"kernel: OK segments={parsed['segments']} base={parsed['base']:#x} "
         f"end={parsed['end']:#x} entry={parsed['entry']:#x} span={parsed['span']:#x} "

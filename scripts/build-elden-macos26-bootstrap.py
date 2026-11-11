@@ -110,6 +110,7 @@ def main() -> None:
             raise ValueError("staged SHENG source still requests the 16 KiB granule")
         trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
         pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
+        copy_trace_overlay = patches / "elden-macos26-recovery-copy-trace.patch"
         user_va_overlay = patches / "elden-macos26-47bit-user-va.patch"
         ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
         signature_overlay = patches / "native-4k-signature-hash-cache.patch"
@@ -118,6 +119,7 @@ def main() -> None:
         buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", copy_trace_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", user_va_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", ignition_overlay, signature_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", shared_region_overlay], check=True)
@@ -170,6 +172,7 @@ def main() -> None:
             "bootstrap_trace_header_sha256": build.sha(
                 source / "osfmk/arm64/sheng_bootstrap_trace.h"),
             "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
+            "recovery_copy_trace_overlay_sha256": build.sha(copy_trace_overlay),
             "user_va_overlay_sha256": build.sha(user_va_overlay),
             "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
             "native_signature_hash_cache_sha256": build.sha(signature_overlay),

@@ -1,0 +1,39 @@
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -41,6 +41,11 @@
+ extern void dtrace_systrace_syscall_return(unsigned short, int, int *);
+ #endif  /* CONFIG_DTRACE */
+ 
++#if SHENG
++extern unsigned sheng_pid1_trace_enabled;
++static unsigned sheng_ditto_failures;
++#endif
++
+ extern void
+ unix_syscall(struct arm_saved_state * regs, thread_t thread_act, struct proc * proc);
+ 
+@@ -185,6 +190,24 @@
+ skip_syscall:
+ #endif /* CONFIG_MACF */
+ 
++#if SHENG
++	/* Diagnose the first few Recovery Data template copy failures. */
++	if (sheng_pid1_trace_enabled && error == EPERM &&
++	    strcmp(proc->p_comm, "ditto") == 0 &&
++	    __atomic_fetch_add(&sheng_ditto_failures, 1, __ATOMIC_RELAXED) < 48) {
++		printf("SHENG-DITTO: pid=%d syscall=%u error=%d\n", pid, syscode, error);
++		if (syscode == SYS_chflags || syscode == SYS_fchflags) {
++			printf("SHENG-DITTO: file-flags=%llx\n",
++			    (unsigned long long)uthread->uu_arg[1]);
++		} else if (syscode == SYS_setxattr || syscode == SYS_fsetxattr) {
++			char name[64];
++			if (copyinstr((user_addr_t)uthread->uu_arg[1], name, sizeof(name), NULL) == 0) {
++				printf("SHENG-DITTO: xattr=%s\n", name);
++			}
++		}
++	}
++#endif
++
+ 	unix_syscall_kprintf("code %d, error %d, results %x, %x (pid %d - %s, tid %lld)\n", code, error,
+ 	    uthread->uu_rval[0], uthread->uu_rval[1],
+ 	    pid, get_bsdtask_info(current_task()) ? proc->p_comm : "unknown", thread_tid(current_thread()));

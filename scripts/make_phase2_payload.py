@@ -33,7 +33,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from darwinboot_preflight import set_owned_memory_size
+from darwinboot_preflight import adt_walk, set_owned_memory_size, validate_trust_cache, with_trust_cache_placeholder
 from make_payload import Fat16Builder, add_long_name_file
 
 
@@ -71,7 +71,12 @@ def extract_from_image(image: Path, directory: Path) -> dict[str, Path]:
     }
     for image_path, local in targets.values():
         mtools("mcopy", "-o", "-m", "-i", str(image), f"::{image_path}", str(local))
-    return {name: local for name, (_, local) in targets.items()}
+    files = {name: local for name, (_, local) in targets.items()}
+    if adt_walk(files["adt"].read_bytes())["trustcache"] is not None:
+        cache = directory / "kernel.macho.trustcache"
+        mtools("mcopy", "-o", "-m", "-i", str(image), f"::{PAYLOAD_IMAGE_DIR}/{cache.name}", str(cache))
+        files["trustcache"] = cache
+    return files
 
 
 def build_payload(
@@ -83,6 +88,7 @@ def build_payload(
     expect_kernel_bytes: int = KERNEL_MACHO_BYTES,
     expect_kernel_sha256: str = KERNEL_MACHO_SHA256,
     *,
+    trust_cache: Path | None = None,
     linux_kernel: Path | None = None,
     linux_dtb: Path | None = None,
     slot_switch: Path | None = None,
@@ -95,6 +101,11 @@ def build_payload(
             f"expected {expect_kernel_bytes} bytes sha256={expect_kernel_sha256}")
     if adt.stat().st_size == 0:
         raise SystemExit("kernel.macho.adt is empty")
+    if trust_cache is not None:
+        adt_data = adt.read_bytes()
+        if with_trust_cache_placeholder(adt_data) != adt_data:
+            raise ValueError("TrustCache requires a matching ADT placeholder")
+        validate_trust_cache(trust_cache.read_bytes())
     if (linux_kernel is None) != (linux_dtb is None):
         raise SystemExit("pass --linux-kernel and --linux-dtb together")
     if linux_kernel is not None and linux_dtb is not None:
@@ -117,6 +128,8 @@ def build_payload(
     add_long_name_file(output, config, CONFIG_IMAGE_PATH)
     add_long_name_file(output, kernel, f"{PAYLOAD_IMAGE_DIR}/kernel.macho")
     add_long_name_file(output, adt, f"{PAYLOAD_IMAGE_DIR}/kernel.macho.adt")
+    if trust_cache is not None:
+        add_long_name_file(output, trust_cache, f"{PAYLOAD_IMAGE_DIR}/kernel.macho.trustcache")
     if linux_kernel is not None and linux_dtb is not None:
         add_long_name_file(output, linux_kernel, f"{PAYLOAD_IMAGE_DIR}/linux.efi")
         add_long_name_file(output, linux_dtb, f"{PAYLOAD_IMAGE_DIR}/linux.dtb")
@@ -141,6 +154,7 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--kernel", type=Path)
     parser.add_argument("--adt", type=Path)
+    parser.add_argument("--trust-cache", type=Path, help="paired DarwinBoot trust-cache bundle")
     parser.add_argument("--owned-memory-size", type=lambda value: int(value, 0),
                         help="override the ADT's requested contiguous XNU RAM window in bytes")
     parser.add_argument("--linux-kernel", type=Path, help="ARM64 EFI-stub kernel extracted from boot.img")
@@ -168,6 +182,11 @@ def main() -> None:
             except ValueError as error:
                 parser.error(str(error))
             files["adt"] = adt
+        trust_cache = args.trust_cache or files.get("trustcache")
+        if trust_cache is not None:
+            adt = stage / "kernel-trust-cache.adt"
+            adt.write_bytes(with_trust_cache_placeholder(files["adt"].read_bytes()))
+            files["adt"] = adt
         if not args.config.is_file():
             raise SystemExit(f"missing config: {args.config}")
         config = args.config
@@ -183,6 +202,7 @@ def main() -> None:
             args.size_mib,
             args.kernel_bytes,
             args.kernel_sha256,
+            trust_cache=trust_cache,
             linux_kernel=args.linux_kernel,
             linux_dtb=args.linux_dtb,
             slot_switch=args.slot_switch,

@@ -1557,6 +1557,22 @@ the same Data template copy failure and reset to fastboot. The MacBook
 image is `~/Downloads/elden-recovery-isc-smp8-ram.img` with SHA-256
 `b3a899d589281ac09f33d33152daaf60204b0656440124abee5c2643f3d1393e`.
 
+The failing 25F71 template directories have the `restricted` flag and
+`com.apple.rootless` xattr. The original `ditto` binary carries the Apple
+installer entitlement. The r47 and r48 kernel logs report an empty
+external trust-cache segment. The matching 25F71 IPSW's
+`Ap,BaseSystemTrustCache` contains the original `ditto`, `launchd` and
+`dyld` code hashes. Its unchanged IM4P bytes match the BuildManifest
+SHA-384 digest.
+
+The r49 RAM image passes that exact 1,075-entry trust module through
+DarwinBoot using `--trust-cache`. Payload generation inserts a zeroed
+ADT placeholder, and preflight checks the version-2 bundle, entry order
+and ADT binding. A bounded `SHENG-DITTO` trace reports the syscall that
+returns EPERM and relevant metadata if the failure persists. The
+MacBook copy is `~/Downloads/elden-recovery-apple-trust-ram.img` with
+SHA-256 `b3bb0ba1abbf328f807e183296964c0134630efc20a8d2969355aa2942944e0e`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
