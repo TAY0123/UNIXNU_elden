@@ -1080,6 +1080,38 @@ SHA-256 `927acc080bc99af61f243096dadddca98b635c2d12356a69e25d41ddfd5ee4dd`.
 The raw Android v4 artifact passed DarwinBoot preflight, full payload
 comparison and Linux/DTB/menu readback. Tablet testing is pending.
 
+### Recovery Ignition control and Linux console retention
+
+The combined image adds **Recovery without Ignition**. This entry passes
+`-elden-recovery-skip-ignition` to the Elden development kernel. Before
+starting PID 1, the kernel checks the Elden device-tree identity, the
+native UFS root options and the result of the existing root authentication
+call. Once those checks pass, it publishes dyld's `skipIgnition` bit and
+prints `Elden Recovery dyld skipIgnition enabled after root authentication`.
+The regular Recovery entry provides a control run with the same PID 1
+traces. This option tests the suspected AppleImage4 wait identified by the
+prior `sysctl` trace. Recovery GUI startup still requires a device result.
+
+The Linux and slot entries use the `keep_bootcon` EFI diagnostic kernel.
+This retains the boot console during the handoff to `tty0`, which is where
+the previous tablet photo ended. It can show whether Linux reaches the
+installed rootfs or reports a later error.
+
+The 4 KiB ARM64e build, Recovery prelink, DarwinBoot preflight, and embedded
+Linux, DTB and menu readback passed. The `boot_a` image also passed AVB
+verification with the stock image's key and rollback metadata. Both MacBook
+copies matched the build-host SHA-256 values.
+
+| MacBook image | SHA-256 |
+| --- | --- |
+| `~/Downloads/elden-recovery-linux-fixes-ram.img` | `8bd2593c3a485e137d07e0d89bd0cf6b1cdce9ec547baaf7d694622f6787233f` |
+| `~/Downloads/elden-recovery-linux-fixes-boot-a.img` | `98b443abee8a6737625586a66829e941aee96170fab7ca2375013292a2626ce2` |
+
+The RAM image is ready for a tablet test. Check for the root-authentication
+marker and the first Recovery service to start, then select **Elden Linux -
+installed rootfs** on a separate boot and capture the output after `tty0`
+registers. Neither image has been written to a tablet partition.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

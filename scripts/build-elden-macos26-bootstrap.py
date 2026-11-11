@@ -67,8 +67,10 @@ def main() -> None:
             raise ValueError("staged SHENG source still requests the 16 KiB granule")
         trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
         pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
+        ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", ignition_overlay], check=True)
         if args.adreno830_gmu_firmware is not None:
             image = args.adreno830_gmu_firmware.read_bytes()
             digest = hashlib.sha256(image).hexdigest()
@@ -107,6 +109,7 @@ def main() -> None:
             "bootstrap_trace_header_sha256": build.sha(
                 source / "osfmk/arm64/sheng_bootstrap_trace.h"),
             "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
+            "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
             "hardware_verified": False,
         }
         build.save(record)

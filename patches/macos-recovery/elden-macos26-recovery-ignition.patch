@@ -1,0 +1,75 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 9f818ec..5dd86bf 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -197,6 +197,9 @@
+ #endif /* SKYWALK */
+ 
+ #include <pexpert/pexpert.h>
++#if SHENG && (DEVELOPMENT || DEBUG)
++#include <pexpert/device_tree.h>
++#endif
+ #include <machine/pal_routines.h>
+ #include <console/video_console.h>
+ 
+@@ -217,6 +220,40 @@ const char *const copyright =
+     "The Regents of the University of California. "
+     "All rights reserved.\n\n";
+ 
++#if SHENG && (DEVELOPMENT || DEBUG)
++extern uint64_t dyld_flags;
++extern void commpage_update_dyld_flags(uint64_t value);
++static bool elden_recovery_root_authenticated;
++
++static void
++elden_recovery_configure_ignition(void)
++{
++	if (!PE_parse_boot_argn("-elden-recovery-skip-ignition", NULL, 0)) {
++		return;
++	}
++
++	DTEntry root;
++	const void *compatible;
++	unsigned int size;
++	unsigned int elden_ufs = 0, ufs_root = 0;
++	PE_parse_boot_argn("native-ufs-elden", &elden_ufs, sizeof(elden_ufs));
++	PE_parse_boot_argn("native-ufs-root", &ufs_root, sizeof(ufs_root));
++	if (!elden_recovery_root_authenticated || elden_ufs != 1 || ufs_root != 1 ||
++	    SecureDTLookupEntry(NULL, "/", &root) != kSuccess ||
++	    SecureDTGetProperty(root, "compatible", &compatible, &size) != kSuccess ||
++	    size < sizeof("lenovo,elden") ||
++	    memcmp(compatible, "lenovo,elden", sizeof("lenovo,elden")) != 0) {
++		printf("SHENG: Elden Recovery skipIgnition request refused\n");
++		return;
++	}
++
++	/* dyld reads bit 3 from the commpage before launchd starts. */
++	dyld_flags |= UINT64_C(8);
++	commpage_update_dyld_flags(dyld_flags);
++	printf("SHENG: Elden Recovery dyld skipIgnition enabled after root authentication\n");
++}
++#endif
++
+ /* Components of the first process -- never freed. */
+ SECURITY_READ_ONLY_LATE(struct vfs_context) vfs_context0;
+ 
+@@ -954,6 +991,9 @@ bsd_init(void)
+ 			if (autherr) {
+ 				panic("rootvp not authenticated after mounting");
+ 			}
++#if SHENG && (DEVELOPMENT || DEBUG)
++			elden_recovery_root_authenticated = true;
++#endif
+ 		}
+ 	}
+ 
+@@ -1109,6 +1149,9 @@ bsdinit_task(void)
+ 
+ 	bsd_init_kprintf("bsd_do_post - done");
+ 
++#if SHENG && (DEVELOPMENT || DEBUG)
++	elden_recovery_configure_ignition();
++#endif
+ 	load_init_program(p);
+ #if SHENG
+ 	if (sheng_pid1_trace_enabled) {
