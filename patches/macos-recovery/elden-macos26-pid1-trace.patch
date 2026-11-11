@@ -190,7 +190,32 @@ index 905c291..3474203 100644
  		if (result == KERN_SUCCESS || result == KERN_ABORTED) {
  			return;
  		}
-@@ -2975,6 +3093,18 @@ handle_pac_fail(arm_saved_state_t *state, uint64_t esr)
+@@ -2110,6 +2226,24 @@ handle_user_abort(arm_saved_state_t *state, uint64_t esr, vm_offset_t fault_addr,
+ 	}
+ #endif /* __has_feature(ptrauth_calls) */
+ 
++#if SHENG
++	if (sheng_pid1_trace_enabled && proc_selfpid() == 1) {
++		printf("SHENG-PID1-ABORT: esr=%llx far=%llx pc=%llx lr=%llx sp=%llx code=%llx type=%x\n",
++		    esr, (unsigned long long)fault_addr,
++		    (unsigned long long)get_saved_state_pc(state),
++		    (unsigned long long)get_saved_state_lr(state),
++		    (unsigned long long)get_saved_state_sp(state),
++		    (unsigned long long)codes[0], exc);
++		printf("SHENG-PID1-ABORT: x0=%llx x1=%llx x16=%llx x17=%llx x19=%llx x20=%llx\n",
++		    (unsigned long long)get_saved_state_reg(state, 0),
++		    (unsigned long long)get_saved_state_reg(state, 1),
++		    (unsigned long long)get_saved_state_reg(state, 16),
++		    (unsigned long long)get_saved_state_reg(state, 17),
++		    (unsigned long long)get_saved_state_reg(state, 19),
++		    (unsigned long long)get_saved_state_reg(state, 20));
++	}
++#endif
++
+ 	const self_restrict_mode_t self_restrict_mode = user_fault_in_self_restrict_mode(thread);
+ 	if ((self_restrict_mode != SELF_RESTRICT_NONE) &&
+ 	    task_is_jit_exception_fatal(get_threadtask(thread))) {
+@@ -2975,6 +3111,18 @@ handle_pac_fail(arm_saved_state_t *state, uint64_t esr)
  		panic_with_thread_kernel_state(msg, state);
  	}
  

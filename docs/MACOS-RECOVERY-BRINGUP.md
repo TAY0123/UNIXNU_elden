@@ -1468,6 +1468,16 @@ The MacBook copy is `~/Downloads/elden-recovery-shared-region-ram.img`
 with SHA-256
 `dee8684a429fe5bec8647fcbdc68c9b1629a06ad8c3b34ff2cf5967fb217bb4a`.
 
+The r44 tablet boot mapped the authenticated shared cache at `0x182e5c000`
+and advanced past the r43 `AUTIA` exception. PID 1 then exited with signal
+11 before any tracked Recovery service started. The MacBook captured the
+panic, and the tablet reset to fastboot. The PID 1 trace now records the
+faulting address, PC and register values for unresolved memory aborts.
+The `r45-recovery-pid1-abort` image contains that trace and passed the
+same preflight, prelink ABI and packed payload checks. The MacBook copy
+is `~/Downloads/elden-recovery-pid1-abort-ram.img` with SHA-256
+`df4bd189df3734a267f0d33c9b388e2d8b647815cc07065222040916d7ed3c4e`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
