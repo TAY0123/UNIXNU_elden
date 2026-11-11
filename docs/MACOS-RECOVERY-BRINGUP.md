@@ -972,7 +972,12 @@ MacBook, SHA-256 `5276aab993601fe4a1fcd754ec68d414b86ca1881f59938d165fc542c1f039
 The signed 96 MiB candidate is `~/Downloads/elden-macos26-linux-raw-v4-boot-a.img`,
 SHA-256 `87591804ebb4f581e72cb140a7a5d564026fbb0a9d00765792cdbc4ee4f02f6c`.
 It preserves the original slot A AVB key, salt, rollback index and boot
-properties. The RAM and installed boot paths still need tablet testing.
+properties. On November 11, the running slot B Linux system wrote the
+raw-v4 image to inactive `boot_a` over SSH. A full readback matched the
+signed image digest. The original `boot_b` digest also matched before and
+after the write, both boot partitions returned to read-only, and slot B
+remained active with UFS boot LUN 2. The RAM and installed boot paths still
+need tablet testing.
 
 ### Adreno 830 GMU firmware
 
