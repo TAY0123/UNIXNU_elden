@@ -934,6 +934,16 @@ MacBook with SHA-256
 An end-to-end test needs a tablet boot through the new Linux EFI entry and
 verification of a slot change triggered by the UniXNU menu.
 
+The 96 MiB slot A image uses the signing key named by the live `vbmeta_a`
+boot chain descriptor, with the original slot A rollback index `1785542400`
+and SHA256_RSA4096 algorithm. The running Linux system wrote the image to
+inactive `boot_a` and verified its full readback SHA-256
+`7af81d9ca661474f7408792afc9f419a8604a0b6fd9ca77af521fcaed03b3939`.
+`boot_b` matched the original Linux backup before and after the write, slot B
+remained active with UFS boot LUN 2, and both boot partitions were read-only
+after verification. The original slot A backup and `vbmeta_a` were saved
+privately. The installed image has yet to boot on the tablet.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
