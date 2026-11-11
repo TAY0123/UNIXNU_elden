@@ -1950,6 +1950,13 @@ write-capable UFS path bounded to the selected partition. The r66 scratch
 test verifies a single native write and its restoration. Persistent APFS
 writes and power-loss recovery still need device tests.
 
+A separate Linux maintenance RAM boot identified the live, unmounted
+`userdata` partition at 512-byte sector 47779136 with 452220872 sectors.
+These values match the saved 4 KiB GPT geometry. Linux read the first
+1 MiB, reported no recognized filesystem type, and returned to
+bootloader fastboot on slot A. The test only sampled the extent;
+a full restorable backup still needs to be made.
+
 The verified 25F71 restore archive supplied three original APFS images.
 Read-only inspection after AEA decryption identified the OS volume and
 the sealed System and App cryptexes. All three use 4 KiB blocks.
