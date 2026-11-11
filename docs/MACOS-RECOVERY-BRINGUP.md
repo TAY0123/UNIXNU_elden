@@ -959,6 +959,22 @@ MacBook with SHA-256
 An end-to-end test needs a tablet boot through the new Linux EFI entry and
 verification of a slot change triggered by the UniXNU menu.
 
+The tablet's **TB322FC Boot Control** desktop launcher calls its local
+`set-slot` script, which runs `qbootctl -s a` or `qbootctl -s b` from Linux.
+Its Android label for A predates the UniXNU install. The root-owned
+`tb322fc-select-boot-slot` helper provides a stronger reference for a
+firmware implementation. It verifies the active A/B partition pairs, both
+GPT copies and the UFS `boot_lun_enabled` attribute. A read-only status
+check on the tablet confirmed slot B and UFS boot LUN 2.
+
+The Qualcomm reference fastboot handler calls `SetActiveSlot`, which
+updates the partition tables and selects the UFS boot LUN through its
+`EFI_MEM_CARDINFO_PROTOCOL`. The current Elden UniXNU image omits the
+vendor `UFSDxe`. The independent Elden UEFI UFS session permits reads
+through its command filter. A standalone slot action needs a qualified
+UEFI path for both the GPT update and the boot LUN attribute, including
+readback and recovery if one update fails.
+
 The 96 MiB slot A image uses the signing key named by the live `vbmeta_a`
 boot chain descriptor, with the original slot A rollback index `1785542400`
 and SHA256_RSA4096 algorithm. The running Linux system wrote the image to
