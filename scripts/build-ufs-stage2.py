@@ -18,7 +18,7 @@ BASE = MU / 'MU_BASECORE'
 TOOLS = BASE / 'BaseTools'
 
 
-def prepare():
+def prepare(usb_core=None):
     provenance = json.loads((MODULE / 'provenance.json').read_text())
     for name, expected in provenance['files'].items():
         data = (MODULE / name).read_bytes()
@@ -61,6 +61,25 @@ def prepare():
         shutil.copyfile(source, generated / name)
         report[name] = dict(source=str(source.relative_to(ROOT)),
             sha256=hashlib.sha256(source.read_bytes()).hexdigest())
+    if usb_core is not None:
+        usb_files = {
+            'Dwc3.c': '16681b8e405b0d3862cb3289005f210b80b5bea2cc33adc26b2258d18ab9cea6',
+            'Dwc3.h': '7731dddfcecb5bf2b7fe44054bae4db786924d20f767ece43d84f82e8c84d690',
+            'Dwc3Regs.h': '5e9a362cfa6385f55a793b48965963559fc2c1f167cab9d3afa3845603328e4b',
+            'LICENSE.m1n1': '11ca423a564b52d3b7f260398baa20d016c25ae180fbdd0067c27b7d1ed7b420',
+        }
+        for name, expected in usb_files.items():
+            data = (usb_core / name).read_bytes()
+            if hashlib.sha256(data).hexdigest() != expected:
+                raise SystemExit('USB core differs from pinned input: ' + name)
+            if name.endswith(('.c', '.h')):
+                content = re.sub(rb'^#include <(?:stdint|stddef)\.h>\s*$', b'', data, flags=re.MULTILINE)
+                (generated / name).write_bytes(b'#include "../EfiCompat.h"\n' + content)
+            else:
+                (generated / name).write_bytes(data)
+            report[name] = dict(sha256=expected,
+                compiled_sha256=hashlib.sha256((generated / name).read_bytes()).hexdigest())
+        shutil.copyfile(ROOT / 'soc/sm8750/include/EldenUsbResources.h', generated / 'EldenUsbResources.h')
     return report
 
 
@@ -68,10 +87,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--toolchain', type=Path, default=Path.home()/'toolchains/llvm-20/bin')
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--usb-core', type=Path, help='also build EldenUsbMenu.efi with the pinned DWC3 sources')
     args = parser.parse_args()
     work = ROOT / 'out/ufs-stage2-20261106'
     work.mkdir(parents=True, exist_ok=True)
-    (work/'sources.json').write_text(json.dumps(prepare(), indent=2)+'\n')
+    (work/'sources.json').write_text(json.dumps(prepare(args.usb_core), indent=2)+'\n')
     if args.prepare_only:
         return
     llvm = args.toolchain.resolve()
@@ -91,6 +111,8 @@ def main():
                                   str(TOOLS/'Source/C/bin'), env['PATH']])
     command = [str(TOOLS/'BinWrappers/PosixLike/build'), '-p', 'EldenUfsStage2/EldenUfsStage2.dsc',
                '-a', 'AARCH64', '-b', 'DEBUG', '-t', 'CLANGPDB', '-n', '4']
+    if args.usb_core is not None:
+        command += ['-D', 'ELDEN_USB_MENU=1']
     (work/'command.json').write_text(json.dumps(command, indent=2)+'\n')
     with (work/'build.log').open('w') as log:
         result = subprocess.run(command, cwd=MU, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -104,6 +126,8 @@ def main():
     for name in ('EldenBootSlot.efi', 'EldenStage2.efi', 'EldenStage2Test.efi',
                  'EldenStage2Consumer.efi', 'EldenExternalTest.efi'):
         shutil.copyfile(source.with_name(name), work/name)
+    if args.usb_core is not None:
+        shutil.copyfile(source.with_name('EldenUsbMenu.efi'), work/'EldenUsbMenu.efi')
     report = dict(path=str(destination), bytes=destination.stat().st_size,
         sha256=hashlib.sha256(destination.read_bytes()).hexdigest(), hardware_tested=False)
     report['applications'] = {p.name: dict(bytes=p.stat().st_size,

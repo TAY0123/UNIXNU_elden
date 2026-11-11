@@ -20,6 +20,7 @@ import json
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from build_direct_edk2 import TOOLCHAIN
@@ -28,6 +29,25 @@ from build_direct_edk2 import TOOLCHAIN
 ROOT = Path(__file__).resolve().parents[1]
 MU = ROOT / "third_party" / "mu_wide_platforms"
 OUT = ROOT / "out" / "phase2.3"
+
+
+@contextmanager
+def usb_menu_overlay(enabled: bool):
+    if not enabled:
+        yield
+        return
+    repo = ROOT / "third_party/UniXNU"
+    overlay = ROOT / "patches/uefi/elden-usb-menu.patch"
+    header = repo / "package/UniXNUPkg/Library/UniXNULib/EldenUsbMenuProtocol.h"
+    if header.exists():
+        raise SystemExit(f"USB menu overlay header already exists: {header}")
+    subprocess.run(["git", "-C", repo, "apply", overlay], check=True)
+    try:
+        shutil.copyfile(ROOT / "drivers/EldenUfsStage2/EldenUsbMenuProtocol.h", header)
+        yield
+    finally:
+        header.unlink(missing_ok=True)
+        subprocess.run(["git", "-C", repo, "apply", "-R", overlay], check=True)
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
@@ -56,6 +76,7 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--output-dir", type=Path, default=OUT,
                         help="directory for the firmware FD and manifest")
+    parser.add_argument("--usb-menu", action="store_true", help="enable the Elden USB menu protocol")
     parser.add_argument(
         "--keep-build-tree",
         action="store_true",
@@ -74,15 +95,16 @@ def main() -> None:
         "--clang",
         str(args.toolchain.expanduser().resolve() / "clang"),
     ])
-    run([
-        sys.executable,
-        str(ROOT / "scripts" / "build_direct_edk2.py"),
-        "--target", args.target,
-        "--toolchain", str(args.toolchain),
-        "--crypto-path", str(args.crypto_path),
-        "--jobs", str(args.jobs),
-        "--define", "ELDEN_PHASE2=1",
-    ])
+    with usb_menu_overlay(args.usb_menu):
+        run([
+            sys.executable,
+            str(ROOT / "scripts" / "build_direct_edk2.py"),
+            "--target", args.target,
+            "--toolchain", str(args.toolchain),
+            "--crypto-path", str(args.crypto_path),
+            "--jobs", str(args.jobs),
+            "--define", "ELDEN_PHASE2=1",
+        ])
 
     fd = build_dir / "FV" / "SM8750_EFI.fd"
     if not fd.is_file():
@@ -104,6 +126,8 @@ def main() -> None:
             }
         },
     }
+    if args.usb_menu:
+        report["usb_menu_overlay_sha256"] = sha256(ROOT / "patches/uefi/elden-usb-menu.patch")
     report_path = output_dir / "firmware.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     print(f"firmware: {destination} ({sha256(destination)})")

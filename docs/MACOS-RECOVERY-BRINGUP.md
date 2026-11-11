@@ -1201,6 +1201,55 @@ current directory. Confirm the capture contains `ELDEN_USB` and XNU
 output. If enumeration fails, record the last `ELDEN_USB` line from the
 tablet display.
 
+### Manage UniXNU and Recovery over USB
+
+The USB management image loads `EldenUsbMenu.efi` from the embedded
+payload. It starts the CDC device with serial `ELDEN-UEFI` after checking
+the firmware's USB clocks, device role, and inherited SID 0x40 DMA route.
+UniXNU prefers this interface for `list`, `status`, and `boot <id>`.
+`boot-confirmed slot-a` and `boot-confirmed slot-b` explicitly confirm
+the native A/B action from the USB console. The read-only `slot-status`
+entry returns its result over the same link.
+
+The firmware USB driver stops before the kernel takes over. **Recovery
+USB Console** then starts the XNU CDC device with serial `ELDEN-XNU`.
+Its opt-in `elden-usb-management=1` flag enables `reboot` and
+`reboot-fastboot`. If an active host drains a panic report, XNU sends
+`ELDEN PANIC END` and requests a fastboot reset. A panic before the USB
+worker starts still uses the framebuffer diagnostics.
+
+Build the UEFI payload driver using `build-ufs-stage2.py --usb-core`
+and the firmware using `build_phase2_firmware.py --usb-menu`. Pass the
+resulting driver to `make_phase2_payload.py --usb-menu-driver` together
+with `--slot-switch`. Use the same pinned DWC3 sources for the XNU build
+with `build-elden-macos26-bootstrap.py --recovery-usb-core`.
+
+The MacBook controller uses the system Python serial APIs. From its
+Downloads directory, it can load the RAM image, select an entry, and
+record firmware and Recovery output in one log:
+
+```sh
+python3 elden-usb-control.py boot recovery-usb \
+  --ram-image elden-usb-management-ram.img --seconds 180 --log elden-boot.log
+```
+
+`boot slot-status` runs the read-only preflight. `list` displays menu IDs,
+and `fastboot` requests a restart and checks for Elden in bootloader
+fastboot. Slot selection requires the explicit `slot a` or `slot b`
+operation. The host tool appends to the requested log file across USB
+re-enumeration.
+
+The `r35-usb-management` RAM image is 81,952,768 bytes and has SHA-256
+`341137d7de8b110613843007efaf92bd35fe3bf0e63f419a6e95111f4f4e619f`.
+DarwinBoot preflight and the embedded firmware, kernel, device tree,
+and boot menu checks passed. A host pseudo-terminal test verified that
+the controller sends `boot slot-status` and records the returned result.
+
+The MacBook identified the physical tablet's Linux ADB and CDC interfaces.
+The USB reboot request disconnected Linux. The tablet owner reported
+the fastboot screen, but the MacBook did not enumerate a USB device in
+that state. The new image could not be transferred for hardware testing.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

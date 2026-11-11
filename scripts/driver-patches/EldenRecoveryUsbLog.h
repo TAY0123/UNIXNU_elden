@@ -2,6 +2,7 @@
 /* Included after the SHENG retained log and its writer-lock helpers. */
 
 unsigned elden_usb_read_log(uint64_t *cursor, void *output, unsigned capacity, uint64_t *lost);
+void elden_usb_capture_panic(const char *message);
 
 unsigned
 elden_usb_read_log(uint64_t *cursor, void *output, unsigned capacity, uint64_t *lost)

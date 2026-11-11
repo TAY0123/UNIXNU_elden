@@ -84,6 +84,7 @@ def build_payload(
     linux_kernel: Path | None = None,
     linux_dtb: Path | None = None,
     slot_switch: Path | None = None,
+    usb_menu_driver: Path | None = None,
 ) -> None:
     data = kernel.read_bytes()
     if len(data) != expect_kernel_bytes or sha256(kernel) != expect_kernel_sha256:
@@ -102,6 +103,8 @@ def build_payload(
         raise SystemExit("the native Elden slot entries require --slot-switch")
     if slot_switch is not None and (not slot_switch.is_file() or slot_switch.stat().st_size == 0):
         raise SystemExit(f"missing or empty Elden slot application: {slot_switch}")
+    if usb_menu_driver is not None and (not usb_menu_driver.is_file() or usb_menu_driver.stat().st_size == 0):
+        raise SystemExit(f"missing or empty Elden USB menu driver: {usb_menu_driver}")
     total_sectors = size_mib * 1024 * 1024 // 512
     builder = Fat16Builder(total_sectors, label=VOLUME, media_id=VOLUME_ID)
     efi = builder.add_directory(0, "EFI")
@@ -117,6 +120,8 @@ def build_payload(
         add_long_name_file(output, linux_dtb, f"{PAYLOAD_IMAGE_DIR}/linux.dtb")
     if slot_switch is not None:
         add_long_name_file(output, slot_switch, f"{PAYLOAD_IMAGE_DIR}/EldenBootSlot.efi")
+    if usb_menu_driver is not None:
+        add_long_name_file(output, usb_menu_driver, f"{PAYLOAD_IMAGE_DIR}/EldenUsbMenu.efi")
 
 
 def main() -> None:
@@ -130,6 +135,7 @@ def main() -> None:
     parser.add_argument("--linux-kernel", type=Path, help="ARM64 EFI-stub kernel extracted from boot.img")
     parser.add_argument("--linux-dtb", type=Path, help="DTB from the same Linux build")
     parser.add_argument("--slot-switch", type=Path, help="built EldenBootSlot.efi application")
+    parser.add_argument("--usb-menu-driver", type=Path, help="built EldenUsbMenu.efi driver")
     parser.add_argument("--kernel-bytes", type=int, default=KERNEL_MACHO_BYTES,
                         help="expected kernel size; override for a probe kernel")
     parser.add_argument("--kernel-sha256", default=KERNEL_MACHO_SHA256,
@@ -146,9 +152,14 @@ def main() -> None:
             raise SystemExit("pass --from-image or --kernel/--adt")
         if not args.config.is_file():
             raise SystemExit(f"missing config: {args.config}")
+        config = args.config
+        if args.usb_menu_driver is not None:
+            config = stage / 'usb-unixnu.toml'
+            config.write_text(args.config.read_text() + '\n[[driver]]\n'
+                'path = "Payloads/EldenUsbMenu.efi"\nargs = "elden"\nconnect = false\n')
         build_payload(
             args.output,
-            args.config,
+            config,
             files["kernel"],
             files["adt"],
             args.size_mib,
@@ -157,6 +168,7 @@ def main() -> None:
             linux_kernel=args.linux_kernel,
             linux_dtb=args.linux_dtb,
             slot_switch=args.slot_switch,
+            usb_menu_driver=args.usb_menu_driver,
         )
         print(f"kernel:  {files['kernel'].stat().st_size} bytes sha256={sha256(files['kernel'])}")
 

@@ -1,0 +1,26 @@
+[Defines]
+  INF_VERSION = 0x0001001B
+  BASE_NAME = EldenUsbMenu
+  FILE_GUID = 5bd58e6f-a893-4146-8df8-2c92f6e258c1
+  MODULE_TYPE = UEFI_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = EldenUsbMenuEntry
+[Sources]
+  EldenUsbMenu.c
+  EldenUsbMenuProtocol.h
+  Generated/Dwc3.c
+  Generated/Dwc3.h
+  Generated/Dwc3Regs.h
+  Generated/EldenUsbResources.h
+[Packages]
+  MdePkg/MdePkg.dec
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+  BaseLib
+  BaseMemoryLib
+[Protocols]
+  gEfiLoadedImageProtocolGuid
+[Guids]
+  gEfiEventBeforeExitBootServicesGuid

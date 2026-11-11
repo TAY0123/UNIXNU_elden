@@ -36,7 +36,12 @@ def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
     marker = '#include "pe_sheng_boot_progress_kernel.h"\n'
     if code.count(marker) != 1:
         raise ValueError("expected one SHENG boot-progress header")
-    log.write_text(code.replace(marker, marker + '#include "pe_elden_usb_log.h"\n'))
+    panic_end = '    sheng_log_clean(r, sizeof(*r));\n}\n#endif\n'
+    if code.count(panic_end) != 1:
+        raise ValueError("expected one end of the SHENG panic recorder")
+    code = code.replace(marker, marker + '#include "pe_elden_usb_log.h"\n')
+    log.write_text(code.replace(panic_end, '    sheng_log_clean(r, sizeof(*r));\n'
+                                '    elden_usb_capture_panic(message);\n}\n#endif\n'))
     return {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in (*files, log)}
 

@@ -10,6 +10,7 @@
 
 [LibraryClasses]
   UefiApplicationEntryPoint|MdePkg/Library/UefiApplicationEntryPoint/UefiApplicationEntryPoint.inf
+  UefiDriverEntryPoint|MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
   UefiBootServicesTableLib|MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf
   UefiRuntimeServicesTableLib|MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
   UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
@@ -24,6 +25,9 @@
   StackCheckLib|MdePkg/Library/StackCheckLibNull/StackCheckLibNull.inf
 
 [Components]
+!ifdef ELDEN_USB_MENU
+  EldenUfsStage2/EldenUsbMenu.inf
+!endif
   EldenUfsStage2/EldenBootSlot.inf
   EldenUfsStage2/EldenUfsProbe.inf
   EldenUfsStage2/EldenStage2.inf

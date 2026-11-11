@@ -5,6 +5,13 @@ COPYING and provenance.json preserve the license and exact source hashes.
 The original exported kShimC working tree is not modified, and no Git commit
 is invented for an exported directory without .git.
 
+`EldenBootSlot.efi` uses a separate session mode with a bounded GPT
+write window and UFS boot-LUN readback. It is selected explicitly from
+UniXNU. `EldenUsbMenu.efi` is an optional payload driver built with
+`--usb-core`. It publishes the Elden USB menu interface and stops its
+controller before the OS handoff. The read-only stage2 modes below
+retain their existing command filter.
+
 The session layer admits only LUN4 and the unique CRC-checked ARMADA_BACKUP
 GPT window. It exposes read operations, checks the DMA mapping before claim
 and every submission, rejects write commands at the actual doorbell, and

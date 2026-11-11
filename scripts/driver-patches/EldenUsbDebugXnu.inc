@@ -80,6 +80,10 @@ static struct {
   bool active,failed,readyReported,userReported;
   uint32_t traceEvent,traceA,traceB;
   char command[64];unsigned commandBytes;bool commandOverflow;
+#if defined(ELDEN_RECOVERY_USB)
+  bool management;
+  unsigned resetRequest;
+#endif
 } gEldenUsb;
 static struct dwc3 *eldenDwc(){return reinterpret_cast<struct dwc3*>(gEldenUsb.context);}
 static uint32_t eldenUsbRead(uintptr_t base,uint32_t offset) {
@@ -129,13 +133,29 @@ static void eldenUsbCommand() {
              s.configured,s.dtr,s.events,gEldenUsb.txBytes,eldenUsbDropped(),
              native_owner_cache_status,native_owner_data_status,elden_init_exec_accepted,__atomic_load_n(&gEldenUserTrapSeen,__ATOMIC_ACQUIRE));
 #else
-    snprintf(line,sizeof(line),"ELDEN STATUS v1 session=%s configured=%u dtr=%u events=%u tx=%llu dropped=%llu fastboot=unqualified\r\n",gEldenUsb.session,
-             s.configured,s.dtr,s.events,gEldenUsb.txBytes,eldenUsbDropped());
+    const char *fastboot = "unqualified";
+#if defined(ELDEN_RECOVERY_USB)
+    if (gEldenUsb.management) fastboot = "enabled";
+#endif
+    snprintf(line,sizeof(line),"ELDEN STATUS v1 session=%s configured=%u dtr=%u events=%u tx=%llu dropped=%llu fastboot=%s\r\n",gEldenUsb.session,
+             s.configured,s.dtr,s.events,gEldenUsb.txBytes,eldenUsbDropped(),fastboot);
 #endif
     eldenUsbReply(line);
   } else if(!strcmp(gEldenUsb.command,"reboot-fastboot")||!strcmp(gEldenUsb.command,"reboot")) {
+#if defined(ELDEN_RECOVERY_USB)
+    if (gEldenUsb.management) {
+      gEldenUsb.resetRequest = !strcmp(gEldenUsb.command,"reboot-fastboot") ? 2 : 1;
+      eldenUsbReply(gEldenUsb.resetRequest == 2 ? "ELDEN ACK reboot-fastboot\r\n" : "ELDEN ACK reboot\r\n");
+    } else
+#endif
     eldenUsbReply("ELDEN ERR reboot-unqualified; use the validated recovery path\r\n");
-  } else if(gEldenUsb.commandBytes)eldenUsbReply("ELDEN COMMANDS ping status; no shell or memory writes\r\n");
+  } else if(gEldenUsb.commandBytes) {
+#if defined(ELDEN_RECOVERY_USB)
+    if (gEldenUsb.management) eldenUsbReply("ELDEN COMMANDS ping status reboot reboot-fastboot\r\n");
+    else
+#endif
+    eldenUsbReply("ELDEN COMMANDS ping status\r\n");
+  }
   gEldenUsb.commandBytes=0;gEldenUsb.commandOverflow=false;
 }
 static void eldenUsbPump(bool commands) {
@@ -159,6 +179,47 @@ static void eldenUsbPump(bool commands) {
     if(n){size_t sent=dwc3_queue(eldenDwc(),bytes,n);gEldenUsb.txBytes+=sent;if(sent!=n)gEldenUsb.failed=true;}
   }
 }
+#if defined(ELDEN_RECOVERY_USB)
+static void eldenUsbReset(bool fastboot)
+{
+  register uint64_t x0 __asm__("x0") = fastboot ? 0xc4000012 : 0x84000009;
+  register uint64_t x1 __asm__("x1") = fastboot ? 0x80010001 : 0;
+  register uint64_t x2 __asm__("x2") = fastboot ? 2 : 0;
+  register uint64_t x3 __asm__("x3") = 0;
+  __asm__ volatile("dsb sy\n\tsmc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) ::
+                   "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
+                   "x14", "x15", "x16", "x17", "cc", "memory");
+}
+
+static bool eldenUsbDrain(unsigned attempts)
+{
+  for (unsigned i = 0; i < attempts && dwc3_ready(eldenDwc()); ++i) {
+    if (dwc3_poll(eldenDwc(), 8) < 0) return false;
+    struct dwc3_snapshot state;
+    dwc3_snapshot(eldenDwc(), &state);
+    if (!state.queued && !(state.active_endpoints & (1u << 5))) return true;
+    IODelay(1000);
+  }
+  return false;
+}
+
+extern "C" void elden_usb_capture_panic(const char *message);
+void elden_usb_capture_panic(const char *message)
+{
+  if (!gEldenUsb.management || !gEldenUsb.active || gEldenUsb.failed ||
+      current_processor() != gEldenUsb.processor || !eldenUsbAcquire(&gEldenUsb.busy)) return;
+  if (dwc3_ready(eldenDwc()) && eldenUsbDrain(300)) {
+    const char begin[] = "\r\nELDEN PANIC BEGIN\r\n";
+    const char end[] = "\r\nELDEN PANIC END\r\n";
+    size_t size = message ? strnlen(message, 4095) : 0;
+    dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1);
+    if (size) dwc3_queue(eldenDwc(), message, size);
+    dwc3_queue(eldenDwc(), end, sizeof(end) - 1);
+    if (eldenUsbDrain(600)) eldenUsbReset(true);
+  }
+  __atomic_store_n(&gEldenUsb.busy, 0, __ATOMIC_RELEASE);
+}
+#endif
 #if !defined(ELDEN_RECOVERY_USB)
 extern "C" void elden_usb_panic_drain(void) {
   if(!gEldenUsb.active||gEldenUsb.failed||current_processor()!=gEldenUsb.processor)return;
@@ -235,7 +296,17 @@ static void eldenUsbWorker(void *,wait_result_t) {
   for(;;) {
     if(gEldenUsb.failed)break;
     if(eldenUsbAcquire(&gEldenUsb.busy)) {
-      eldenUsbPump(true);bool ready=dwc3_ready(eldenDwc());__atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
+      eldenUsbPump(true);
+#if defined(ELDEN_RECOVERY_USB)
+      if (gEldenUsb.resetRequest) {
+        bool fastboot = gEldenUsb.resetRequest == 2;
+        gEldenUsb.resetRequest = 0;
+        eldenUsbDrain(300);
+        eldenUsbReset(fastboot);
+        eldenUsbReply("ELDEN ERR firmware reset returned\r\n");
+      }
+#endif
+      bool ready=dwc3_ready(eldenDwc());__atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
       if(ready&&!gEldenUsb.readyReported){gEldenUsb.readyReported=true;IOLog("ELDEN_USB: host connected; console stream active\n");}
 #if !defined(ELDEN_RECOVERY_USB)
       if(__atomic_load_n(&gEldenUserTrapSeen,__ATOMIC_ACQUIRE)&&!gEldenUsb.userReported){gEldenUsb.userReported=true;IOLog("ELDEN_BOOT: PID1 AArch64 EL0 BSD syscall observed after init exec\n");}
@@ -251,6 +322,11 @@ static void eldenStartUsbDebug() {
   unsigned enabled=0;PE_parse_boot_argn("elden-usb-debug",&enabled,sizeof(enabled));
   if(enabled!=1)return;
   if(eldenUsbAcquire(&gEldenUsb.attempted)) {
+#if defined(ELDEN_RECOVERY_USB)
+    unsigned management = 0;
+    PE_parse_boot_argn("elden-usb-management", &management, sizeof(management));
+    gEldenUsb.management = management == 1;
+#endif
     strlcpy(gEldenUsb.session,"unbound",sizeof(gEldenUsb.session));
     PE_parse_boot_argn("elden-debug-session",gEldenUsb.session,sizeof(gEldenUsb.session));
     gEldenUsb.session[sizeof(gEldenUsb.session)-1]=0;

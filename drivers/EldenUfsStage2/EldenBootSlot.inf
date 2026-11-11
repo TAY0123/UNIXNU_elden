@@ -26,6 +26,7 @@
   BaseLib
   BaseMemoryLib
   MemoryAllocationLib
+  PrintLib
 [Protocols]
   gEfiLoadedImageProtocolGuid
   gEfiBlockIoProtocolGuid

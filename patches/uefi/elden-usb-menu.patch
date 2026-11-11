@@ -1,0 +1,162 @@
+--- a/package/UniXNUPkg/Library/UniXNULib/Main.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Main.c
+@@ -8,14 +8,31 @@
+ #include "Internal.h"
+ 
+ #include <Protocol/SerialIo.h>
++#include "EldenUsbMenuProtocol.h"
+ 
+ STATIC EFI_SERIAL_IO_PROTOCOL  *mSerial;
++STATIC EFI_GUID mEldenUsbMenuGuid = ELDEN_USB_MENU_SERIAL_GUID;
++STATIC BOOLEAN mEldenUsbMenu;
++
++BOOLEAN UniXNUEldenUsbPresent (VOID) { return mEldenUsbMenu; }
++
++BOOLEAN UniXNUEldenUsbConnected (VOID)
++{
++  UINT32 Control;
++  return mEldenUsbMenu && !EFI_ERROR (mSerial->GetControl (mSerial, &Control)) &&
++         (Control & EFI_SERIAL_CARRIER_DETECT) != 0;
++}
++
+ 
+ VOID
+ UniXNULogInit (
+   VOID
+   )
+ {
++  mEldenUsbMenu = !EFI_ERROR (gBS->LocateProtocol (&mEldenUsbMenuGuid, NULL, (VOID **)&mSerial));
++  if (mEldenUsbMenu) {
++    return;
++  }
+   if (EFI_ERROR (gBS->LocateProtocol (&gEfiSerialIoProtocolGuid, NULL, (VOID **)&mSerial))) {
+     mSerial = NULL;
+   }
+@@ -151,7 +168,10 @@
+     Index  = UniXNUMenuRun (&Ui, &Config, Countdown);
+     Entry  = &Config.Entries[Index];
+     BootCopy = *Entry;
+-    if (Entry->Confirm != NULL) {
++    if (UniXNUMenuFromEldenUsb () && Entry->Id != NULL && AsciiStrCmp (Entry->Id, "slot-status") == 0) {
++      BootCopy.Args = L"inspect-usb";
++    }
++    if (Entry->Confirm != NULL && !UniXNUMenuEldenUsbConfirmed ()) {
+       UINTN  Choice;
+ 
+       if (!UniXNUMenuConfirm (&Ui, Entry, &Choice)) {
+--- a/package/UniXNUPkg/Library/UniXNULib/Menu.c
++++ b/package/UniXNUPkg/Library/UniXNULib/Menu.c
+@@ -17,6 +17,12 @@
+ #define DEFAULT_ROTATE_SEC  2
+ #define SERIAL_LINE_BYTES   64
+ #define SERIAL_POLL_BYTES   64
++
++STATIC BOOLEAN mFromEldenUsb;
++STATIC BOOLEAN mEldenUsbConfirmed;
++
++BOOLEAN UniXNUMenuFromEldenUsb (VOID) { return mFromEldenUsb; }
++BOOLEAN UniXNUMenuEldenUsbConfirmed (VOID) { return mEldenUsbConfirmed; }
+ 
+ #ifndef SCAN_SUSPEND
+ #define SCAN_SUSPEND  0x0102
+@@ -97,9 +103,11 @@
+   UINTN              Index;
+   UINTN              Match;
+   CONST UNIXNU_ENTRY *Entry;
++  CONST CHAR8        *Id;
++  BOOLEAN            Confirmed;
+ 
+   if (AsciiStrCmp (Line, "help") == 0) {
+-    UniXNULog ("tty: help | list | status | boot <id>");
++    UniXNULog ("tty: help | list | status | boot <id> | boot-confirmed slot-a|slot-b");
+     return TRUE;
+   }
+ 
+@@ -120,7 +128,16 @@
+     return TRUE;
+   }
+ 
+-  if ((AsciiStrnCmp (Line, "boot ", 5) != 0) || (Line[5] == '\0')) {
++  Confirmed = AsciiStrnCmp (Line, "boot-confirmed ", 15) == 0;
++  if (Confirmed) {
++    Id = Line + 15;
++    if (!UniXNUEldenUsbConnected () || (AsciiStrCmp (Id, "slot-a") != 0 && AsciiStrCmp (Id, "slot-b") != 0)) {
++      UniXNULog ("tty: USB confirmation is only available for direct slot selection");
++      return FALSE;
++    }
++  } else if (AsciiStrnCmp (Line, "boot ", 5) == 0 && Line[5] != '\0') {
++    Id = Line + 5;
++  } else {
+     UniXNULog ("tty: unknown command, type help");
+     return FALSE;
+   }
+@@ -128,7 +145,7 @@
+   Match = MAX_UINTN;
+   for (Index = 0; Index < Config->EntryCount; Index++) {
+     Entry = &Config->Entries[Index];
+-    if ((Entry->Id == NULL) || (AsciiStrCmp (Line + 5, Entry->Id) != 0)) {
++    if ((Entry->Id == NULL) || (AsciiStrCmp (Id, Entry->Id) != 0)) {
+       continue;
+     }
+ 
+@@ -145,12 +162,14 @@
+     return FALSE;
+   }
+ 
+-  if (Config->Entries[Match].Confirm != NULL) {
++  if (Config->Entries[Match].Confirm != NULL && !Confirmed) {
+     UniXNULog ("tty: entry requires local confirmation");
+     return TRUE;
+   }
+ 
+   UniXNULog ("tty: booting %a", Config->Entries[Match].Id);
++  mFromEldenUsb = UniXNUEldenUsbConnected ();
++  mEldenUsbConfirmed = Confirmed && mFromEldenUsb;
+   *BootIndex = Match;
+   return TRUE;
+ }
+@@ -159,6 +178,7 @@
+   CHAR8    Bytes[SERIAL_LINE_BYTES];
+   UINTN    Length;
+   BOOLEAN  Invalid;
++  BOOLEAN  UsbConnected;
+ } SERIAL_LINE;
+ 
+ STATIC
+@@ -175,6 +195,11 @@
+   BOOLEAN  Active;
+ 
+   Active = FALSE;
++  BOOLEAN Connected = UniXNUEldenUsbConnected ();
++  if (Connected != Line->UsbConnected) {
++    ZeroMem (Line, sizeof (*Line));
++    Line->UsbConnected = Connected;
++  }
+   for (Index = 0; Index < SERIAL_POLL_BYTES && UniXNUSerialReadByte (&Byte); Index++) {
+     if ((Byte == '\r') || (Byte == '\n')) {
+       if (Line->Invalid) {
+@@ -233,7 +258,9 @@
+ 
+   Count    = Config->EntryCount;
+   Selected = Config->DefaultIndex;
+-  HasInput = (CountInputDevices () > 0);
++  mFromEldenUsb = FALSE;
++  mEldenUsbConfirmed = FALSE;
++  HasInput = (CountInputDevices () > 0) || (Config->SerialCommands && UniXNUEldenUsbPresent ());
+   UseSerial = Config->SerialCommands && UniXNUSerialAvailable ();
+   ZeroMem (&Line, sizeof (Line));
+ 
+--- a/package/UniXNUPkg/Library/UniXNULib/Internal.h
++++ b/package/UniXNUPkg/Library/UniXNULib/Internal.h
+@@ -9,6 +9,11 @@
+ #define UNIXNU_INTERNAL_H_
+ 
+ #include <Uefi.h>
++
++BOOLEAN UniXNUEldenUsbPresent (VOID);
++BOOLEAN UniXNUEldenUsbConnected (VOID);
++BOOLEAN UniXNUMenuFromEldenUsb (VOID);
++BOOLEAN UniXNUMenuEldenUsbConfirmed (VOID);
+ #include <Library/BaseLib.h>
+ #include <Library/BaseMemoryLib.h>
+ #include <Library/UniXNULib.h>
