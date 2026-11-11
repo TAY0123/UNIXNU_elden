@@ -1394,6 +1394,21 @@ packed image check and MacBook checksum. Its SHA-256 is
 `c42e35bafd3a38579db27334c1961419cf6614478a8e84605d4559673af8a417`.
 [Linux SPMI arbiter at the board reference revision](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/spmi/spmi-pmic-arb.c)
 
+The r63 test returned to bootloader fastboot on slot A before opening its
+XNU USB console. The EFI retained-log reader found no matching record.
+The MacBook verified the autonomous reset. The reset cause and PON
+register values remain undetermined.
+
+The SM8750 APSS watchdog is a separate controller at `0x16410000`.
+The saved Elden Linux tree describes a 32 kHz sleep clock, and the
+maintenance kernel has `CONFIG_QCOM_WDT` disabled. A RAM-only maintenance
+probe mapped the APSS watchdog page through `/dev/mem` and received
+`SIGBUS` on the first register read. The software fallback returned to
+bootloader fastboot on slot A. Recovery from a full kernel lockup
+remains open.
+[Qualcomm SM8750 watchdog node](https://lists.openwall.net/linux-kernel/2026/09/30/1689) ·
+[Linux Qualcomm watchdog driver](https://github.com/torvalds/linux/blob/master/drivers/watchdog/qcom-wdt.c)
+
 ### Recovery shared cache signature granule
 
 The installed USB capture shows `disallowing unsupported code signature
