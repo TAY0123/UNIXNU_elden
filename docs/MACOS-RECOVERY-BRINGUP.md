@@ -1738,6 +1738,14 @@ complete `restore-datapartition` panic over XNU USB and returned to
 bootloader fastboot on slot A. The r59 RAM image SHA-256 is
 `ae0f98ee83f3ca52a65bb8e5107e4e0e9a93c41bd822f2113520c3c6c8d2cb86`.
 
+The paired AMFI module registers its installer-entitlement evaluation
+as `mpo_cred_label_update_execve`. The hook for `mpo_vnode_check_signature`
+is a separate function. XNU invokes the credential update after the
+signature check. The next trace records whether the credential check
+requests an update and which flags the update returns, before the existing
+process-signature diagnostic records the final flags.
+[XNU MAC policy hooks](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/security/mac_policy.h)
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
@@ -1780,7 +1788,11 @@ The 4 KiB ARM64e probe passed prelink, DarwinBoot preflight and embedded
 image verification. The verified MacBook copy is
 `~/Downloads/elden-macos26-adreno830-gmu-ram.img` with SHA-256
 `8673a7d39f50735576f21501be34be8a392fe0ca578e21707b5019b2702dc3b6`.
-The on-device XNU probe result is pending.
+The r60 Recovery USB image ran the same loader on the physical tablet
+under XNU. It reported success for four blocks containing 88,656 payload
+bytes. The 60-second Recovery deadline then returned the tablet to
+bootloader fastboot on slot A. The r60 RAM image SHA-256 is
+`bdafa44799b71e6d94114f18d992dfd59d830fd818a6e53d31d56a717baf02ab`.
 
 Hardware bring-up requires GMU power and clock control, an owned GPU
 SMMU context, and a bounded GMU boot and HFI handshake. A command ring,
@@ -1830,11 +1842,19 @@ with AddressSanitizer and UndefinedBehaviorSanitizer. XNU still needs
 controller clocks and pins, firmware upload, IRQs and HID delivery.
 [NT36536 Linux driver at the board reference revision](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/input/touchscreen/novatek-nvt36xxx-spi.c)
 
+The verified Linux boot input with kernel SHA-256
+`6aed9425e69c1e07ba65d3467738a6009874fe75d1fd50215483d333ba0634c3`
+contains the matching 253,952-byte touch firmware in its embedded initramfs.
+Its SHA-256 is `413216d0e8738078414fa681262439ab6d1c181f02974215e0394f102fcc08dc`.
+The image has a valid version byte pair, version `0x1a`, and a cascade
+header. The firmware stays in the private build inputs.
+
 The same device tree describes the Wi-Fi PCIe function `17cb:110e` and the
 WCN7861 Bluetooth function on UART with `brhbtnv20.bin` and `brhbtfw20.tlv`.
-The radio functions depend on the WCN7861 PMU. The next Linux hardware check
-will identify the bound drivers, firmware and resource states before bringing
-up PCIe and UART in XNU.
+The radio functions depend on the WCN7861 PMU. The same Linux boot image
+supplies both Bluetooth files and seven ath12k `PEACH/hw2.0` files,
+including board data, AMSS and the regulatory database. These are local
+driver inputs. The XNU PCIe, UART and shared PMU paths still need bring-up.
 
 An installed system still needs to exercise all eight cores, restore storage,
 display, input and radios after sleep, and resume from a hybrid hibernation

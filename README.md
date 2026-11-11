@@ -1,8 +1,10 @@
 # UniXNU-elden
 
-本地11-07进度：6GiB高地址XNU、LUN0/ipados根卷头读取和panic字符去重已经实机确认。
-新的挂根、SystemOS/RAM Data与USB CDC候选仅完成离线构建/校验，待实机。
-详见[启动与USB候选](docs/STARTUP-USB-CANDIDATE-20261107.md)；下文保留原阶段交接背景。
+2026-11-12 实机进度：macOS 26.5 Recovery 已挂载 BaseSystem 并运行原版
+`launchd`，目前停在临时 Data 卷的受保护元数据复制。八核测试已验证所有
+CPU 的计时器和核间中断，USB 日志与自动返回 fastboot 已实机验证。Adreno 830
+固件校验已在 XNU 运行，触控 SPI 报文读取已通过主机测试。完整进度见
+[macOS Recovery 实机记录](docs/MACOS-RECOVERY-BRINGUP.md)。下文保留原阶段交接背景。
 
 Lenovo Legion Y700 四代（TB322FC / `elden`，SM8750P）的设备仓。目录布局
 已迁移到 UniXNU 设备格式 2：共享 ARM64 与 iPadOS profile、SM8750 SoC
