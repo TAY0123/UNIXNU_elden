@@ -1,0 +1,195 @@
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index a51093a..94e87eb 100644
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -1325,6 +1325,13 @@ shared_region_check_np(
+ 				if (sheng_pid1_trace_enabled && !error && proc_getpid(p) == 1) {
+ 					printf("SHENG-PID1-CACHE: base=%llx\n",
+ 					    (unsigned long long)start_address);
++#if SHENG_ARM64E_4K_USER_VA
++					const uint64_t tcr = __builtin_arm_rsr64("TCR_EL1");
++					printf("SHENG-PID1-VA: T0SZ=%llu T1SZ=%llu TG0=%llu TG1=%llu\n",
++					    ARM_PTE_T0SZ(tcr), ARM_PTE_T1SZ(tcr),
++					    (tcr >> TCR_TG0_GRANULE_SHIFT) & 3,
++					    (tcr >> TCR_TG1_GRANULE_SHIFT) & 3);
++#endif
+ 				}
+ #endif
+ 				if (error != 0) {
+diff --git a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
+index f645964..6107b5c 100644
+--- a/osfmk/arm/pmap/pmap.c
++++ b/osfmk/arm/pmap/pmap.c
+@@ -121,6 +121,10 @@ MARK_AS_PMAP_TEXT static void pmap_phys_write_disable(vm_address_t va);
+ 
+ #define PMAP_L1_MAX_ENTRY (ARM_PTE_T1_REGION_MASK(TCR_EL1_BOOT) >> ARM_TT_L1_SHIFT)
+ #define PMAP_ROOT_ALLOC_SIZE ((PMAP_L1_MAX_ENTRY + 1) * sizeof(tt_entry_t))
++#if SHENG_ARM64E_4K_USER_VA
++_Static_assert(((ARM_PTE_T0_REGION_MASK(TCR_EL1_4KB) >> ARM_4K_TT_L0_SHIFT) + 1) *
++    sizeof(tt_entry_t) == PMAP_ROOT_ALLOC_SIZE, "TTBR0 and TTBR1 root allocation units must agree");
++#endif
+ 
+ #ifndef __ARM64_PMAP_SUBPAGE_L1__
+ _Static_assert(ARM_PGBYTES == PMAP_ROOT_ALLOC_SIZE, "Unexpected L1 Size");
+@@ -302,6 +306,27 @@ const struct page_table_attr pmap_pt_attr_4k = {
+ 	.pta_va_valid_mask = ARM_PTE_T0_REGION_MASK(TCR_EL1_4KB),
+ };
+ 
++#if SHENG_ARM64E_4K_USER_VA
++/* TTBR1 keeps the existing L1 geometry used by start.s and arm_vm_init. */
++const struct page_table_attr sheng_kernel_pt_attr = {
++	.pta_level_info = pmap_table_level_info_4k,
++	.pta_root_level = PMAP_TT_L1_LEVEL,
++	.pta_commpage_level = PMAP_TT_L1_LEVEL,
++	.pta_max_level = PMAP_TT_L3_LEVEL,
++	.pta_ops = &native_pt_ops,
++	.ap_ro = ARM_PTE_AP(AP_RORO),
++	.ap_rw = ARM_PTE_AP(AP_RWRW),
++	.ap_rona = ARM_PTE_AP(AP_RONA),
++	.ap_rwna = ARM_PTE_AP(AP_RWNA),
++	.ap_xn = ARM_PTE_PNX | ARM_PTE_NX,
++	.ap_x = ARM_PTE_PNX,
++	.pta_page_size = 4096,
++	.pta_pagezero_size = 4096,
++	.pta_page_shift = 12,
++	.pta_va_valid_mask = ARM_PTE_T1_REGION_MASK(TCR_EL1_4KB),
++};
++#endif
++
+ const struct page_table_attr pmap_pt_attr_16k = {
+ 	.pta_level_info = pmap_table_level_info_16k,
+ 	.pta_root_level = PMAP_TT_L1_LEVEL,
+diff --git a/osfmk/arm/pmap/pmap_pt_geometry.h b/osfmk/arm/pmap/pmap_pt_geometry.h
+index fc64830..c86cf18 100644
+--- a/osfmk/arm/pmap/pmap_pt_geometry.h
++++ b/osfmk/arm/pmap/pmap_pt_geometry.h
+@@ -166,6 +166,13 @@ extern const struct page_table_ops native_pt_ops;
+ #define pmap_get_pt_attr(pmap) ((pmap)->pmap_pt_attr)
+ #define pmap_get_pt_ops(pmap) ((pmap)->pmap_pt_attr->pta_ops)
+ 
++#elif SHENG_ARM64E_4K_USER_VA
++
++extern const struct page_table_attr sheng_kernel_pt_attr;
++extern pmap_t const kernel_pmap;
++#define pmap_get_pt_attr(pmap) ((pmap) == kernel_pmap ? &sheng_kernel_pt_attr : native_pt_attr)
++#define pmap_get_pt_ops(pmap) (&native_pt_ops)
++
+ #else /* ARM_PARAMETERIZED_PMAP */
+ 
+ /* The page table attributes are fixed (to allow for const propagation) */
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index ef5e3e4..aca5df0 100644
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -84,6 +84,10 @@ extern vm_offset_t physmap_vtop;
+  * the bootstrap page tables.
+  */
+ SECURITY_READ_ONLY_LATE(uint8_t) bootstrap_pagetables[BOOTSTRAP_TABLE_SIZE] __attribute__((aligned(ARM_PGBYTES)));
++#if SHENG_ARM64E_4K_USER_VA
++/* The bootstrap pool still starts the V=P L1 table. */
++SECURITY_READ_ONLY_LATE(tt_entry_t) sheng_bootstrap_user_l0[TTE_PGENTRIES] __attribute__((aligned(ARM_PGBYTES)));
++#endif
+ 
+ /*
+  * Denotes the end of xnu.
+diff --git a/osfmk/arm64/proc_reg.h b/osfmk/arm64/proc_reg.h
+index 7a51b76..497fb87 100644
+--- a/osfmk/arm64/proc_reg.h
++++ b/osfmk/arm64/proc_reg.h
+@@ -1087,7 +1087,13 @@
+  * the kernel.
+  */
+ #endif /* __ARM_KERNEL_PROTECT__ */
+-#ifdef __ARM_16K_PG__
++#if SHENG && defined(__arm64e__) && !defined(__ARM_16K_PG__) && defined(XNU_PLATFORM_MacOSX)
++/* Keep the pointer-authentication bits outside macOS's 47-bit user pointers. */
++#define SHENG_ARM64E_4K_USER_VA 1
++#endif
++#if SHENG_ARM64E_4K_USER_VA
++#define T0SZ_BOOT 17ULL
++#elif defined(__ARM_16K_PG__)
+ #if __ARM64_PMAP_SUBPAGE_L1__
+ #define T0SZ_BOOT 25ULL
+ #else /* !__ARM64_PMAP_SUBPAGE_L1__ */
+@@ -1105,7 +1111,7 @@
+ #define T0SZ_EARLY_BOOT 17ULL
+ #endif /*__ARM64_PMAP_SUBPAGE_L1__ && CONFIG_SPTM */
+ 
+-#if HAS_ARM_INDEPENDENT_TNSZ
++#if HAS_ARM_INDEPENDENT_TNSZ || SHENG_ARM64E_4K_USER_VA
+ #ifdef __ARM_16K_PG__
+ #if __ARM64_PMAP_KERN_SUBPAGE_L1__
+ #define T1SZ_BOOT 25ULL
+diff --git a/osfmk/arm64/sheng_early_exception.h b/osfmk/arm64/sheng_early_exception.h
+index 03ca922..cee7d0e 100644
+--- a/osfmk/arm64/sheng_early_exception.h
++++ b/osfmk/arm64/sheng_early_exception.h
+@@ -20,7 +20,11 @@ Lsheng_early_enter:
+ 	str x20, [x19, #176]
+ 	ldp x0, x1, [x20, BA_VIRT_BASE]
+ 	stp x0, x1, [x19, #144]
++#if SHENG_ARM64E_4K_USER_VA
++	SHENG_EARLY_ADDRESS x0, EXT(sheng_bootstrap_user_l0)
++#else
+ 	SHENG_EARLY_ADDRESS x0, EXT(bootstrap_pagetables)
++#endif
+ 	str x0, [x19, #160]
+ 	adr x0, Lsheng_mmu_off_fault
+ 	str x0, [x19, #168]
+@@ -259,7 +263,11 @@ LEXT(sheng_mmu_sync_fault)
+ 	isb
+ 	mov x4, #0xc0bf
+ 	bic x5, x14, x4
++#if SHENG_ARM64E_4K_USER_VA
++	mov x4, #((T0SZ_BOOT << TCR_T0SZ_SHIFT) | TCR_TG0_GRANULE_SIZE)
++#else
+ 	mov x4, #0x8011
++#endif
+ 	orr x5, x5, x4
+ 	msr TCR_EL1, x5
+ 	isb
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 7306308..2f6528b 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -671,6 +671,18 @@ Lbootstrap_tables_exhausted:
+ 	// the early debugger rather than corrupting memory or forging a map.
+ 	b Lbootstrap_tables_exhausted
+ Lbootstrap_tables_ready:
++#if SHENG_ARM64E_4K_USER_VA
++	/* The low V=P window and framebuffer both lie in L0 entry 0. */
++	SHENG_EARLY_ADDRESS x0, EXT(sheng_bootstrap_user_l0)
++	mov		x1, x0
++	mov		x2, #(PGBYTES / 16)
++1:
++	stp		xzr, xzr, [x1], #16
++	subs		x2, x2, #1
++	b.ne		1b
++	orr		x1, x25, #(ARM_TTE_BOOT_TABLE)
++	str		x1, [x0]
++#endif
+ 	/* Ensure TTEs are visible */
+ 	dsb		ish
+ 
+@@ -711,15 +723,19 @@ common_start:
+ 
+ 
+ 	/* Set up translation table base registers.
+-	 *	TTBR0 - V=P table @ top of kernel
+-	 *	TTBR1 - KVA table @ top of kernel + 1 page
++	 *	TTBR0 - V=P table, through an L0 root for 47-bit 4 KiB user translation
++	 *	TTBR1 - KVA L1 table @ bootstrap_pagetables + 1 page
+ 	 */
+ #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR) || defined(KERNEL_INTEGRITY_PV_CTRR)
+ 	/* Note that for KTRR configurations, the V=P map will be modified by
+ 	 * arm_vm_init.c.
+ 	 */
+ #endif
++#if SHENG_ARM64E_4K_USER_VA
++	SHENG_EARLY_ADDRESS x0, EXT(sheng_bootstrap_user_l0)
++#else
+ 	and		x0, x25, #(TTBR_BADDR_MASK)
++#endif
+ 	mov		x19, lr
+ 	bl		EXT(set_mmu_ttb)
+ 	mov		lr, x19

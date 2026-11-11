@@ -106,6 +106,7 @@ def main() -> None:
             raise ValueError("staged SHENG source still requests the 16 KiB granule")
         trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
         pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
+        user_va_overlay = patches / "elden-macos26-47bit-user-va.patch"
         ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
         signature_overlay = patches / "native-4k-signature-hash-cache.patch"
         shared_region_overlay = patches / "native-4k-shared-region-slide.patch"
@@ -113,6 +114,7 @@ def main() -> None:
         buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", user_va_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", ignition_overlay, signature_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", shared_region_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", cache_progress_overlay], check=True)
@@ -164,6 +166,7 @@ def main() -> None:
             "bootstrap_trace_header_sha256": build.sha(
                 source / "osfmk/arm64/sheng_bootstrap_trace.h"),
             "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
+            "user_va_overlay_sha256": build.sha(user_va_overlay),
             "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
             "native_signature_hash_cache_sha256": build.sha(signature_overlay),
             "native_shared_region_slide_sha256": build.sha(shared_region_overlay),
@@ -193,7 +196,8 @@ def main() -> None:
             sys.argv.extend(["--build-gop-display", "--elden-gop-board", str(device / "board.toml")])
     build.main()
     symbols = set(build.capture("xcrun", "nm", "-j", str(output / "kernel.development.sheng")).splitlines())
-    for required in ("_cs_native4k_hash_cache_version", "_vm_shared_region_slide_part_v5"):
+    for required in ("_cs_native4k_hash_cache_version", "_vm_shared_region_slide_part_v5",
+                     "_sheng_bootstrap_user_l0", "_sheng_kernel_pt_attr"):
         if required not in symbols:
             raise ValueError(f"the linked kernel is missing {required}")
 

@@ -1478,6 +1478,28 @@ same preflight, prelink ABI and packed payload checks. The MacBook copy
 is `~/Downloads/elden-recovery-pid1-abort-ram.img` with SHA-256
 `df4bd189df3734a267f0d33c9b388e2d8b647815cc07065222040916d7ed3c4e`.
 
+On the tablet, r45 recorded an EL0 data translation fault in the original
+`libobjc.A.dylib` at unslid cache address `0x180025524`. The faulting `ldr`
+dereferences `x19` after the class loop masks the preceding object's isa
+with `0x00007ffffffffff8`. The saved `x19` has set bits between the old
+user translation width and that mask. Its low 38 bits resolve inside
+`libxpc.dylib` writable data after removing the cache slide. The MacBook
+received the complete panic, and the tablet reset to fastboot.
+[Objective-C isa definitions](https://github.com/apple-oss-distributions/objc4/blob/main/runtime/isa.h)
+
+The r46 kernel gives the native 4 KiB ARM64e macOS configuration a
+47-bit TTBR0 translation. The bootstrap identity L1 hangs off a dedicated
+L0 table, which cold boot, secondary startup and the early exception path
+share. TTBR1 keeps the existing 38-bit L1 geometry and link address. The
+ordinary VM allocation limit remains at the low commpage boundary. The
+PID 1 trace records the live TCR sizes and granules at shared-cache mapping.
+
+The `r46-recovery-user-va47` image passed the linked table and pager checks,
+the 30-module Recovery prelink ABI check, DarwinBoot preflight and packed
+payload verification. The MacBook copy is
+`~/Downloads/elden-recovery-user-va47-ram.img` with SHA-256
+`afbe27f8c8170f6e071c158c3056ac29a7ee3dd49215d5bc43e3ccf07c2e10fe`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
