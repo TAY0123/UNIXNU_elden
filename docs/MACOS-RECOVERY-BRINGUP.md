@@ -1842,7 +1842,8 @@ inclusive limits of 19040 × 30400. Transfer or checksum failures preserve
 the previous frame, and an empty valid frame releases all contacts. Host
 tests exercised the SPI transaction, bounds, releases and failure handling
 with AddressSanitizer and UndefinedBehaviorSanitizer. XNU still needs
-controller clocks and pins, firmware upload, IRQs and HID delivery.
+controller clocks and pins, firmware upload on hardware, IRQs and HID
+delivery.
 [NT36536 Linux driver at the board reference revision](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/input/touchscreen/novatek-nvt36xxx-spi.c)
 
 The verified Linux boot input with kernel SHA-256
@@ -1851,6 +1852,14 @@ contains the matching 253,952-byte touch firmware in its embedded initramfs.
 Its SHA-256 is `413216d0e8738078414fa681262439ab6d1c181f02974215e0394f102fcc08dc`.
 The image has a valid version byte pair, version `0x1a`, and a cascade
 header. The firmware stays in the private build inputs.
+
+The NT36536 loader validates the cascade layout and SRAM ranges before
+writing, checks the controller trim ID, programs the ILM and DLM CRCs,
+and waits for cascade copy and boot-ready. It verifies the running firmware
+version and product ID `0x6097` before returning success. The host SPI
+model exercised the complete transfer with the original firmware, including
+invalid images, unexpected hardware IDs, timeout and transport failure.
+The loader and shared SPI transport also compiled as arm64e Mach-O objects.
 
 The same device tree describes the Wi-Fi PCIe function `17cb:110e` and the
 WCN7861 Bluetooth function on UART with `brhbtnv20.bin` and `brhbtfw20.tlv`.
