@@ -1239,6 +1239,13 @@ fastboot. Slot selection requires the explicit `slot a` or `slot b`
 operation. The host tool appends to the requested log file across USB
 re-enumeration.
 
+Use `--require-fastboot` for unattended reset tests. Once the Recovery
+entry starts, the host waits for Elden to enumerate in bootloader
+fastboot and checks `is-userspace=no`. A missing reset fails the test.
+Add `--no-xnu-console` to leave the XNU serial device unopened while
+keeping the firmware menu accessible. This exercises the kernel's
+no-host path without sending a reboot command after handoff.
+
 The `r35-usb-management` RAM image is 81,952,768 bytes and has SHA-256
 `341137d7de8b110613843007efaf92bd35fe3bf0e63f419a6e95111f4f4e619f`.
 DarwinBoot preflight and the embedded firmware, kernel, device tree,
@@ -1332,9 +1339,9 @@ The **Recovery USB Console** entry sets `elden-usb-timeout=90`. Once
 XNU reaches its startup hook, a kernel callout requests fastboot if no
 host opens the console within 90 seconds. The callout can run after the
 loader hands control to XNU if XNU's scheduler is still running. The
-no-host timeout has not been exercised on the tablet. The
 UEFI boot-services watchdog expires only during firmware execution and
-is disabled at `ExitBootServices()`.
+is disabled at `ExitBootServices()`. A hard lockup after handoff still
+needs a qualified hardware watchdog.
 [UEFI Boot Services specification](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)
 
 ### Recovery shared cache signature granule
@@ -1572,6 +1579,29 @@ and ADT binding. A bounded `SHENG-DITTO` trace reports the syscall that
 returns EPERM and relevant metadata if the failure persists. The
 MacBook copy is `~/Downloads/elden-recovery-apple-trust-ram.img` with
 SHA-256 `b3bb0ba1abbf328f807e183296964c0134630efc20a8d2969355aa2942944e0e`.
+
+On the tablet, r49 loaded one external trust module and mapped the
+shared cache without the earlier trust-cache misses. The original
+`launchd` reached `mount-phase-1`, where AMFI panicked at
+`OSEntitlements.cpp:806` with `failed to create OSDictionary copy: 14`.
+The MacBook received the complete panic and verified the tablet's
+automatic return to fastboot.
+
+The r50 control omits the trust module and uses the same prelinked
+kernel as r49. XNU reported an empty external trust-cache segment, and
+the original `launchd` reached the same AMFI panic before `ditto` ran.
+The external cache is therefore optional for reproducing the panic.
+The MacBook received the panic and observed the tablet in bootloader
+fastboot again. The r50 MacBook copy is
+`~/Downloads/elden-recovery-copy-trace-ram.img` with SHA-256
+`d82cbcea72e94ad91f6f54bddd05b0457513b45063481e2176d44ce115b3eccc`.
+
+The MacBook also RAM-booted r50 with `--require-fastboot --no-xnu-console`.
+The XNU CDC device appeared while the host left it unopened. At
+04:04:36 HKT, the tablet returned to bootloader fastboot without a
+reboot command from the host. This verifies unattended return with
+the console closed. The reset cause could not be recovered from the
+previous boot's retained log.
 
 ### Adreno 830 GMU firmware
 

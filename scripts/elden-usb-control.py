@@ -60,8 +60,12 @@ def fastboot_device():
     elden = []
     for serial in serials:
         product = command('fastboot', '-s', serial, 'getvar', 'product')
-        if product.returncode == 0 and re.search(r'\bproduct:\s*elden(?:_prc_wifi)?\s*$',
-                                                 product.stdout + product.stderr, re.M):
+        if product.returncode or not re.search(r'\bproduct:\s*elden(?:_prc_wifi)?\s*$',
+                                               product.stdout + product.stderr, re.M):
+            continue
+        mode = command('fastboot', '-s', serial, 'getvar', 'is-userspace')
+        if mode.returncode == 0 and re.search(r'\bis-userspace:\s*no\s*$',
+                                               mode.stdout + mode.stderr, re.M):
             elden.append(serial)
     if len(elden) > 1:
         raise RuntimeError('Multiple Elden fastboot devices are present')
@@ -101,6 +105,8 @@ def run(args, log):
     try:
         while time.monotonic() < deadline:
             mode, path = serial_port()
+            if mode == 'XNU' and args.no_xnu_console:
+                path = None
             if path != previous:
                 if fd is not None:
                     os.close(fd)
@@ -128,14 +134,17 @@ def run(args, log):
                         return 0
                     if device and recovery_boot and sent:
                         record(b'\n[Recovery returned to bootloader fastboot]\n')
-                        return 0 if received_xnu else 1
+                        if args.require_fastboot and not (boot_acknowledged or received_xnu):
+                            record(b'[Recovery handoff was not acknowledged]\n')
+                            return 1
+                        return 0 if args.require_fastboot or received_xnu else 1
                     if device and args.ram_image and not ram_booted:
                         result = command('fastboot', '-s', device, 'boot', str(args.ram_image), timeout=90)
                         record((result.stdout + result.stderr).encode())
                         if result.returncode:
                             return result.returncode
                         ram_booted = True
-                    elif (args.operation == 'fastboot' or args.ram_image) and not requested_fastboot:
+                    elif (args.operation == 'fastboot' or (args.ram_image and not ram_booted)) and not requested_fastboot:
                         requested_fastboot = linux_to_fastboot()
                         if requested_fastboot:
                             record(b'\n[Linux accepted the USB request to enter bootloader fastboot]\n')
@@ -194,14 +203,16 @@ def run(args, log):
             if recovery_boot and not panic_captured and b'ELDEN PANIC END' in latest:
                 panic_captured = True
                 record(b'\n[Complete Recovery panic captured]\n')
-                deadline = time.monotonic() + 15
+                if not args.require_fastboot:
+                    deadline = time.monotonic() + 15
         if args.operation == 'capture':
             return 0 if received else 1
         if args.operation == 'list' and b'tty: entry' in latest:
             return 0
+        if args.require_fastboot or panic_captured:
+            record(b'\n[Recovery fastboot reset was not observed]\n')
+            return 1
         if recovery_boot and sent and received_xnu:
-            if panic_captured:
-                record(b'\n[Recovery fastboot reset was not observed]\n')
             return 0
         if args.operation == 'boot' and args.entry != 'slot-status' and not args.entry.startswith('recovery') and boot_acknowledged:
             return 0
@@ -216,6 +227,10 @@ def main():
     parser.add_argument('operation', choices=('capture', 'list', 'boot', 'slot', 'restart', 'fastboot'))
     parser.add_argument('entry', nargs='?', help='menu entry ID for boot, or a/b for slot')
     parser.add_argument('--ram-image', type=Path, help='temporarily boot this image before selecting the entry')
+    parser.add_argument('--require-fastboot', action='store_true',
+                        help='succeed only when Recovery returns to bootloader fastboot')
+    parser.add_argument('--no-xnu-console', action='store_true',
+                        help='leave the XNU serial port closed to test unattended reset')
     parser.add_argument('--seconds', type=float, default=120, help='maximum time to capture or wait')
     parser.add_argument('--log', type=Path, required=True, help='append the unmodified USB output to this file')
     args = parser.parse_args()
@@ -227,6 +242,10 @@ def main():
         parser.error('this operation takes no entry ID')
     if args.ram_image and (args.operation != 'boot' or not args.ram_image.is_file()):
         parser.error('--ram-image requires boot and an existing file')
+    if args.require_fastboot and (args.operation != 'boot' or not args.entry.startswith('recovery')):
+        parser.error('--require-fastboot requires a Recovery boot entry')
+    if args.no_xnu_console and not args.require_fastboot:
+        parser.error('--no-xnu-console requires --require-fastboot')
     if not 1 <= args.seconds <= 3600:
         parser.error('--seconds must be between 1 and 3600')
     os.umask(0o077)
