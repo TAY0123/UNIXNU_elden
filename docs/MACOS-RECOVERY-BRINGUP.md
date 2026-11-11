@@ -1599,9 +1599,25 @@ fastboot again. The r50 MacBook copy is
 The MacBook also RAM-booted r50 with `--require-fastboot --no-xnu-console`.
 The XNU CDC device appeared while the host left it unopened. At
 04:04:36 HKT, the tablet returned to bootloader fastboot without a
-reboot command from the host. This verifies unattended return with
-the console closed. The reset cause could not be recovered from the
-previous boot's retained log.
+reboot command from the host. A second RAM image, r52, changes only the
+`recovery-usb` timeout from 90 to 15 seconds. In the same no-console test,
+the total time from the host starting the RAM boot to confirmed fastboot
+fell from 302 seconds to 210 seconds. Those times include the firmware
+and kernel boot before the timer starts. The earlier reset with the
+shorter setting is consistent with the no-host callout. The exact
+reset cause was unavailable from the retained log. The r52 MacBook copy
+is `~/Downloads/elden-recovery-nohost-short-ram.img` with SHA-256
+`a6f11f6fc390a416fa5a0e505c2433500a9d9be7c1359e13a0fa7fa16edfb970`.
+
+The r51 control uses the byte-identical r47 kernel with the original
+Apple trust module. It loaded the module, passed `mount-phase-1`, and
+mounted the three ISC volumes. During `restore-datapartition`, the
+original `ditto` received EPERM on the protected Data template entries
+again. Recovery panicked after the task exited with status 1, then
+returned to bootloader fastboot without a host reset command after
+handoff. The r51 MacBook image is
+`~/Downloads/elden-recovery-apple-trust-control-ram.img` with SHA-256
+`a1c2472973e56b36d7b5f9121fa491617ccd936f21175d3c2a8cc28156ea5e45`.
 
 ### Adreno 830 GMU firmware
 
