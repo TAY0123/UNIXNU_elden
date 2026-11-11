@@ -985,6 +985,10 @@ The owner reached the UniXNU menu and reported that both the regular Linux
 entry and the slot B entry returned to the menu. The slot B entry has to
 reach the Linux rootfs before its systemd service can change the active
 slot. No service journal or kernel panic from that attempt was available.
+After SSH returned, the tablet was running Linux from slot B with UFS boot
+LUN 2. The service journal showed only boots without a slot request. Both
+pstore locations were empty, and the `boot_a` and `boot_b` digests still
+matched the verified raw-v4 and original Linux images respectively.
 
 `prepare-elden-linux-efi.py --diagnostics` keeps the FDT handoff correction
 and enables `earlycon=efifb`, EFI debug logging, and `panic=0` in all three
