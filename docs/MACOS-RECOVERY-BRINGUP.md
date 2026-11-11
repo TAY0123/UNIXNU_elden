@@ -1873,6 +1873,32 @@ fences, rendering, and the macOS Metal interface follow those milestones.
 
 ### Installation target and hardware inventory
 
+The opt-in UFS scratch probe confines `WRITE(10)` with Force Unit Access
+to one 4 KiB block in the existing 4 GiB `macosroot` Recovery partition.
+It checks the GPT, paired Recovery layout, LUN capacity, and an all-zero
+scratch block at LBA 123805440 before writing. It reads back the pattern,
+restores zeros, and verifies the restoration. The controller lock covers
+queue ownership checks and the copy into the outbound DMA buffer.
+Recovery's published block devices remain read-only.
+[Linux SCSI disk driver](https://github.com/torvalds/linux/blob/master/drivers/scsi/sd.c) ·
+[UFS host controller definitions](https://github.com/torvalds/linux/blob/master/include/ufs/ufshci.h)
+
+The sanitizer-instrumented host model verified the write descriptor and
+that a busy or quarantined queue leaves the DMA buffer untouched. The
+MacBook built the 4 KiB ARM64e kernel and verified the 30-module prelink,
+DarwinBoot inputs and both RAM images. The r65 60-second timer returned
+the tablet to fastboot before the storage probe ran. The r66 image uses
+the same kernel and a 900-second deadline. Its SHA-256 is
+`c0a673bfdd6cfb619d1304e4985e21b096842a69633a2ecc3d5c0a9a538f8dfc`.
+
+On the physical r66 boot, XNU verified the written pattern and its
+restoration to zeros. The MacBook captured the complete diagnostic
+panic over USB. The tablet returned to bootloader fastboot on slot A
+without a host reboot command. Separate Linux maintenance boots
+before and after the probe matched both GPT copies, both Recovery
+image SHA-256 values, the tail manifest, the zeroed block, and the
+surrounding guard range.
+
 The saved LUN 0 GPT and the post-resize GPT readback both pass the primary
 header and partition-array CRC checks. Both records use 4 KiB logical blocks.
 
@@ -1885,8 +1911,9 @@ header and partition-array CRC checks. Both records use 4 KiB logical blocks.
 `userdata` is the intended space for an installed macOS system. The read-only
 `macosroot` contains Recovery BaseSystem. Installation needs a verified backup
 of `userdata`, an APFS target with the OS and auxiliary volumes, and a
-write-capable UFS path bounded to the selected partition. The current native
-UFS driver supplies reads. This inventory used saved records only.
+write-capable UFS path bounded to the selected partition. The r66 scratch
+test verifies a single native write and its restoration. Persistent APFS
+writes and power-loss recovery still need device tests.
 
 The verified 25F71 restore archive supplied three original APFS images.
 Read-only inspection after AEA decryption identified the OS volume and

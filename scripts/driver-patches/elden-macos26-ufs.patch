@@ -160,14 +160,19 @@
 -// the request list, wake the device from UFS-PowerDown and wait for LUN 0 to be ready.
 -// `why` receives a short reason on failure.
 -static bool hostBringUp (const char **why)
+-{
+-  if (gHost.poisoned) {
+-    *why = "transport quarantined";
+-    return false;
+-  }
+-  if (gHost.ready) {
+-    return true;
 +static uint32_t gEldenTxBefore = UINT32_MAX, gEldenTxAfter = UINT32_MAX;
 +static uint32_t gEldenLinkResult = UINT32_MAX, gEldenUicStatus;
 +static uint64_t gEldenUicTicks;
 +
 +static uint64_t eldenUicCounter ()
- {
--  if (gHost.poisoned) {
--    *why = "transport quarantined";
++{
 +  uint64_t counter;
 +  __asm__ volatile ("isb\n\tmrs %0, cntpct_el0" : "=r" (counter));
 +  return counter;
@@ -188,10 +193,8 @@
 +  if (!hostWaitRegister (0x30, 8, 8)) {
 +    recordTransport (kIOReturnTimeout, 15);
 +    *why = "UIC command not ready";
-     return false;
-   }
--  if (gHost.ready) {
--    return true;
++    return false;
++  }
 +  const bool hibern8Exit = command == 0x18;
 +  const uint32_t completion = hibern8Exit ? 0x420 : 0x400;
 +  const uint64_t budget = uint64_t (eldenUicCounterHz ()) * (hibern8Exit ? 600 : 100) / 1000;
@@ -374,10 +377,12 @@
        return true;
      }
      if (gHost.poisoned) break;
-@@ -980,6 +1088,30 @@
+@@ -978,6 +1086,30 @@
+   }
+   gHost.ready = false;
    *why = "LUN 0 not ready";
-   return false;
- }
++  return false;
++}
 +
 +static bool hostBringUp (const char **why)
 +{
@@ -400,11 +405,9 @@
 +  gHost.hc = 0;
 +  gHost.smmuMap.reset ();
 +  gHost.hcMap.reset ();
-+  return false;
-+}
+   return false;
  }
- 
- namespace {
+ }
 @@ -1302,8 +1434,13 @@
    gRootDiagnostic.failures = native_ufs_block_failures;
    // Show media and I/O counters first so controller details cannot displace the root-volume failure.
@@ -452,16 +455,7 @@
 +    const char *why = "GPT header read";
      if (!hostBringUp (&why)) {
 -      panic ("NATIVE_UFS root check: bring-up failed: %s", why);
-+      rootDiagnosticFailure (why);
-+      IOLog ("NativeUfs: Elden read-only probe failed: %s\n", why);
-+      return false;
-+    }
-+    gRootDiagnostic.stage = why;
-+    if (hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) {
-+      rootDiagnosticFailure (why);
-+      IOLog ("NativeUfs: Elden LUN 0 GPT header read failed\n");
-+      return false;
-     }
+-    }
 -    RootLayout *layout = static_cast<RootLayout *> (IOMalloc (sizeof (RootLayout)));
 -    if (!layout || !findRootLayout (layout, &why)) {
 -      panic ("NATIVE_UFS root check: %s", why);
@@ -472,6 +466,16 @@
 -           "manifest status=%u windows=%u",
 -           layout->userdataFirst, layout->userdataLast, layout->magic0, layout->magic1,
 -           layout->ext4Magic, layout->ext4Blocks, layout->manifestStatus, layout->windows);
++      rootDiagnosticFailure (why);
++      IOLog ("NativeUfs: Elden read-only probe failed: %s\n", why);
++      return false;
++    }
++    gRootDiagnostic.stage = why;
++    if (hostRead4k (0, 1, 1, gScratch) != kIOReturnSuccess) {
++      rootDiagnosticFailure (why);
++      IOLog ("NativeUfs: Elden LUN 0 GPT header read failed\n");
++      return false;
++    }
 +    gRootDiagnostic.stage = "GPT header validation";
 +    const uint32_t bytes = le32 (gScratch + 12);
 +    const uint32_t expected = le32 (gScratch + 16);
@@ -493,7 +497,50 @@
    }
    if (probe == 11) {
      // After the root image is flashed: manifest, then each window's own GPT (sector 1 of the
-@@ -1949,8 +2116,11 @@ bool NativeUfs::startRoot (IOService *provider)
+@@ -1938,6 +2105,42 @@
+   return false;
+ }
+ 
++#if defined(NATIVE_UFS_RECOVERY_ROOT) && NATIVE_UFS_RECOVERY_ROOT
++// Exercise one unallocated block in the 4 GiB Recovery test partition.
++[[noreturn]] static void eldenUfsScratchProbe (const RootLayout &layout, bool tailManifest)
++{
++  constexpr uint64_t blockBytes = 4096;
++  constexpr uint64_t partitionBlocks = 0x100000;
++  constexpr uint64_t scratchOffset = 0xf0000000;
++  if (!tailManifest || strcmp (NATIVE_UFS_ROOT_PARTITION_NAME, "macosroot") ||
++      layout.userdataLast - layout.userdataFirst + 1 != partitionBlocks ||
++      layout.userdataLast > gEldenLastLba || layout.imageBytes > scratchOffset) {
++    panic ("ELDEN UFS WRITE PROBE REFUSED: unexpected Recovery partition layout");
++  }
++  const uint32_t lba = static_cast<uint32_t> (layout.userdataFirst + scratchOffset / blockBytes);
++  uint8_t *readback = gScratch;
++  uint8_t *pattern = gScratch + blockBytes;
++  bzero (pattern, blockBytes);
++  if (hostRead4k (0, lba, 1, readback) != kIOReturnSuccess ||
++      memcmp (readback, pattern, blockBytes) != 0) {
++    panic ("ELDEN UFS WRITE PROBE REFUSED: scratch block %u is unreadable or occupied", lba);
++  }
++
++  for (unsigned i = 0; i < blockBytes; ++i) pattern[i] = static_cast<uint8_t> (0xa5 ^ i ^ (i >> 8));
++  const IOReturn wrote = hostScratchWrite4k (lba, pattern);
++  const IOReturn read = wrote == kIOReturnSuccess ? hostRead4k (0, lba, 1, readback) : kIOReturnNotReady;
++  const bool matched = read == kIOReturnSuccess && memcmp (pattern, readback, blockBytes) == 0;
++
++  bzero (pattern, blockBytes);
++  const IOReturn restore = hostScratchWrite4k (lba, pattern);
++  const IOReturn restoredRead = restore == kIOReturnSuccess ? hostRead4k (0, lba, 1, readback) : kIOReturnNotReady;
++  const bool restored = restoredRead == kIOReturnSuccess && memcmp (pattern, readback, blockBytes) == 0;
++  if (matched && restored) panic ("ELDEN UFS WRITE PROBE PASS: LUN 0 LBA %u pattern verified and zeros restored", lba);
++  panic ("ELDEN UFS WRITE PROBE FAIL: LBA %u write=%x read=%x matched=%u restore=%x reread=%x restored=%u",
++      lba, wrote, read, matched, restore, restoredRead, restored);
++}
++#endif
++
+ // Boot the root image's windows as block devices. Soft-fails (logs, publishes nothing).
+ bool NativeUfs::startRoot (IOService *provider)
+ {
+@@ -1949,8 +2152,11 @@
      return false;
    }
    native_ufs_root_step = 2;
@@ -506,7 +553,7 @@
      rootDiagnosticFailure (layout ? why : "root layout allocation failed");
      IOLog ("NativeUfs: root layout failed: %s\n", why);
      if (layout) IOFree (layout, sizeof (RootLayout));
-@@ -1967,7 +2137,7 @@ bool NativeUfs::startRoot (IOService *provider)
+@@ -1967,13 +2173,17 @@
    gStoreGeometry = { true, layout->userdataFirst, layout->userdataLast, layout->imageBytes, layout->gptEntriesLba,
                       layout->gptHeaderCrc, layout->gptEntriesCrc, layout->gptEntryCount };
  #if defined(NATIVE_UFS_RECOVERY_ROOT) && NATIVE_UFS_RECOVERY_ROOT
@@ -515,17 +562,67 @@
    for (unsigned i = 0; paired && i < layout->windows; ++i)
      paired = ufsRecoveryRootIdentity (layout->window[i].name, layout->window[i].size, layout->window[i].sha256);
    if (!paired) {
+     rootDiagnosticFailure ("recovery window differs from the paired BaseSystem");
+     IOFree (layout, sizeof (RootLayout));
+     return false;
++  }
++  unsigned scratchProbe = 0;
++  if (PE_parse_boot_argn ("elden-ufs-write-probe", &scratchProbe, sizeof (scratchProbe)) && scratchProbe == 1) {
++    eldenUfsScratchProbe (*layout, tailManifest);
+   }
+ #endif
+   const char *names[4] = {};
 --- a/RootCommands.h
 +++ b/RootCommands.h
-@@ -35,6 +35,7 @@
+@@ -26,15 +26,20 @@
+   return (uint32_t (at[0]) << 24) | (uint32_t (at[1]) << 16) | (uint32_t (at[2]) << 8) | at[3];
+ }
+ 
++// Set only while the reserved scratch block is being written under gHost.lock.
++static uint32_t gEldenScratchLba;
++
+ // Issue the UPIU already placed at gHost.virt + kUcdOffset through request slot 0. `direction` is
+-// the UTRD data direction (0 none, 1 from host, 2 to host). Direction 1 is reachable only through hostWrite4k, which
+-// confines it to explicitly opened store/log data windows. Returns the overall command status
++// the UTRD data direction (0 none, 1 from host, 2 to host). Elden data-out is
++// restricted to the single-block scratch probe. Returns the overall command status
+ // (0 = completed) in *ocs. Timeout/fatal status quarantines the allocation.
+ static IOReturn hostSubmit (uint32_t direction, uint32_t dataBytes, uint32_t timeoutUs, uint32_t *ocs)
+ {
    *ocs = 15;
    if (!timeoutUs || dataBytes > kDataMax || (dataBytes & 3) ||
        (dataBytes ? (direction != 1 && direction != 2) : direction != 0)) return kIOReturnBadArgument;
-+  if (direction == 1) return kIOReturnNotWritable;
++  if (direction == 1 && (!gEldenScratchLba || dataBytes != 4096))
++    return kIOReturnNotWritable;
    if (gHost.poisoned) return kIOReturnNotReady;
    if (read32 (gHost.hc, 0x58) != 0) {
      gHost.poisoned = true;
-@@ -240,7 +241,8 @@
+@@ -158,15 +163,20 @@
+   return kIOReturnSuccess;
+ }
+ 
+-// Run a SCSI command. direction 0: no data, 1: host -> device from the DMA data area (already filled by the caller), 2: device
+-// -> host into the DMA data area. Callers other than hostWrite4k never pass direction 1.
++// Run a SCSI command. Data-out is copied only after the queue ownership check.
+ static IOReturn hostScsiDir (uint8_t lun, const uint8_t *cdb, unsigned cdbLength, unsigned direction, uint32_t dataBytes,
+-                             uint32_t timeoutUs, uint32_t *scsiStatus)
++                             uint32_t timeoutUs, uint32_t *scsiStatus, const void *outbound = nullptr)
+ {
+   *scsiStatus = 0xffff;
+   if (!cdb || !cdbLength || cdbLength > 16 || dataBytes > kDataMax || direction > 2 ||
+-      (dataBytes & 3) || (dataBytes ? !direction : direction)) return kIOReturnBadArgument;
++      (dataBytes & 3) || (dataBytes ? !direction : direction) ||
++      ((direction == 1) != (outbound != nullptr))) return kIOReturnBadArgument;
++  if (direction == 1 && (!gEldenScratchLba || lun != 0 || dataBytes != 4096 ||
++      cdbLength != 10 || cdb[0] != 0x2a || cdb[1] != 0x08 ||
++      loadBe32 (cdb + 2) != gEldenScratchLba || cdb[6] || cdb[7] || cdb[8] != 1 || cdb[9]))
++    return kIOReturnNotWritable;
+   if (!hostClearUcd ()) return kIOReturnNotReady;
++  if (outbound) memcpy (gHost.virt + kDataOffset, outbound, dataBytes);
+   uint8_t *ucd = gHost.virt + kUcdOffset;
+   ucd[0] = 0x01;                      // COMMAND UPIU
+   ucd[1] = direction == 2 ? 0x40 : direction == 1 ? 0x20 : 0x00;   // R: data in, W: data out
+@@ -240,7 +250,8 @@
  // Read `blocks` (<= kDataMax / 4096) 4096-byte blocks of LUN `lun` starting at `lba` into dst.
  static IOReturn hostRead4k (uint8_t lun, uint64_t lba, uint32_t blocks, void *dst)
  {
@@ -535,6 +632,44 @@
      return kIOReturnBadArgument;
    }
    IOLockLock (gHost.lock);
+@@ -251,6 +262,24 @@
+   IOReturn status = hostScsi (lun, cdb, 10, true, blocks * 4096U, 1000000, &scsi);
+   if (status == kIOReturnSuccess) {
+     memcpy (dst, gHost.virt + kDataOffset, blocks * 4096U);
++  }
++  IOLockUnlock (gHost.lock);
++  return status;
++}
++
++static IOReturn hostScratchWrite4k (uint32_t lba, const void *src)
++{
++  if (!lba || lba > gEldenLastLba || !src) return kIOReturnBadArgument;
++  IOLockLock (gHost.lock);
++  IOReturn status = kIOReturnNotReady;
++  if (gHost.ready) {
++    uint8_t cdb[10] = { 0x2a, 0x08, 0, 0, 0, 0, 0, 0, 1, 0 };
++    putBe32 (cdb + 2, lba);
++    uint32_t scsi;
++    gRootDiagnostic.lba = lba;
++    gEldenScratchLba = lba;
++    status = hostScsiDir (0, cdb, sizeof (cdb), 1, 4096, 2000000, &scsi, src);
++    gEldenScratchLba = 0;
+   }
+   IOLockUnlock (gHost.lock);
+   return status;
+@@ -311,11 +340,10 @@
+   }
+   IOLockLock (gHost.lock);
+   gRootDiagnostic.lba = lba;
+-  memcpy (gHost.virt + kDataOffset, src, blocks * 4096U);
+   uint8_t cdb[10] = { 0x2a, uint8_t (fua ? 0x08 : 0), uint8_t (lba >> 24), uint8_t (lba >> 16), uint8_t (lba >> 8), uint8_t (lba),
+                       0, uint8_t (blocks >> 8), uint8_t (blocks), 0 };
+   uint32_t scsi = 0;
+-  IOReturn status = hostScsiDir (lun, cdb, 10, 1, blocks * 4096U, 2000000, &scsi);
++  IOReturn status = hostScsiDir (lun, cdb, 10, 1, blocks * 4096U, 2000000, &scsi, src);
+   IOLockUnlock (gHost.lock);
+   return status;
+ }
 diff --git a/RootLayout.h b/RootLayout.h
 index b4a4b22..9ba9953 100644
 --- a/RootLayout.h
