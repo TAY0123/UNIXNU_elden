@@ -107,9 +107,16 @@ def main() -> None:
         trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
         pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
         ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
+        signature_overlay = patches / "native-4k-signature-hash-cache.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", ignition_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", ignition_overlay, signature_overlay], check=True)
+        ubc = source / "bsd/kern/ubc_subr.c"
+        code = ubc.read_text()
+        marker = "#include <sys/ubc_internal.h>\n"
+        if code.count(marker) != 1:
+            raise ValueError("expected one UBC internal header include")
+        ubc.write_text(code.replace(marker, "#define XNU_NATIVE_CS_HASH_CACHE 1\n" + marker))
         if args.recovery_usb_core is not None:
             record["elden_recovery_usb_sources"] = stage_recovery_usb(
                 source, patches.parents[1], args.recovery_usb_core.resolve(strict=True))
@@ -152,6 +159,7 @@ def main() -> None:
                 source / "osfmk/arm64/sheng_bootstrap_trace.h"),
             "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
             "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
+            "native_signature_hash_cache_sha256": build.sha(signature_overlay),
             "hardware_verified": False,
         }
         build.save(record)
@@ -175,6 +183,9 @@ def main() -> None:
         if args.build_gop_display:
             sys.argv.extend(["--build-gop-display", "--elden-gop-board", str(device / "board.toml")])
     build.main()
+    symbols = build.capture("xcrun", "nm", "-j", str(output / "kernel.development.sheng"))
+    if "_cs_native4k_hash_cache_version" not in symbols.splitlines():
+        raise ValueError("the linked kernel is missing the native 4 KiB signature hash cache")
 
 
 if __name__ == "__main__":

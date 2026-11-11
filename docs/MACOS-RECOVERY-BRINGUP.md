@@ -1337,6 +1337,32 @@ UEFI boot-services watchdog expires only during firmware execution and
 is disabled at `ExitBootServices()`.
 [UEFI Boot Services specification](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)
 
+### Recovery shared cache signature granule
+
+The installed USB capture shows `disallowing unsupported code signature
+page shift: 14`, followed by `unable to create a validated cs_blob object:
+85`. This rejects the cache during code-signature registration after
+`launchd` exec. The later `libSystem.B.dylib` error follows the failed cache
+registration.
+
+An offline audit of the verified 25F71 BaseSystem checked the main
+ARM64e cache and its four subcaches. Their original CodeDirectories use
+16 KiB SHA-256 signing blocks with no scatter list. All 69,356 original
+block hashes matched the cache files.
+
+The Elden macOS 4 KiB bootstrap applies the original UniXNU signature
+hash-cache patch and enables it in the XNU source archive build. XNU
+validates each original 16 KiB signing block before deriving the four
+native-page hashes. The wrapper checks for the feature symbol in the
+linked kernel. [UniXNU source patch](https://github.com/UniXNU/UniXNU/blob/95ad78129203442c3c14c02336303adbddf8d0a3/patches/xnu-12377/native-4k-signature-hash-cache.patch)
+
+The `r38-recovery-cache-signature` RAM image passed DarwinBoot preflight,
+packed payload readback, and the Recovery storage and display ABI checks.
+The MacBook copy is `~/Downloads/elden-recovery-cache-signature-ram.img`
+with SHA-256
+`5d2f530235b4c9636ab7e5aa53b07ff33f0bc1662da685265b317f04ca7d54f5`.
+The device test uses `fastboot boot` and captures Recovery over USB.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
