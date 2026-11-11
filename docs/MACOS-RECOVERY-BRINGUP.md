@@ -1800,6 +1800,25 @@ The same 18 MAC denials led to the `restore-datapartition` panic. The
 MacBook received the complete panic and observed the automatic return
 to bootloader fastboot on slot A.
 
+XNU calls each registered MAC policy before recording the final exec
+flags. The r61 and r62 credential lines show that aggregate result.
+The paired AMFI credential hook queries the Boolean installer
+entitlements. The r62 vnode helper instead consults the entitlement
+dictionary. The r64 trace records each policy callback's input and
+output flags and compares the AMFI Boolean query with the vnode
+dictionary query. The 30-module prelink, DarwinBoot preflight,
+packed image check and MacBook checksum passed. The RAM image SHA-256 is
+`91dca95e77ef4dd43b5d73566c410e9e65b06821fb29e3596c339fe03adb57a4`.
+[XNU vnode entitlement query](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/iokit/bsddev/IOKitBSDInit.cpp)
+
+The physical r64 boot recorded AMFI, Sandbox, and Quarantine each
+returning success and leaving the selected flags at `0x22014a01` for
+both binaries. Immediately afterward, both the AMFI Boolean query and the
+vnode dictionary query found their expected entitlements. The remaining
+discrepancy is in how AMFI evaluates the entitlement during the credential
+update. Recovery repeated all 18 metadata denials and returned to bootloader
+fastboot on slot A after sending the complete panic over USB.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

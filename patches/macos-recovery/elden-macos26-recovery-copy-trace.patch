@@ -125,7 +125,7 @@
  	if ((error == 0) && !(options & XATTR_NOSECURITY)) {
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -8587,6 +8587,45 @@
+@@ -8587,6 +8587,52 @@
  #endif
  }
  
@@ -160,9 +160,16 @@
 +		key = "com.apple.rootless.internal-installer-equivalent";
 +	}
 +	if (blob != NULL && key != NULL) {
-+		printf("SHENG-RECOVERY-ENTITLEMENT: name=%s parsed=%d query=%d\n", name,
-+		    csblob_os_entitlements_get(blob) != NULL,
-+		    IOVnodeHasEntitlement(imgp->ip_vp, imgp->ip_arch_offset, key));
++		const void *entitlements = csblob_os_entitlements_get(blob);
++		kern_return_t boolean_status = KERN_NOT_SUPPORTED;
++		if (entitlements != NULL && amfi != NULL &&
++		    amfi->OSEntitlements.version >= OSENTITLEMENTS_INTERFACE_VERSION &&
++		    amfi->OSEntitlements.queryEntitlementBoolean != NULL) {
++			boolean_status = amfi->OSEntitlements.queryEntitlementBoolean(entitlements, key);
++		}
++		printf("SHENG-RECOVERY-ENTITLEMENT: name=%s parsed=%d query=%d boolean-status=%d\n",
++		    name, entitlements != NULL,
++		    IOVnodeHasEntitlement(imgp->ip_vp, imgp->ip_arch_offset, key), boolean_status);
 +	}
 +	vnode_putname(name);
 +}
@@ -171,7 +178,7 @@
  static int
  process_signature(proc_t p, struct image_params *imgp)
  {
-@@ -8605,6 +8644,11 @@
+@@ -8605,6 +8651,11 @@
  	 * ones for the process that is being successfully
  	 * loaded
  	 */
@@ -231,7 +238,7 @@
  		printf("validation of code signature failed through MACF policy: %d\n", error);
 --- a/security/mac_vfs.c
 +++ b/security/mac_vfs.c
-@@ -786,6 +786,27 @@
+@@ -786,6 +786,28 @@
  	return error;
  }
  
@@ -239,7 +246,8 @@
 +extern unsigned sheng_pid1_trace_enabled;
 +
 +static __attribute__((noinline)) void
-+sheng_trace_recovery_exec_policy(vnode_t vp, const char *stage, int result, u_int flags)
++sheng_trace_recovery_exec_policy(vnode_t vp, const char *stage, const char *policy,
++    int result, u_int before, u_int flags)
 +{
 +	const char *name = vnode_getname(vp);
 +	if (name == NULL) {
@@ -248,8 +256,8 @@
 +	if (strcmp(name, "rc_script_wrapper") == 0 || strcmp(name, "ditto") == 0) {
 +		static unsigned records;
 +		if (__atomic_fetch_add(&records, 1, __ATOMIC_RELAXED) < 32) {
-+			printf("SHENG-RECOVERY-CREDENTIAL: name=%s stage=%s result=%d flags=%x\n",
-+			    name, stage, result, flags);
++			printf("SHENG-RECOVERY-CREDENTIAL: name=%s stage=%s policy=%s result=%d before=%x flags=%x\n",
++			    name, stage, policy, result, before, flags);
 +		}
 +	}
 +	vnode_putname(name);
@@ -259,25 +267,68 @@
  void
  mac_cred_label_update_execve(vfs_context_t ctx, kauth_cred_t new, struct vnode *vp, off_t offset,
      struct vnode *scriptvp, struct label *scriptvnodelabel, struct label *execl, u_int *csflags,
-@@ -861,6 +882,11 @@
+@@ -833,9 +855,18 @@
+ 			size_t spawnattrlen = 0;
+ 			void *spawnattr = exec_spawnattr_getmacpolicyinfo(macextensions, mpc->mpc_name, &spawnattrlen);
+ 
+-			error = mac_error_select(hook(cred, new, vfs_context_proc(ctx), vp, offset, scriptvp,
+-			    mac_vnode_label(vp), scriptvnodelabel, execl, csflags, spawnattr, spawnattrlen, disjoint),
+-			    error);
++#if SHENG
++			u_int before = *csflags;
++#endif
++			int step_error = hook(cred, new, vfs_context_proc(ctx), vp, offset, scriptvp,
++			    mac_vnode_label(vp), scriptvnodelabel, execl, csflags, spawnattr, spawnattrlen, disjoint);
++#if SHENG
++			if (__improbable(sheng_pid1_trace_enabled)) {
++				sheng_trace_recovery_exec_policy(vp, "hook", mpc->mpc_name,
++				    step_error, before, *csflags);
++			}
++#endif
++			error = mac_error_select(step_error, error);
+ 		}
+ 		if (mac_policy_list_conditional_busy() != 0) {
+ 			for (; i <= mac_policy_list.maxindex; i++) {
+@@ -852,15 +883,29 @@
+ 				size_t spawnattrlen = 0;
+ 				void *spawnattr = exec_spawnattr_getmacpolicyinfo(macextensions, mpc->mpc_name, &spawnattrlen);
+ 
+-				error = mac_error_select(hook(cred, new, vfs_context_proc(ctx), vp, offset, scriptvp,
+-				    mac_vnode_label(vp), scriptvnodelabel, execl, csflags, spawnattr, spawnattrlen, disjoint),
+-				    error);
++#if SHENG
++				u_int before = *csflags;
++#endif
++				int step_error = hook(cred, new, vfs_context_proc(ctx), vp, offset, scriptvp,
++				    mac_vnode_label(vp), scriptvnodelabel, execl, csflags, spawnattr, spawnattrlen, disjoint);
++#if SHENG
++				if (__improbable(sheng_pid1_trace_enabled)) {
++					sheng_trace_recovery_exec_policy(vp, "hook", mpc->mpc_name,
++					    step_error, before, *csflags);
++				}
++#endif
++				error = mac_error_select(step_error, error);
+ 			}
+ 			mac_policy_list_unbusy();
+ 		}
  	}
  	*labelupdateerror = error;
  	VFS_KERNEL_DEBUG_END1(27, vp);
 +#if SHENG
 +	if (__improbable(sheng_pid1_trace_enabled)) {
-+		sheng_trace_recovery_exec_policy(vp, "update", error, *csflags);
++		sheng_trace_recovery_exec_policy(vp, "update", "all", error, 0, *csflags);
 +	}
 +#endif
  }
  
  int
-@@ -927,6 +953,11 @@
+@@ -927,6 +972,11 @@
  		}
  	}
  	VFS_KERNEL_DEBUG_END1(28, vp);
 +#if SHENG
 +	if (__improbable(sheng_pid1_trace_enabled)) {
-+		sheng_trace_recovery_exec_policy(vp, "check", result, 0);
++		sheng_trace_recovery_exec_policy(vp, "check", "all", result, 0, 0);
 +	}
 +#endif
  
