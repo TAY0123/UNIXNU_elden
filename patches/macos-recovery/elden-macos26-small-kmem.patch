@@ -26,3 +26,18 @@ diff --git a/osfmk/vm/vm_kern.c b/osfmk/vm/vm_kern.c
  	free_size -= total_claims;
  
  	/*
+diff --git a/osfmk/vm/vm_compressor.c b/osfmk/vm/vm_compressor.c
+--- a/osfmk/vm/vm_compressor.c
++++ b/osfmk/vm/vm_compressor.c
+@@ -842,5 +842,11 @@ vm_compressor_set_size(void)
+ 		}
+ 	}
++#if SHENG && !defined(__ARM_16K_PG__)
++	/* The native 4 KiB kernel has a 64 GiB VA aperture. Leave room for zones and other submaps. */
++	if (vm_compression_limit == 0 && compressor_pool_size > (8ULL << 30)) {
++		compressor_pool_size = 8ULL << 30;
++	}
++#endif
+ 	/*
+ 	 * Cap the compressor pool size to a max of 192G
+ 	 */

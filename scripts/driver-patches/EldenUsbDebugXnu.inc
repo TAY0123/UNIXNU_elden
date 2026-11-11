@@ -215,11 +215,11 @@ static bool eldenUsbWaitForPanicHost()
   return dwc3_ready(eldenDwc());
 }
 
-extern "C" void elden_usb_capture_panic(const char *message);
-void elden_usb_capture_panic(const char *message)
+static bool eldenUsbSendPanic(const char *message)
 {
   if (!gEldenUsb.management || !gEldenUsb.active || gEldenUsb.failed ||
-      current_processor() != gEldenUsb.processor || !eldenUsbAcquire(&gEldenUsb.busy)) return;
+      current_processor() != gEldenUsb.processor || !eldenUsbAcquire(&gEldenUsb.busy)) return false;
+  bool sent = false;
   if (eldenUsbWaitForPanicHost() && eldenUsbDrain(300)) {
     // Replay the retained prefix and tail before the final panic packet. Do not
     // handle received commands or take a blocking lock in the panic context.
@@ -231,15 +231,29 @@ void elden_usb_capture_panic(const char *message)
     const char begin[] = "\r\nELDEN PANIC BEGIN\r\n";
     const char end[] = "\r\nELDEN PANIC END\r\n";
     size_t size = message ? strnlen(message, 4095) : 0;
-    if (dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1) == sizeof(begin) - 1 &&
+    sent = dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1) == sizeof(begin) - 1 &&
         (!size || dwc3_queue(eldenDwc(), message, size) == size) &&
         dwc3_queue(eldenDwc(), end, sizeof(end) - 1) == sizeof(end) - 1 &&
-        eldenUsbDrain(600)) {
-      eldenUsbReset(true);
-      eldenUsbReset(false);
-    }
+        eldenUsbDrain(600);
   }
   __atomic_store_n(&gEldenUsb.busy, 0, __ATOMIC_RELEASE);
+  return sent;
+}
+
+extern "C" void elden_usb_capture_panic(const char *message);
+void elden_usb_capture_panic(const char *message)
+{
+  if (!__atomic_exchange_n(&gEldenPanicResetArmed, 0, __ATOMIC_ACQ_REL)) return;
+  if (!eldenUsbSendPanic(message)) {
+    // The QR is already rendered. Use the hardware timer before kernel clocks are ready.
+    uint64_t frequency, start, now;
+    __asm__ volatile("mrs %0, cntfrq_el0\n\tmrs %1, cntvct_el0" : "=r"(frequency), "=r"(start));
+    do {
+      __asm__ volatile("yield\n\tmrs %0, cntvct_el0" : "=r"(now));
+    } while (now - start < 8 * frequency);
+  }
+  eldenUsbReset(true);
+  eldenUsbReset(false);
 }
 #endif
 #if !defined(ELDEN_RECOVERY_USB)

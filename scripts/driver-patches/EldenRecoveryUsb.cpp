@@ -28,6 +28,32 @@ read32(uintptr_t base, uint32_t offset)
     return *reinterpret_cast<volatile uint32_t *>(base + offset);
 }
 
+static bool
+eldenRecoveryIsElden()
+{
+    DTEntry root;
+    const void *compatible;
+    unsigned int size;
+    return SecureDTLookupEntry(nullptr, "/", &root) == kSuccess &&
+        SecureDTGetProperty(root, "compatible", &compatible, &size) == kSuccess &&
+        size >= sizeof("lenovo,elden") &&
+        memcmp(compatible, "lenovo,elden", sizeof("lenovo,elden")) == 0;
+}
+
+static unsigned gEldenPanicResetArmed;
+
+extern "C" void elden_recovery_panic_arm(void);
+
+void
+elden_recovery_panic_arm(void)
+{
+    unsigned management = 0;
+    if (PE_parse_boot_argn("elden-usb-management", &management, sizeof(management)) &&
+        management == 1 && eldenRecoveryIsElden()) {
+        __atomic_store_n(&gEldenPanicResetArmed, 1, __ATOMIC_RELEASE);
+    }
+}
+
 #define ELDEN_USB_DEBUG 1
 #define ELDEN_RECOVERY_USB 1
 extern "C" void sheng_log_status(const char *message);
@@ -54,13 +80,7 @@ elden_recovery_usb_start(void)
     if (!PE_parse_boot_argn("elden-usb-debug", &enabled, sizeof(enabled)) || enabled != 1) {
         return;
     }
-    DTEntry root;
-    const void *compatible;
-    unsigned int size;
-    if (SecureDTLookupEntry(nullptr, "/", &root) != kSuccess ||
-        SecureDTGetProperty(root, "compatible", &compatible, &size) != kSuccess ||
-        size < sizeof("lenovo,elden") ||
-        memcmp(compatible, "lenovo,elden", sizeof("lenovo,elden")) != 0) {
+    if (!eldenRecoveryIsElden()) {
         IOLog("ELDEN_USB: device tree does not identify Elden\n");
         return;
     }

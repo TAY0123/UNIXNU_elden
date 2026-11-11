@@ -21,3 +21,14 @@
  
  iokit/Kernel/IODeviceTreeSupport.cpp			optional iokitcpp
  
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -495,6 +495,8 @@ PE_init_platform(boolean_t vm_initialized, void *args)
+ 		 * can be used..
+ 		 */
+ 		SecureDTInit(PE_state.deviceTreeHead, PE_state.deviceTreeSize);
++		extern void elden_recovery_panic_arm(void);
++		elden_recovery_panic_arm();
+ 		pe_identify_machine(boot_args_ptr);
+ 	} else {
+ 		pe_arm_init_interrupts(args);

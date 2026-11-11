@@ -1402,6 +1402,28 @@ the range to XNU. The package command accepts `--owned-memory-size
 the previous value produces the original ADT byte for byte. The MacBook
 copy is `~/Downloads/elden-recovery-4g-memory-ram.img` with SHA-256
 `e06c3796abc25b6d8b79da2e0a5d5e7c58d718e41433945d05811e9530765701`.
+The tablet accepted the 4 GiB handoff. The matching kernel panic record
+reported `kmem_range_init: fixed claims 0x16b17f4000 exhaust largest hole
+0xab5b0c000`. macOS reserves up to 16 times physical RAM for the default
+compressor pool at this memory size. The Elden 4 KiB build caps that default
+reservation at 8 GiB, leaving approximately 8 GiB of headroom in the
+reported largest hole after the fixed claims.
+
+Recovery USB management now arms the panic reset during initial device-tree
+setup. The panic hook attempts to send the retained log and the panic frame
+when USB is available. When it cannot send the frame, it leaves the panic
+QR visible for eight seconds before requesting the same PSCI fastboot
+reset. This path covers panics that reach the retained-log hook before
+the USB worker starts. The tablet still needs to execute that hook.
+
+The `r42-recovery-memory-reset` RAM image uses the 4 GiB window and the
+8 GiB compressor cap. Its linked kernel contains the cap and the reset
+hook. The prelink ABI checks and packed image verification passed. The
+MacBook copy is `~/Downloads/elden-recovery-memory-reset-ram.img` with
+SHA-256 `8fd1e3639e234302a1bbab1e87dd158caf335b97a085c2f7dad249baa09fc7ab`.
+The separate early-panic test adds `vm_compression_limit=16777216` only
+to the Recovery USB entry to reproduce the oversized compressor claim
+before the USB worker starts.
 
 ### Adreno 830 GMU firmware
 
