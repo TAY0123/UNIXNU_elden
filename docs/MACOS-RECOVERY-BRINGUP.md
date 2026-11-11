@@ -1761,6 +1761,13 @@ installer entitlement. The 30-module prelink, DarwinBoot preflight,
 packed image check and MacBook checksum passed. The RAM image SHA-256 is
 `afdc2fea194994e1239c8ae4122e236bf836b36f9fc9ebf6d030fe4096b703dc`.
 
+On the physical r62 boot, XNU reported `parsed=1 query=1` for both the
+wrapper's heritable installer entitlement and ditto's internal installer
+entitlement. The credential hook still returned neither installer flag.
+The same 18 MAC denials led to the `restore-datapartition` panic. The
+MacBook received the complete panic and observed the automatic return
+to bootloader fastboot on slot A.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
