@@ -34,10 +34,10 @@ index 1a4db49..766e751 100644
  
  SYSCTL_PROC(_kern, OID_AUTO, initproc_spawned,
 diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
-index 905c291..fa8956a 100644
+index 905c291..3474203 100644
 --- a/osfmk/arm64/sleh.c
 +++ b/osfmk/arm64/sleh.c
-@@ -150,6 +150,27 @@ void panic_with_thread_kernel_state(const char *msg, arm_saved_state_t *ss) __ab
+@@ -150,6 +150,92 @@ void panic_with_thread_kernel_state(const char *msg, arm_saved_state_t *ss) __ab
  void sleh_synchronous_sp1(arm_context_t *, uint64_t, vm_offset_t) __abortlike;
  void sleh_synchronous(arm_context_t *, uint64_t, vm_offset_t, bool);
  
@@ -48,7 +48,52 @@ index 905c291..fa8956a 100644
 +static uint64_t sheng_pid1_el0_sync, sheng_pid1_svc, sheng_pid1_last_esr;
 +static int sheng_pid1_last_svc;
 +
-+/* Independent samples for diagnostics. Exception entry never logs or waits. */
++struct sheng_pid1_sample {
++	uint64_t entered;
++	uint64_t completed;
++	uint64_t pc;
++	uint64_t far;
++	uint64_t lr;
++	uint64_t esr;
++	int code;
++	int result;
++};
++
++static bool sheng_pid1_sampling;
++static struct sheng_pid1_sample sheng_pid1_ifault, sheng_pid1_syscall;
++
++static uint64_t
++sheng_pid1_begin(struct sheng_pid1_sample *sample, arm_saved_state_t *state,
++    int code, uint64_t esr, vm_offset_t far)
++{
++	if (__atomic_test_and_set(&sheng_pid1_sampling, __ATOMIC_ACQUIRE)) {
++		return 0;
++	}
++	uint64_t ticket = ++sample->entered;
++	sample->pc = get_saved_state_pc(state);
++	sample->lr = get_saved_state_lr(state);
++	sample->esr = esr;
++	sample->far = far;
++	sample->code = code;
++	sample->result = -1;
++	__atomic_clear(&sheng_pid1_sampling, __ATOMIC_RELEASE);
++	return ticket;
++}
++
++static void
++sheng_pid1_finish(struct sheng_pid1_sample *sample, uint64_t ticket, int result)
++{
++	if (ticket == 0 || __atomic_test_and_set(&sheng_pid1_sampling, __ATOMIC_ACQUIRE)) {
++		return;
++	}
++	sample->completed++;
++	if (sample->entered == ticket) {
++		sample->result = result;
++	}
++	__atomic_clear(&sheng_pid1_sampling, __ATOMIC_RELEASE);
++}
++
++/* Capture never logs or waits. Print only from the boot progress worker. */
 +void
 +sheng_pid1_trace_report(void)
 +{
@@ -59,13 +104,33 @@ index 905c291..fa8956a 100644
 +	    __atomic_load_n(&sheng_pid1_last_svc, __ATOMIC_RELAXED),
 +	    (unsigned long long)__atomic_load_n(&sheng_pid1_last_esr, __ATOMIC_RELAXED),
 +	    __atomic_load_n(&sheng_pid1_main_ack, __ATOMIC_RELAXED));
++
++	if (__atomic_test_and_set(&sheng_pid1_sampling, __ATOMIC_ACQUIRE)) {
++		return;
++	}
++	struct sheng_pid1_sample fault = sheng_pid1_ifault;
++	struct sheng_pid1_sample syscall = sheng_pid1_syscall;
++	__atomic_clear(&sheng_pid1_sampling, __ATOMIC_RELEASE);
++	if (fault.entered != 0) {
++		printf("SHENG-PID1-IF: done=%llu/%llu vm=%d esr=%llx\n",
++		    (unsigned long long)fault.completed, (unsigned long long)fault.entered,
++		    fault.result, (unsigned long long)fault.esr);
++		printf("SHENG-PID1-IF: pc=%llx far=%llx lr=%llx\n",
++		    (unsigned long long)fault.pc, (unsigned long long)fault.far,
++		    (unsigned long long)fault.lr);
++	}
++	if (syscall.entered != 0) {
++		printf("SHENG-PID1-SVC: done=%llu/%llu code=%d errno=%d pc=%llx\n",
++		    (unsigned long long)syscall.completed, (unsigned long long)syscall.entered,
++		    syscall.code, syscall.result, (unsigned long long)syscall.pc);
++	}
 +}
 +#endif
 +
  
  
  void sleh_irq(arm_saved_state_t *);
-@@ -952,6 +973,17 @@ sleh_synchronous(arm_context_t *context, uint64_t esr, vm_offset_t far, __unused
+@@ -952,6 +1038,17 @@ sleh_synchronous(arm_context_t *context, uint64_t esr, vm_offset_t far, __unused
  
  	if (is_user) {
  		thread->machine.el0_synchronous_trap = true;
@@ -83,6 +148,48 @@ index 905c291..fa8956a 100644
  	}
  
  	switch (class) {
+@@ -960,6 +1057,17 @@ sleh_synchronous(arm_context_t *context, uint64_t esr, vm_offset_t far, __unused
+ 			panic("Invalid SVC_64 context");
+ 		}
+ 
++#if SHENG
++		if (sheng_pid1_trace_enabled && proc_selfpid() == 1) {
++			int code = get_saved_state_svc_number(state);
++			uint64_t ticket = sheng_pid1_begin(&sheng_pid1_syscall, state, code, 0, 0);
++			handle_svc(state);
++			int error = code > 0 && (get_saved_state_cpsr(state) & PSR_CF) ?
++			    (int)get_saved_state_reg(state, 0) : 0;
++			sheng_pid1_finish(&sheng_pid1_syscall, ticket, error);
++			break;
++		}
++#endif
+ 		handle_svc(state);
+ 		break;
+ 
+@@ -1976,6 +2084,13 @@ handle_user_abort(arm_saved_state_t *state, uint64_t esr, vm_offset_t fault_addr
+ 
+ 		assert(map != kernel_map);
+ 
++#if SHENG
++		uint64_t ticket = 0;
++		if (sheng_pid1_trace_enabled && ESR_EC(esr) == ESR_EC_IABORT_EL0 &&
++		    proc_selfpid() == 1) {
++			ticket = sheng_pid1_begin(&sheng_pid1_ifault, state, 0, esr, fault_addr);
++		}
++#endif
+ 		if (!(fault_type & VM_PROT_EXECUTE)) {
+ 			vm_fault_addr = VM_USER_STRIP_TBI(fault_addr);
+ 		}
+@@ -1998,6 +2113,9 @@ handle_user_abort(arm_saved_state_t *state, uint64_t esr, vm_offset_t fault_addr
+ 		if (thread->t_rr_state.trr_fault_state != TRR_FAULT_NONE) {
+ 			thread_reset_pcs_done_faulting(thread);
+ 		}
++#if SHENG
++		sheng_pid1_finish(&sheng_pid1_ifault, ticket, result);
++#endif
+ 		if (result == KERN_SUCCESS || result == KERN_ABORTED) {
+ 			return;
+ 		}
 diff --git a/pexpert/arm/pe_kprintf.c b/pexpert/arm/pe_kprintf.c
 index 0e5a3ca..164b11d 100644
 --- a/pexpert/arm/pe_kprintf.c

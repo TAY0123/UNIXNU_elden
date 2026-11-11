@@ -818,6 +818,31 @@ embedded RAM image verification passed. The MacBook copy is
 Bootloader fastboot accepted the trace image. Runtime verification
 requires a photo of the `SHENG-PID1` line after `launchd exec`.
 
+The later tablet photos show the same PID 1 counts at 1339 and 1369 seconds
+after `launchd exec`. `launchd` had one start, zero exits, 179 EL0
+synchronous exceptions and 52 SVCs. RecoveryOS services and WindowServer
+had zero starts. The last recorded SVC was `sysctl` (202) and the last
+non-SVC syndrome was `0x82000007`, an EL0 instruction abort with a level 3
+translation fault. The photos establish a stall and repeated progress
+reports. The fault could have been serviced before PID 1 stopped making
+progress. The `main=0` field means the `kern.initproc_spawned` acknowledgment
+was absent at the time of capture.
+
+The updated PID 1 trace records the last instruction fault's PC, FAR,
+LR and VM result and the latest SVC's entry, handler return and BSD errno.
+The progress worker prints `SHENG-PID1-IF` and `SHENG-PID1-SVC` without
+printing from the exception handlers. A result of `-1` means the trace has
+no completion sample for that operation. The trace uses the Recovery
+framebuffer build's one-CPU profile and the paired Recovery volume.
+
+The rebuilt kernel links with the same 30 Recovery modules. The 326-slot
+UFS and 473-slot display checks matched the previous ABI and PAC metadata,
+and DarwinBoot preflight and raw Android v4 image verification passed.
+The MacBook image is `~/Downloads/elden-macos26-pid1-fault-ram.img` with
+SHA-256 `840932c863f9a5a252102e420514d34fcf317d3d71b20c668237a53c481d3ec4`.
+RAM-boot this image and select **Recovery Framebuffer Test**. Capture
+the `SHENG-PID1-IF` and `SHENG-PID1-SVC` lines after the stall recurs.
+
 ### Recovery framebuffer RAM image
 
 The Elden bootstrap wrapper's `--build-gop-display` option includes the
