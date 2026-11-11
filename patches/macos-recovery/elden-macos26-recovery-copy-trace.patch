@@ -125,7 +125,7 @@
  	if ((error == 0) && !(options & XATTR_NOSECURITY)) {
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -8587,6 +8587,30 @@
+@@ -8587,6 +8587,32 @@
  #endif
  }
  
@@ -135,7 +135,7 @@
 +static __attribute__((noinline)) void
 +sheng_trace_recovery_installer_exec(proc_t proc, const struct image_params *imgp)
 +{
-+	const char *name = imgp->ip_vp->v_name;
++	const char *name = imgp->ip_vp == NULLVP ? NULL : imgp->ip_vp->v_name;
 +	if (name == NULL || (strcmp(name, "rc_script_wrapper") != 0 &&
 +	    strcmp(name, "sh") != 0 && strcmp(name, "bash") != 0 &&
 +	    strcmp(name, "ditto") != 0)) {
@@ -147,16 +147,18 @@
 +		return;
 +	}
 +
-+	printf("SHENG-RECOVERY-EXEC: pid=%d ppid=%d name=%s before=%llx new=%x caller=%llx\n",
++	const struct cs_blob *blob = ubc_cs_blob_get(imgp->ip_vp, -1, -1, imgp->ip_arch_offset);
++	unsigned long long blob_flags = blob == NULL ? 0 : blob->csb_flags;
++	printf("SHENG-RECOVERY-EXEC: pid=%d ppid=%d name=%s before=%llx new=%x caller=%llx blob=%llx\n",
 +	    proc_pid(proc), proc_ppid(proc), name, (unsigned long long)proc_getcsflags(proc),
-+	    imgp->ip_csflags, (unsigned long long)proc_getcsflags(current_proc()));
++	    imgp->ip_csflags, (unsigned long long)proc_getcsflags(current_proc()), blob_flags);
 +}
 +#endif
 +
  static int
  process_signature(proc_t p, struct image_params *imgp)
  {
-@@ -8605,6 +8629,11 @@
+@@ -8605,6 +8631,11 @@
  	 * ones for the process that is being successfully
  	 * loaded
  	 */

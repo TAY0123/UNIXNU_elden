@@ -1669,6 +1669,19 @@ Recovery prelink, DarwinBoot preflight, FAT readback, and MacBook checksum
 checks. Its SHA-256 is
 `cd4adaea06e803342c4d6e141aa81de593877be948d3093189befd1a5be90135`.
 
+The physical r56 boot recorded `rc_script_wrapper`, `sh`, `bash`, and
+`ditto` in order. The first three were successive execs of PID 4 and
+`ditto` was its child. Neither `CS_INSTALLER` nor `CS_EXEC_INHERIT_SIP`
+was set at any of the four execs. The wrapper's first exec already
+lacked both bits, so the trace places the discrepancy before the shell
+handoff. The test repeated all 18 MAC-policy denials, sent the complete
+panic over USB, and returned to fastboot. The r57 diagnostic also
+prints the flags from the executable's UBC code-signing blob so they
+can be compared with the flags assigned at exec. The r57 prelink,
+DarwinBoot preflight, packed image and MacBook checksum checks passed.
+Its SHA-256 is
+`d97e195b03e3d2f65900142adc6dc902e0b6daa6ccd84472dc18627c1e9e3103`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
