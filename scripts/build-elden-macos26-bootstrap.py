@@ -19,6 +19,8 @@ def main() -> None:
                         help="also compile the read-only UFS companion from this device checkout")
     parser.add_argument("--build-gop-display", action="store_true",
                         help="include the Elden framebuffer in the UFS companion")
+    parser.add_argument("--adreno830-gmu-firmware", type=Path,
+                        help="include the opt-in Elden GMU image validation probe")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
     args = parser.parse_args()
     if args.build_gop_display and args.elden_ufs_device is None:
@@ -67,6 +69,34 @@ def main() -> None:
         pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
+        if args.adreno830_gmu_firmware is not None:
+            image = args.adreno830_gmu_firmware.read_bytes()
+            digest = hashlib.sha256(image).hexdigest()
+            if digest != "1ad8175e6cd01ea76c64d20b83600038c52dd29844b48d57b11b769b038863a5":
+                raise ValueError("expected the pinned Elden gen80000_gmu.bin")
+            driver = patches.parents[1] / "drivers/Adreno830"
+            kit = root / "UniXNU/kits/AdrenoFirmware"
+            pexpert = source / "pexpert/arm"
+            inputs = [kit / name for name in ("AdrenoFirmware.c", "AdrenoFirmware.h")]
+            inputs.extend(driver / name for name in
+                          ("EldenAdreno830.c", "EldenAdreno830.h", "EldenAdreno830Boot.inc"))
+            for item in inputs:
+                shutil.copyfile(item, pexpert / item.name)
+            rows = (", ".join(f"0x{byte:02x}" for byte in image[i:i + 16])
+                    for i in range(0, len(image), 16))
+            (pexpert / "EldenAdreno830GmuImage.h").write_text(
+                "static const uint8_t elden_gmu_image[] = {\n    " + ",\n    ".join(rows) + "\n};\n")
+            pe_init = pexpert / "pe_init.c"
+            code = pe_init.read_text()
+            marker = "void\nPE_lockdown_iokit(void)\n{\n"
+            if code.count(marker) != 1:
+                raise ValueError("expected one PE_lockdown_iokit definition")
+            pe_init.write_text(code.replace(marker, '#include "EldenAdreno830Boot.inc"\n\n'
+                                               + marker + "\telden_adreno830_probe();\n"))
+            record["elden_adreno830_probe"] = {
+                "firmware_sha256": digest,
+                "sources_sha256": {item.name: build.sha(item) for item in inputs},
+            }
         source_diff = subprocess.check_output(["git", "-C", source, "diff", "HEAD", "--binary"])
         record["source_diff_sha256"] = hashlib.sha256(source_diff).hexdigest()
         record["elden_bootstrap"] = {

@@ -864,3 +864,51 @@ SHA-256 `3653a424874caf0b503411e130fbd843aec24a35ea12ff2e7addb0278c625a2f`.
 The combined image still needs a tablet RAM boot. Select **Elden Linux -
 installed rootfs** and verify Linux mounts the existing rootfs and reaches
 its login screen.
+
+### Adreno 830 GMU firmware
+
+On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
+identified the Adreno 830 through Mesa Turnip. The live device tree
+reported GPU `0x03d00000`, GMU `0x03d37000`, and GPU SMMU `0x03da0000`.
+The GPU uses stream IDs 0 and 1 and GIC SPI 300. The GMU uses stream ID 5
+and GIC SPIs 304 and 305. The Linux A8xx driver and device tree describe
+these interfaces. [A8xx driver](https://github.com/torvalds/linux/blob/master/drivers/gpu/drm/msm/adreno/a8xx_gpu.c) ·
+[SM8750 device tree](https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/qcom/sm8750.dtsi)
+
+A headless test selected the Turnip ICD, submitted a Vulkan buffer fill,
+waited on its fence and verified the 4096-byte CPU readback on the tablet.
+Linux also enumerated the 4 GiB `macosroot` partition as read-only.
+
+The device Linux installation supplied the following firmware identities.
+
+| File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `qcom/gen80000_gmu.bin` | 88896 | `1ad8175e6cd01ea76c64d20b83600038c52dd29844b48d57b11b769b038863a5` |
+| `qcom/gen80000_sqe.fw` | 111892 | `9c8f009bea112d7c06dd2ccb67e889999459e53b92f0f4859f5ea0db067ad6b5` |
+| `qcom/gen80000_aqe.fw` | 25340 | `f04cb97e1e629b9003a26c5670b8f7e5b7bfeca95d35b2abd581fd8672efed20` |
+| `qcom/sm8750/gen80000_zap.mbn` | 12088 | `8cf4191428da972095df365f1d3b171f45bbed806d6c0f3310cfc4dee00e04ae` |
+
+The Adreno 830 loader uses UniXNU's shared `AdrenoFirmware` parser and the
+SM8750 GMU address ranges. It
+validates all loadable blocks before calling the transport and stops when
+the transport reports failure. The same test passed with sanitizers on
+the build host and against the installed firmware on the tablet under
+Linux. It verifies the four loadable blocks and refuses the wrong chip,
+truncation, overlapping blocks, and out-of-range destinations.
+[Loader source](../drivers/Adreno830/EldenAdreno830.c)
+
+The macOS bootstrap wrapper's `--adreno830-gmu-firmware` option checks
+the local GMU file against its SHA-256 before embedding it in an opt-in
+XNU probe. The **Adreno 830 GMU Probe** entry enables the probe. It counts
+the validated writes without touching MMIO. The expected boot line is
+`ELDEN-A830: GMU image result=0 blocks=4 bytes=88656`.
+
+The 4 KiB ARM64e probe passed prelink, DarwinBoot preflight and embedded
+image verification. The verified MacBook copy is
+`~/Downloads/elden-macos26-adreno830-gmu-ram.img` with SHA-256
+`8673a7d39f50735576f21501be34be8a392fe0ca578e21707b5019b2702dc3b6`.
+The on-device XNU probe result is pending.
+
+Hardware bring-up requires GMU power and clock control, an owned GPU
+SMMU context, and a bounded GMU boot and HFI handshake. A command ring,
+fences, rendering, and the macOS Metal interface follow those milestones.
