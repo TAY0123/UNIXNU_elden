@@ -1500,6 +1500,13 @@ payload verification. The MacBook copy is
 `~/Downloads/elden-recovery-user-va47-ram.img` with SHA-256
 `afbe27f8c8170f6e071c158c3056ac29a7ee3dd49215d5bc43e3ccf07c2e10fe`.
 
+The r46 tablet boot reported `T0SZ=17 T1SZ=26 TG0=0 TG1=2` after
+mapping the verified dyld cache. It printed the original launchd greeting,
+started its BaseSystem environment and recorded PID 1 `main=1`. It ran
+`apfs_boot_util` during `mount-phase-1`, which timed out waiting for the
+iSC xART role (256). The task then exited with SIGABRT. The MacBook
+captured the complete panic over USB.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
