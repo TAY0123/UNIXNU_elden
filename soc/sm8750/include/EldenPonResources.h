@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: BSD-2-Clause-Patent
+#pragma once
+
+// PMIC arbiter bus 0, application execution environment 0.
+// From the Elden Linux device tree at bf96c3d4048973298ede78487177c6f1b4f6bc0f.
+#define ELDEN_SPMI_CORE_PHYS 0x0c400000ULL
+#define ELDEN_SPMI_CORE_BYTES 0x3000U
+#define ELDEN_SPMI_CONFIG_PHYS 0x0c42d000ULL
+#define ELDEN_SPMI_CONFIG_BYTES 0x1000U
+#define ELDEN_SPMI_OBSERVER_PHYS 0x0c440000ULL
+#define ELDEN_SPMI_OBSERVER_BYTES 0x8000U
+
+#define ELDEN_PON_PPID 0x013U
+#define ELDEN_PON_POFF_REASON 0x0cU
+#define ELDEN_PON_WATCHDOG_S1 0x54U
+#define ELDEN_PON_WATCHDOG_S2 0x55U
+#define ELDEN_PON_WATCHDOG_TYPE 0x56U
+#define ELDEN_PON_WATCHDOG_ENABLE 0x57U

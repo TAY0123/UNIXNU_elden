@@ -1377,6 +1377,23 @@ reboot request. Testing the hardware expiry needs a Linux image with the
 watchdog driver and a check of the boot mode selected after expiry.
 [Linux PON watchdog driver](https://github.com/torvalds/linux/blob/master/drivers/watchdog/pm8916_wdt.c)
 
+The maintenance kernel builds `CONFIG_PM8916_WATCHDOG=m`. A follow-up
+mounted `rootfs` read-only without journal replay, copied the matching
+module to RAM and unmounted it before loading the module. Linux identified
+SPMI arbiter v7, revision `0x70020000`, and bound the PM8550 PON watchdog.
+The tablet stayed online beyond the 60-second watchdog timeout and reached
+fastboot on slot A after the scheduled software fallback. Hardware expiry
+remains unverified.
+
+The r63 Recovery test enables `elden-pon-observe=1` on its timed entry.
+XNU checks the SPMI arbiter revision and application-owned PON channel,
+then reads the previous power-off reason and watchdog configuration.
+The probe uses the SPMI observer window and issues no PMIC register
+writes. The image passed the 30-module prelink, DarwinBoot preflight,
+packed image check and MacBook checksum. Its SHA-256 is
+`c42e35bafd3a38579db27334c1961419cf6614478a8e84605d4559673af8a417`.
+[Linux SPMI arbiter at the board reference revision](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/spmi/spmi-pmic-arb.c)
+
 ### Recovery shared cache signature granule
 
 The installed USB capture shows `disallowing unsupported code signature

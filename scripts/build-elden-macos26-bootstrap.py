@@ -22,11 +22,13 @@ def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
     adapter = device / "scripts/driver-patches"
     iokit = source / "iokit/Kernel"
     files = {iokit / name: adapter / name for name in (
-        "EldenRecoveryUsb.cpp", "EldenUsbDebugXnu.inc", "EldenUfsIdentity.h")}
+        "EldenRecoveryUsb.cpp", "EldenUsbDebugXnu.inc", "EldenUfsIdentity.h",
+        "EldenPonObserve.inc")}
     files.update({iokit / name: core / name for name in ("Dwc3.h", "Dwc3Regs.h", "LICENSE.m1n1")})
     files[iokit / "EldenUsbDwc3.c"] = core / "Dwc3.c"
     files[source / "pexpert/arm/pe_elden_usb_log.h"] = adapter / "EldenRecoveryUsbLog.h"
     files[iokit / "EldenUsbResources.h"] = device / "soc/sm8750/include/EldenUsbResources.h"
+    files[iokit / "EldenPonResources.h"] = device / "soc/sm8750/include/EldenPonResources.h"
     for destination, path in files.items():
         shutil.copyfile(path, destination)
     overlay = device / "patches/macos-recovery/elden-macos26-usb-console.patch"

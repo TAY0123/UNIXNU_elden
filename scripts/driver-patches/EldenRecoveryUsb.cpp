@@ -28,6 +28,8 @@ read32(uintptr_t base, uint32_t offset)
     return *reinterpret_cast<volatile uint32_t *>(base + offset);
 }
 
+#include "EldenPonObserve.inc"
+
 static bool
 eldenRecoveryIsElden()
 {
@@ -130,4 +132,5 @@ elden_recovery_usb_start(void)
         }
     }
     eldenStartUsbDebug();
+    eldenPonObserve();
 }

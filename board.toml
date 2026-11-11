@@ -33,6 +33,7 @@ ufs_phy = "0x1d80000"
 usb_debug_controller = "0x0a600000"
 usb_debug_sid = "0x40"
 usb_debug_resources = "soc/sm8750/include/EldenUsbResources.h"
+pon_watchdog_resources = "soc/sm8750/include/EldenPonResources.h"
 
 [board.hardware.ufs_handoff]
 gcc_page = 0x177000
