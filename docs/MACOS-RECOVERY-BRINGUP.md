@@ -1537,6 +1537,12 @@ the tail manifest, then flushed and reread the manifest from LUN 0. The
 original BaseSystem image and both live GPT copies matched after the
 write. The boot slots and Android `userdata` were outside the write range.
 
+The r47 tablet published ISC first with its 64 MiB volatile overlay and
+then published OS. XNU mounted BaseSystem, and the original
+`apfs_boot_util` mounted xART, iSC Preboot and Hardware. The original
+`launchd` passed `mount-phase-1` and started `restore-datapartition`.
+These results were captured through XNU USB.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
