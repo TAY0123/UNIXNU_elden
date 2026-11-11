@@ -1,0 +1,83 @@
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -5873,10 +5873,9 @@
+  * derived array readonly before its owning RO cs_blob can become visible.
+  * VM fault validation consequently performs no vnode I/O under object locks.
+  */
+-/* One read covers 64 original blocks. Files above 32 MiB (the 3 GB dyld shared cache, read whole by launchd at every boot) are read
+- * uncached: through the page cache they left almost no free memory when the first daemons started. */
++/* One read covers 64 original signing blocks. */
+ #define CS_NATIVE4K_CHUNK       (1024 * 1024)
+-#define CS_NATIVE4K_UNCACHED    (32 * 1024 * 1024)
++#define CS_NATIVE4K_REPORT_MIN  (32 * 1024 * 1024)
+ 
+ __attribute__((noinline))
+ static int
+@@ -5888,7 +5887,8 @@
+ 	vm_size_t allocation = 0, count = 0;
+ 	uint8_t *buffer = NULL;
+ 	uint64_t limit, offset, chunk = 0;
+-	int error = EBADEXEC, ioflags;
++	uint64_t read_ticks = 0, hash_ticks = 0;
++	int error = EBADEXEC;
+ 	kern_return_t kr;
+ 
+ 	if (blob->csb_hash_pageshift <= PAGE_SHIFT) {
+@@ -5907,7 +5907,7 @@
+ 	    ntohl(cd->nCodeSlots) != ((limit + 16383) >> 14)) {
+ 		return ENOTSUP;
+ 	}
+-	bool report = limit >= CS_NATIVE4K_UNCACHED;
++	bool report = limit >= CS_NATIVE4K_REPORT_MIN;
+ 	if (report) {
+ 		printf("ELDEN-CS: verifying %llu bytes against 16 KiB hashes\n", (unsigned long long)limit);
+ 	}
+@@ -5926,10 +5926,9 @@
+ 		error = ENOMEM;
+ 		goto out;
+ 	}
+-	/* Executables are faulted in right after their signature is added and stay cached. */
+-	ioflags = limit > CS_NATIVE4K_UNCACHED ? IO_NOCACHE : 0;
++	/* Use filesystem readahead for the sequential verification pass on Elden. */
+ 	if (report) {
+-		printf("ELDEN-CS: starting file reads\n");
++		printf("ELDEN-CS: starting buffered file reads\n");
+ 	}
+ 	for (chunk = 0; chunk < limit; chunk += CS_NATIVE4K_CHUNK) {
+ 		size_t chunk_length = MIN((uint64_t)CS_NATIVE4K_CHUNK, limit - chunk);
+@@ -5941,10 +5940,12 @@
+ 		}
+ 		const uint64_t read_start = mach_absolute_time();
+ 		error = vn_rdwr(UIO_READ, vp, (caddr_t)buffer, (int)chunk_length, position,
+-		    UIO_SYSSPACE, ioflags, vfs_context_ucred(vfs_context_current()),
++		    UIO_SYSSPACE, 0, vfs_context_ucred(vfs_context_current()),
+ 		    &resid, current_proc());
+ 		const uint64_t hash_start = mach_absolute_time();
+-		os_atomic_add(&cs_native4k_read_ticks, hash_start - read_start, relaxed);
++		const uint64_t read_elapsed = hash_start - read_start;
++		read_ticks += read_elapsed;
++		os_atomic_add(&cs_native4k_read_ticks, read_elapsed, relaxed);
+ 		os_atomic_add(&cs_native4k_bytes, (uint64_t)chunk_length, relaxed);
+ 		if (error || resid) {
+ 			error = error ? error : EIO;
+@@ -5982,11 +5983,16 @@
+ 				memcpy((void *)(storage + index * md->cs_size), digest, md->cs_size);
+ 			}
+ 		}
+-		os_atomic_add(&cs_native4k_hash_ticks, mach_absolute_time() - hash_start, relaxed);
++		const uint64_t hash_elapsed = mach_absolute_time() - hash_start;
++		hash_ticks += hash_elapsed;
++		os_atomic_add(&cs_native4k_hash_ticks, hash_elapsed, relaxed);
+ 		uint64_t verified = chunk + chunk_length;
+-		if (report && (chunk == 0 || verified % (64 * 1024 * 1024) == 0 || verified == limit)) {
+-			printf("ELDEN-CS: verified %llu of %llu bytes\n",
+-			    (unsigned long long)verified, (unsigned long long)limit);
++		if (report && (chunk == 0 || verified == 8 * CS_NATIVE4K_CHUNK ||
++		    verified == 32 * CS_NATIVE4K_CHUNK ||
++		    verified % (64 * CS_NATIVE4K_CHUNK) == 0 || verified == limit)) {
++			printf("ELDEN-CS: verified %llu of %llu bytes read-ticks=%llu hash-ticks=%llu\n",
++			    (unsigned long long)verified, (unsigned long long)limit,
++			    (unsigned long long)read_ticks, (unsigned long long)hash_ticks);
+ 		}
+ 	}
+ 	kr = mach_vm_protect(kernel_map, storage, allocation, FALSE, VM_PROT_READ);

@@ -109,10 +109,12 @@ def main() -> None:
         ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
         signature_overlay = patches / "native-4k-signature-hash-cache.patch"
         cache_progress_overlay = patches / "elden-macos26-cache-progress.patch"
+        buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", ignition_overlay, signature_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", cache_progress_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", buffered_reads_overlay], check=True)
         ubc = source / "bsd/kern/ubc_subr.c"
         code = ubc.read_text()
         marker = "#include <sys/ubc_internal.h>\n"
@@ -163,6 +165,7 @@ def main() -> None:
             "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
             "native_signature_hash_cache_sha256": build.sha(signature_overlay),
             "cache_progress_overlay_sha256": build.sha(cache_progress_overlay),
+            "cache_buffered_reads_overlay_sha256": build.sha(buffered_reads_overlay),
             "hardware_verified": False,
         }
         build.save(record)

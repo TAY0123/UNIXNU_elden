@@ -1376,6 +1376,18 @@ linked kernel and the packaged image contain the progress messages. The
 MacBook copy is `~/Downloads/elden-recovery-cache-progress-ram.img`
 with SHA-256
 `6c48666d7b3e5e5cff9f7043153a46ba21b6dbef6674bd86532d5b88af3ca2e5`.
+On the tablet, `.01` verified its first MiB. After seven minutes, the
+64 MiB marker had yet to appear, and the same PID 1 `fcntl` was pending.
+
+The `r40-recovery-cache-buffered` image uses buffered vnode reads for
+sequential cache verification so APFS can read ahead. The original
+CodeDirectory checks and derived page hashes still run on the returned
+bytes. The console adds 8 and 32 MiB checkpoints and reports read and
+hash time separately at every checkpoint. The 30-module prelink,
+storage and display ABI comparisons, DarwinBoot and packaged image
+checks passed. The MacBook copy is
+`~/Downloads/elden-recovery-cache-buffered-ram.img` with SHA-256
+`d6b0654f32841f0c4ad25838cd7a408836719bd34e3ab512160b5b16aabaf307`.
 
 ### Adreno 830 GMU firmware
 
