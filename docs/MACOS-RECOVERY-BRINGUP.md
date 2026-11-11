@@ -1385,6 +1385,18 @@ The tablet stayed online beyond the 60-second watchdog timeout and reached
 fastboot on slot A after the scheduled software fallback. Hardware expiry
 remains unverified.
 
+In a second RAM-only Linux test, the initial `bootstatus` sysfs read
+failed because that file was unavailable. The retry used
+`WDIOC_GETBOOTSTATUS` and found no previous watchdog reset flag. It
+set a 20-second timeout with `WDIOC_SETTIMEOUT`, verified the value
+with `WDIOC_GETTIMEOUT`, and held the watchdog device open for 65
+seconds after the final keepalive. The kernel trace recorded two
+successful pings during setup and none afterward. Linux reached the
+software fallback and bootloader fastboot on slot A. This leaves
+hardware expiry and recovery from a full kernel lockup open.
+[Linux PON watchdog driver](https://github.com/torvalds/linux/blob/master/drivers/watchdog/pm8916_wdt.c) ·
+[Linux watchdog device implementation](https://github.com/torvalds/linux/blob/master/drivers/watchdog/watchdog_dev.c)
+
 The r63 Recovery test enables `elden-pon-observe=1` on its timed entry.
 XNU checks the SPMI arbiter revision and application-owned PON channel,
 then reads the previous power-off reason and watchdog configuration.
