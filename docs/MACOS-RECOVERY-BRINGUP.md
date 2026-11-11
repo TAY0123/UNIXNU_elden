@@ -838,3 +838,29 @@ copy is `~/Downloads/elden-macos26-4k-recovery-framebuffer-ram.img` with
 SHA-256 `7af49b03be2d3fafb07944677b40b290675ff7b27150b3db4a9ae2524eec63f2`.
 The first tablet run still needs to establish `Display on` and
 `First frame` after the Recovery services start.
+
+### Recovery and Linux RAM image
+
+The Linux entry uses the original ARM64 EFI-stub kernel extracted with
+`unpack_bootimg` from the saved `boot_b` Android v4 image. Its initramfs
+is built into the kernel. The Elden DTB was extracted from that same
+kernel at `0x421b4e0`. The host checked the EFI application header and the
+DTB's `lenovo,elden` compatibility string.
+
+Use `scripts/make_phase2_payload.py --size-mib 224` with the framebuffer
+test's kernel and ADT, `package/elden-macos26-linux-unixnu.toml`, and the
+extracted files supplied through `--linux-kernel` and `--linux-dtb`.
+Package and verify it with `build_phase2_image.py` and
+`verify_phase2_artifact.py` in embedded-payload mode. The Linux menu
+uses UniXNU's EFI-stub handoff and selects the existing `rootfs` partition.
+The Recovery entry uses the framebuffer test's original arguments.
+
+The 224 MiB FAT payload and 4 MiB firmware fit within the board's declared
+256 MiB kernel reservation. Host verification read the Linux kernel and
+DTB back byte for byte and verified the Recovery kernel and ADT. The
+63.6 MiB boot image is staged as
+`~/Downloads/elden-macos26-linux-dual-boot-ram.img` on the MacBook with
+SHA-256 `3653a424874caf0b503411e130fbd843aec24a35ea12ff2e7addb0278c625a2f`.
+The combined image still needs a tablet RAM boot. Select **Elden Linux -
+installed rootfs** and verify Linux mounts the existing rootfs and reaches
+its login screen.

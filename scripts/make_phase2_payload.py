@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the 56 MiB phase-2.3 FAT payload volume.
+"""Build the phase-2.3 FAT payload volume (56 MiB by default).
 
 The volume holds ``EFI/UniXNU/unixnu.toml`` plus the phase-2.2 prelinked
 ``EFI/UniXNU/Payloads/kernel.macho`` and its ``.adt``.  It is the final payload
@@ -18,6 +18,9 @@ scale and any other UI policy are reviewable.  The kernel and ADT are copied out
 of an existing payload volume with ``--from-image`` (or given with
 ``--kernel``/``--adt``), because the prelinked kernel is a build output that is
 not committed.
+
+Pass an ARM64 EFI-stub Linux kernel and its matching DTB to include a Linux
+entry whose initramfs is built into the kernel.
 """
 
 from __future__ import annotations
@@ -77,6 +80,9 @@ def build_payload(
     size_mib: int,
     expect_kernel_bytes: int = KERNEL_MACHO_BYTES,
     expect_kernel_sha256: str = KERNEL_MACHO_SHA256,
+    *,
+    linux_kernel: Path | None = None,
+    linux_dtb: Path | None = None,
 ) -> None:
     data = kernel.read_bytes()
     if len(data) != expect_kernel_bytes or sha256(kernel) != expect_kernel_sha256:
@@ -85,6 +91,12 @@ def build_payload(
             f"expected {expect_kernel_bytes} bytes sha256={expect_kernel_sha256}")
     if adt.stat().st_size == 0:
         raise SystemExit("kernel.macho.adt is empty")
+    if (linux_kernel is None) != (linux_dtb is None):
+        raise SystemExit("pass --linux-kernel and --linux-dtb together")
+    if linux_kernel is not None and linux_dtb is not None:
+        for linux_file in (linux_kernel, linux_dtb):
+            if not linux_file.is_file() or linux_file.stat().st_size == 0:
+                raise SystemExit(f"missing or empty Linux file: {linux_file}")
     total_sectors = size_mib * 1024 * 1024 // 512
     builder = Fat16Builder(total_sectors, label=VOLUME, media_id=VOLUME_ID)
     efi = builder.add_directory(0, "EFI")
@@ -95,6 +107,9 @@ def build_payload(
     add_long_name_file(output, config, CONFIG_IMAGE_PATH)
     add_long_name_file(output, kernel, f"{PAYLOAD_IMAGE_DIR}/kernel.macho")
     add_long_name_file(output, adt, f"{PAYLOAD_IMAGE_DIR}/kernel.macho.adt")
+    if linux_kernel is not None and linux_dtb is not None:
+        add_long_name_file(output, linux_kernel, f"{PAYLOAD_IMAGE_DIR}/linux.efi")
+        add_long_name_file(output, linux_dtb, f"{PAYLOAD_IMAGE_DIR}/linux.dtb")
 
 
 def main() -> None:
@@ -105,6 +120,8 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--kernel", type=Path)
     parser.add_argument("--adt", type=Path)
+    parser.add_argument("--linux-kernel", type=Path, help="ARM64 EFI-stub kernel extracted from boot.img")
+    parser.add_argument("--linux-dtb", type=Path, help="DTB from the same Linux build")
     parser.add_argument("--kernel-bytes", type=int, default=KERNEL_MACHO_BYTES,
                         help="expected kernel size; override for a probe kernel")
     parser.add_argument("--kernel-sha256", default=KERNEL_MACHO_SHA256,
@@ -129,9 +146,11 @@ def main() -> None:
             args.size_mib,
             args.kernel_bytes,
             args.kernel_sha256,
+            linux_kernel=args.linux_kernel,
+            linux_dtb=args.linux_dtb,
         )
+        print(f"kernel:  {files['kernel'].stat().st_size} bytes sha256={sha256(files['kernel'])}")
 
-    print(f"kernel:  {files['kernel'].stat().st_size} bytes sha256={sha256(files['kernel'])}")
     print(f"payload: {args.output} ({args.output.stat().st_size} bytes)")
     print(f"sha256:  {sha256(args.output)}")
 
