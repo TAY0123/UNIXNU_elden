@@ -21,7 +21,7 @@ PATCHES = (
 )
 
 
-def enable_diagnostics(image: bytearray) -> None:
+def enable_diagnostics(image: bytearray, keep_boot_console: bool) -> None:
     first = CMDLINE_OFFSETS[0]
     original = bytes(image[first:image.index(0, first)])
     if (not original.startswith(b"console=ttyGS0,115200 console=tty0 ")
@@ -29,6 +29,11 @@ def enable_diagnostics(image: bytearray) -> None:
         raise ValueError("unexpected built-in command line")
     diagnostic = original.replace(b"console=ttyGS0,115200", b"earlycon=efifb", 1)
     diagnostic = diagnostic.replace(b" panic=10 efi=noruntime ", b" panic=0 efi=noruntime,debug ", 1)
+    if keep_boot_console:
+        # The EFI payload has no bootconfig trailer. Reuse its argument
+        # space for keep_bootcon and leave EFI runtime disabled.
+        diagnostic = diagnostic.replace(b" bootconfig ", b" keep_bootcon ", 1)
+        diagnostic = diagnostic.replace(b" efi=noruntime,debug ", b" efi=noruntime ", 1)
     if len(diagnostic) > len(original):
         raise ValueError("diagnostic command line exceeds the compiled string")
     for start in CMDLINE_OFFSETS:
@@ -44,7 +49,11 @@ def main() -> None:
     parser.add_argument("output", type=Path, help="new EFI-only Linux Image")
     parser.add_argument("--diagnostics", action="store_true",
                         help="enable EFI framebuffer logging and hold Linux panics on screen")
+    parser.add_argument("--keep-boot-console", action="store_true",
+                        help="retain the EFI framebuffer after the normal console registers")
     args = parser.parse_args()
+    if args.keep_boot_console and not args.diagnostics:
+        parser.error("--keep-boot-console requires --diagnostics")
 
     image = bytearray(args.image.read_bytes())
     if hashlib.sha256(image).hexdigest() != IMAGE_SHA256:
@@ -55,7 +64,7 @@ def main() -> None:
             parser.error(f"unexpected instructions at {offset:#x}")
         image[offset:end] = replacement
     if args.diagnostics:
-        enable_diagnostics(image)
+        enable_diagnostics(image, args.keep_boot_console)
 
     with args.output.open("xb") as output:
         output.write(image)

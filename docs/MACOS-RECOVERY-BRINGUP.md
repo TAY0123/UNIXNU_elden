@@ -1059,8 +1059,26 @@ The matching macOS-ForSheng reference run stopped after the same Ignition
 banner and identified its last call as `security.mac.img4.ignition_blob`.
 That makes the Image4 Ignition wait a candidate for the tablet stall.
 The Elden trace identifies the syscall number and program counter, so
-the specific sysctl still needs confirmation on hardware. The Linux
-diagnostic result is pending.
+the specific sysctl still needs confirmation on hardware.
+
+### Linux EFI console handoff on the tablet
+
+The combined image's Linux entry reached the kernel on the physical tablet.
+The photo shows the forced diagnostic command line, memory initialization,
+GICv3 and architected timer initialization. Linux registered `tty0` and
+then disabled its EFI framebuffer boot console. The photo ends there.
+SSH did not respond during the check, so mounting `rootfs` and starting
+userspace remain unverified.
+
+The next RAM diagnostic uses `prepare-elden-linux-efi.py --diagnostics
+--keep-boot-console` to keep `efifb` registered when `tty0` takes over.
+The diagnostic reuses the space for the unused `bootconfig` argument and
+omits EFI debug verbosity. It retains `panic=0`, `efi=noruntime` and
+the original root selection. The Recovery trace and menu remain in the
+same image. The MacBook copy is `~/Downloads/elden-linux-retained-console-ram.img`,
+SHA-256 `927acc080bc99af61f243096dadddca98b635c2d12356a69e25d41ddfd5ee4dd`.
+The raw Android v4 artifact passed DarwinBoot preflight, full payload
+comparison and Linux/DTB/menu readback. Tablet testing is pending.
 
 ### Adreno 830 GMU firmware
 
