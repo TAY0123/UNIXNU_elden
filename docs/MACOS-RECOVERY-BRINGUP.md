@@ -1446,6 +1446,28 @@ modules through the same preflight and payload readback. The MacBook copy
 is `~/Downloads/elden-recovery-4k-vm-ram.img` with SHA-256
 `735362f2d57def94fc8c44bb105b8fe828330676fa0718bc4276e99b32e6bf79`.
 
+The r43 tablet boot counted 996,119 free and 52,457 wired 4 KiB pages.
+It opened XNU USB, mounted the BaseSystem and registered all four dyld
+subcache signatures. The largest signed range verified in about eleven
+seconds. PID 1 reached dyld execution and then faulted with `EXC_ARM_PAC_FAIL`
+on `AUTIA x16, x17`. The MacBook received the complete panic before the
+tablet reset to fastboot.
+
+The verified 25F71 ARM64e cache has five v5 slide mappings with 16 KiB
+fixup pages. The audit walked 4,854 nonempty chains containing 5,743,680
+fixups. It reproduced each chain as four 4 KiB parts and found 13,952
+crossings, including 3,988 with an authenticated pointer at the destination.
+The Elden build applies UniXNU's 4 KiB shared-region pager patch and checks
+the linked slide function. The new PID 1 trace reports the shared-cache
+base and the faulting PC, instruction and operands if authentication fails.
+[UniXNU shared-region patch](https://github.com/UniXNU/UniXNU/blob/95ad78129203442c3c14c02336303adbddf8d0a3/patches/xnu-12377/native-4k-shared-region-slide.patch)
+
+The `r44-recovery-shared-region` image passed the linked-function check,
+prelink ABI comparisons, DarwinBoot preflight and packed image readback.
+The MacBook copy is `~/Downloads/elden-recovery-shared-region-ram.img`
+with SHA-256
+`dee8684a429fe5bec8647fcbdc68c9b1629a06ad8c3b34ff2cf5967fb217bb4a`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

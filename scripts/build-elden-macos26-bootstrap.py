@@ -108,11 +108,13 @@ def main() -> None:
         pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
         ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
         signature_overlay = patches / "native-4k-signature-hash-cache.patch"
+        shared_region_overlay = patches / "native-4k-shared-region-slide.patch"
         cache_progress_overlay = patches / "elden-macos26-cache-progress.patch"
         buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", ignition_overlay, signature_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", shared_region_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", cache_progress_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", buffered_reads_overlay], check=True)
         ubc = source / "bsd/kern/ubc_subr.c"
@@ -164,6 +166,7 @@ def main() -> None:
             "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
             "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
             "native_signature_hash_cache_sha256": build.sha(signature_overlay),
+            "native_shared_region_slide_sha256": build.sha(shared_region_overlay),
             "cache_progress_overlay_sha256": build.sha(cache_progress_overlay),
             "cache_buffered_reads_overlay_sha256": build.sha(buffered_reads_overlay),
             "hardware_verified": False,
@@ -189,9 +192,10 @@ def main() -> None:
         if args.build_gop_display:
             sys.argv.extend(["--build-gop-display", "--elden-gop-board", str(device / "board.toml")])
     build.main()
-    symbols = build.capture("xcrun", "nm", "-j", str(output / "kernel.development.sheng"))
-    if "_cs_native4k_hash_cache_version" not in symbols.splitlines():
-        raise ValueError("the linked kernel is missing the native 4 KiB signature hash cache")
+    symbols = set(build.capture("xcrun", "nm", "-j", str(output / "kernel.development.sheng")).splitlines())
+    for required in ("_cs_native4k_hash_cache_version", "_vm_shared_region_slide_part_v5"):
+        if required not in symbols:
+            raise ValueError(f"the linked kernel is missing {required}")
 
 
 if __name__ == "__main__":

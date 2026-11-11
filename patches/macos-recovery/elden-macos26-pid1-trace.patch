@@ -190,6 +190,42 @@ index 905c291..3474203 100644
  		if (result == KERN_SUCCESS || result == KERN_ABORTED) {
  			return;
  		}
+@@ -2975,6 +3093,18 @@ handle_pac_fail(arm_saved_state_t *state, uint64_t esr)
+ 		panic_with_thread_kernel_state(msg, state);
+ 	}
+ 
++#if SHENG
++	if (sheng_pid1_trace_enabled && proc_selfpid() == 1) {
++		printf("SHENG-PID1-PAC: esr=%llx insn=%x pc=%llx lr=%llx sp=%llx\n",
++		    esr, instr, (unsigned long long)get_saved_state_pc(state),
++		    (unsigned long long)get_saved_state_lr(state),
++		    (unsigned long long)get_saved_state_sp(state));
++		printf("SHENG-PID1-PAC: x16=%llx x17=%llx\n",
++		    (unsigned long long)get_saved_state_reg(state, 16),
++		    (unsigned long long)get_saved_state_reg(state, 17));
++	}
++#endif
++
+ 	codes[1] = instr;
+ 
+ 	exception_triage(exception, codes, numcodes);
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -1320,6 +1320,13 @@ shared_region_check_np(
+ 				error = copyout(&start_address,
+ 				    (user_addr_t) uap->start_address,
+ 				    sizeof(start_address));
++#if SHENG
++				extern unsigned sheng_pid1_trace_enabled;
++				if (sheng_pid1_trace_enabled && !error && proc_getpid(p) == 1) {
++					printf("SHENG-PID1-CACHE: base=%llx\n",
++					    (unsigned long long)start_address);
++				}
++#endif
+ 				if (error != 0) {
+ 					SHARED_REGION_TRACE_ERROR(
+ 						("shared_region: %p [%d(%s)] "
 diff --git a/pexpert/arm/pe_kprintf.c b/pexpert/arm/pe_kprintf.c
 index 0e5a3ca..164b11d 100644
 --- a/pexpert/arm/pe_kprintf.c
