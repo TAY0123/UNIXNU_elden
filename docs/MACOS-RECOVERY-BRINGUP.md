@@ -979,6 +979,24 @@ after the write, both boot partitions returned to read-only, and slot B
 remained active with UFS boot LUN 2. The RAM and installed boot paths still
 need tablet testing.
 
+### Linux EFI handoff diagnostics after the raw-v4 flash
+
+The owner reached the UniXNU menu and reported that both the regular Linux
+entry and the slot B entry returned to the menu. The slot B entry has to
+reach the Linux rootfs before its systemd service can change the active
+slot. No service journal or kernel panic from that attempt was available.
+
+`prepare-elden-linux-efi.py --diagnostics` keeps the FDT handoff correction
+and enables `earlycon=efifb`, EFI debug logging, and `panic=0` in all three
+copies of the kernel's forced command line. The diagnostic uses the same
+raw-v4 firmware, device tree and Recovery payload. Host checks verified the
+packed payload readback and every change to the forced command line.
+The RAM image is `elden-linux-efi-diagnostics-ram.img`, SHA-256
+`e715b84bf171a347b6758be7586c4db5ffe163d13df9c8d18c837df34f1995c0`.
+If Linux returns to the menu, record the EFI status in the footer. If the
+tablet resets, record the last visible Linux line and whether the Lenovo
+splash appears. This diagnostic has not been flashed.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

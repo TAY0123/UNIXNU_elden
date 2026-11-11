@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 IMAGE_SHA256 = "6aed9425e69c1e07ba65d3467738a6009874fe75d1fd50215483d333ba0634c3"
+CMDLINE_OFFSETS = (0x3078FE3, 0x4153538, 0x4154265)
 PATCHES = (
     # setup_arch: pass the physical __fdt_pointer saved from x0 by head.S.
     # Preserve x20 (kimage_voffset) and the call to setup_machine_fdt.
@@ -20,10 +21,29 @@ PATCHES = (
 )
 
 
+def enable_diagnostics(image: bytearray) -> None:
+    first = CMDLINE_OFFSETS[0]
+    original = bytes(image[first:image.index(0, first)])
+    if (not original.startswith(b"console=ttyGS0,115200 console=tty0 ")
+            or b" panic=10 efi=noruntime " not in original):
+        raise ValueError("unexpected built-in command line")
+    diagnostic = original.replace(b"console=ttyGS0,115200", b"earlycon=efifb", 1)
+    diagnostic = diagnostic.replace(b" panic=10 efi=noruntime ", b" panic=0 efi=noruntime,debug ", 1)
+    if len(diagnostic) > len(original):
+        raise ValueError("diagnostic command line exceeds the compiled string")
+    for start in CMDLINE_OFFSETS:
+        end = start + len(original)
+        if image[start:end + 1] != original + b"\0":
+            raise ValueError(f"unexpected command-line copy at {start:#x}")
+        image[start:end] = diagnostic.ljust(len(original))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path, help="original Linux Image from boot_b")
     parser.add_argument("output", type=Path, help="new EFI-only Linux Image")
+    parser.add_argument("--diagnostics", action="store_true",
+                        help="enable EFI framebuffer logging and hold Linux panics on screen")
     args = parser.parse_args()
 
     image = bytearray(args.image.read_bytes())
@@ -34,6 +54,8 @@ def main() -> None:
         if image[offset:end] != original:
             parser.error(f"unexpected instructions at {offset:#x}")
         image[offset:end] = replacement
+    if args.diagnostics:
+        enable_diagnostics(image)
 
     with args.output.open("xb") as output:
         output.write(image)
