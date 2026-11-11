@@ -879,7 +879,10 @@ salt and rollback index `1738713600` at location `0`. The host verified
 the RSA signature, AVB payload digest and byte-for-byte RAM image prefix.
 The signed image SHA-256 is
 `ccf4d3e02891e6d3ac586b4c52f9845bb78189272f0f033fca4705d8a8ae5107`.
-Persistent boot from slot B remains untested.
+The image was written to `boot_b` from the running tablet Linux system.
+The full partition readback matched the signed image, and the other 36
+slot B partition hashes matched the backup. Persistent boot from slot B
+remains untested.
 
 ### Adreno 830 GMU firmware
 
