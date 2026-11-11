@@ -9,6 +9,38 @@ import subprocess
 import sys
 
 
+def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
+    core_files = {
+        "Dwc3.c": "16681b8e405b0d3862cb3289005f210b80b5bea2cc33adc26b2258d18ab9cea6",
+        "Dwc3.h": "7731dddfcecb5bf2b7fe44054bae4db786924d20f767ece43d84f82e8c84d690",
+        "Dwc3Regs.h": "5e9a362cfa6385f55a793b48965963559fc2c1f167cab9d3afa3845603328e4b",
+        "LICENSE.m1n1": "11ca423a564b52d3b7f260398baa20d016c25ae180fbdd0067c27b7d1ed7b420",
+    }
+    for name, expected in core_files.items():
+        if hashlib.sha256((core / name).read_bytes()).hexdigest() != expected:
+            raise ValueError(f"Recovery USB core differs from the pinned input: {name}")
+    adapter = device / "scripts/driver-patches"
+    iokit = source / "iokit/Kernel"
+    files = {iokit / name: adapter / name for name in (
+        "EldenRecoveryUsb.cpp", "EldenUsbDebugXnu.inc", "EldenUfsIdentity.h")}
+    files.update({iokit / name: core / name for name in ("Dwc3.h", "Dwc3Regs.h", "LICENSE.m1n1")})
+    files[iokit / "EldenUsbDwc3.c"] = core / "Dwc3.c"
+    files[source / "pexpert/arm/pe_elden_usb_log.h"] = adapter / "EldenRecoveryUsbLog.h"
+    files[iokit / "EldenUsbResources.h"] = device / "soc/sm8750/include/EldenUsbResources.h"
+    for destination, path in files.items():
+        shutil.copyfile(path, destination)
+    overlay = device / "patches/macos-recovery/elden-macos26-usb-console.patch"
+    subprocess.run(["git", "-C", source, "apply", overlay], check=True)
+    log = source / "pexpert/arm/pe_sheng_log.h"
+    code = log.read_text()
+    marker = '#include "pe_sheng_boot_progress_kernel.h"\n'
+    if code.count(marker) != 1:
+        raise ValueError("expected one SHENG boot-progress header")
+    log.write_text(code.replace(marker, marker + '#include "pe_elden_usb_log.h"\n'))
+    return {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (*files, log)}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sheng-root", type=Path, required=True)
@@ -21,6 +53,8 @@ def main() -> None:
                         help="include the Elden framebuffer in the UFS companion")
     parser.add_argument("--adreno830-gmu-firmware", type=Path,
                         help="include the opt-in Elden GMU image validation probe")
+    parser.add_argument("--recovery-usb-core", type=Path,
+                        help="directory containing the pinned DWC3 core for the Recovery USB console")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
     args = parser.parse_args()
     if args.build_gop_display and args.elden_ufs_device is None:
@@ -71,6 +105,9 @@ def main() -> None:
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", ignition_overlay], check=True)
+        if args.recovery_usb_core is not None:
+            record["elden_recovery_usb_sources"] = stage_recovery_usb(
+                source, patches.parents[1], args.recovery_usb_core.resolve(strict=True))
         if args.adreno830_gmu_firmware is not None:
             image = args.adreno830_gmu_firmware.read_bytes()
             digest = hashlib.sha256(image).hexdigest()

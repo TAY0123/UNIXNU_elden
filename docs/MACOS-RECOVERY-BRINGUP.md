@@ -1118,6 +1118,50 @@ Boot slot A to check for the root-authentication marker and the first
 Recovery service to start. On a separate boot, select **Elden Linux -
 installed rootfs** and capture the output after `tty0` registers.
 
+### Recovery USB console
+
+On the prior image, XNU UUID `2035771F-40F1-3041-B86B-398A501E830F`
+printed AppleImage4 nonce-slot and root power-domain warnings during
+security policy initialization. The subsequent panic came from PID 1
+exiting in dyld with `Library not loaded: /usr/lib/libSystem.B.dylib`.
+The verified 25F71 BaseSystem has the ARM64e cache and its subcaches under
+`/System/Library/dyld`, and the cache map lists `libSystem.B.dylib`.
+The failure to select or map that cache still needs a trace.
+
+**Recovery USB Console** uses the **Recovery without Ignition** arguments
+plus `elden-usb-debug=1`. The bootstrap wrapper's `--recovery-usb-core`
+option accepts the `usb` directory from QcomXnuUsbDebug commit
+`ab6e3635c4b915c248e04fc042ffaea28026b207`. The built-in XNU worker starts
+before MAC policy initialization, checks the Elden ADT identity and
+requires inherited USB power, device role and an identity DMA route.
+It reads the existing retained log in bounded chunks and sends the early
+buffer and live PID 1 output through USB CDC after the host opens the port.
+The display continues to show boot progress if the inherited USB state
+does not pass the checks.
+
+The 4 KiB kernel, Recovery prelink, DarwinBoot preflight, raw Android v4
+payload and Linux/DTB/menu readback passed host verification. The log
+cursor passed prefix, wraparound, overwrite, contention and live replay
+tests. The signed image passed AVB verification.
+
+| MacBook image | SHA-256 |
+| --- | --- |
+| `~/Downloads/elden-recovery-usb-console-ram.img` | `707ae86204694cb77bdce3100c0fc222ad22937fa3df68a8750ae4027f7b33b6` |
+| `~/Downloads/elden-recovery-usb-console-boot-a.img` | `2da5507f102fa5bd7b8cf2c2ed3b82a292aa627b25f978fc6cb940424163ed91` |
+
+The running slot B Linux system wrote the signed image to inactive
+`boot_a` over SSH. Full readback matched the signed SHA-256 above. The
+previous `boot_a` was backed up and verified before the write. The
+original `boot_b` digest matched before and after, both partitions
+returned to read-only, and slot B remained active with UFS boot LUN 2.
+
+Boot **Recovery USB Console** with the cable connected. On the MacBook,
+find the new `/dev/cu.usbmodem…` device and open its actual path with
+`screen -L /dev/cu.usbmodem… 115200`. Screen writes `screenlog.0` to the
+current directory. Confirm the capture contains `ELDEN_USB` and XNU
+output. If enumeration fails, record the last `ELDEN_USB` line from the
+tablet display.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

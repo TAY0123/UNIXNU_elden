@@ -1,0 +1,23 @@
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -827,6 +827,9 @@
+ 	vm_commpage_init();
+ 	vm_commpage_text_init();
+ 
++	extern void elden_recovery_usb_start(void);
++	elden_recovery_usb_start();
++
+ #if CONFIG_MACF
+ 	kernel_bootstrap_log("mac_policy_initmach");
+ 	mac_policy_initmach();
+--- a/iokit/conf/files
++++ b/iokit/conf/files
+@@ -40,6 +40,8 @@
+ 
+ #iokit/Kernel/IORuntime.cpp				optional iokitcpp
+ iokit/Kernel/IOStartIOKit.cpp				optional iokitcpp
++iokit/Kernel/EldenRecoveryUsb.cpp			optional iokitcpp
++iokit/Kernel/EldenUsbDwc3.c				optional iokitcpp
+ 
+ iokit/Kernel/IODeviceTreeSupport.cpp			optional iokitcpp
+ 

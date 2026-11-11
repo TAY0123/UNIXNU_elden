@@ -11,10 +11,22 @@ extern "C" {
 // owned source kernel. Do not assume the private master_processor macro is data.
 processor_t current_processor(void);
 processor_t thread_bind(processor_t);
+#if defined(ELDEN_RECOVERY_USB)
+unsigned elden_usb_read_log(uint64_t *, void *, unsigned, uint64_t *);
+#endif
 #if defined(ELDEN_OWNER_STARTUP) && ELDEN_OWNER_STARTUP
 extern volatile int native_owner_cache_status, native_owner_data_status, elden_init_exec_accepted;
 #endif
 }
+#if defined(ELDEN_RECOVERY_USB)
+static uint64_t eldenUsbLogCursor, eldenUsbLogLost;
+
+static size_t eldenUsbTakeLog(uint8_t *out, size_t limit) {
+  return elden_usb_read_log(&eldenUsbLogCursor, out, static_cast<unsigned>(limit), &eldenUsbLogLost);
+}
+
+static uint64_t eldenUsbDropped() { return eldenUsbLogLost; }
+#else
 static volatile unsigned gEldenUserTrapSeen;
 extern "C" void elden_note_user_trap(int pid) {
 #if defined(ELDEN_OWNER_STARTUP) && ELDEN_OWNER_STARTUP
@@ -46,6 +58,13 @@ static size_t eldenUsbTakeLog(uint8_t *out,size_t limit) {
   for(size_t i=0;i<n;i++){out[i]=gEldenUsbLog.data[gEldenUsbLog.tail];gEldenUsbLog.tail=(gEldenUsbLog.tail+1)&(sizeof(gEldenUsbLog.data)-1);}
   gEldenUsbLog.used-=(unsigned)n;__sync_lock_release(&gEldenUsbLog.lock);return n;
 }
+static uint64_t eldenUsbDropped() { return __atomic_load_n(&gEldenUsbLog.dropped,__ATOMIC_RELAXED); }
+#endif
+static bool eldenUsbAcquire(volatile unsigned *lock) {
+  unsigned expected = 0;
+  return __atomic_compare_exchange_n(lock,&expected,1,false,__ATOMIC_ACQUIRE,__ATOMIC_RELAXED);
+}
+
 static struct {
   OSSharedPtr<IOMemoryMap> gccMap,regsMap,smmuMap,qsMap;
   IOBufferMemoryDescriptor *dma;
@@ -107,11 +126,11 @@ static void eldenUsbCommand() {
     struct dwc3_snapshot s;dwc3_snapshot(eldenDwc(),&s);char line[320];
 #if defined(ELDEN_OWNER_STARTUP) && ELDEN_OWNER_STARTUP
     snprintf(line,sizeof(line),"ELDEN STATUS v1 session=%s configured=%u dtr=%u events=%u tx=%llu dropped=%llu cache=%d data=%d init_exec=%d user_trap=%u fastboot=unqualified\r\n",gEldenUsb.session,
-             s.configured,s.dtr,s.events,gEldenUsb.txBytes,gEldenUsbLog.dropped,
+             s.configured,s.dtr,s.events,gEldenUsb.txBytes,eldenUsbDropped(),
              native_owner_cache_status,native_owner_data_status,elden_init_exec_accepted,__atomic_load_n(&gEldenUserTrapSeen,__ATOMIC_ACQUIRE));
 #else
     snprintf(line,sizeof(line),"ELDEN STATUS v1 session=%s configured=%u dtr=%u events=%u tx=%llu dropped=%llu fastboot=unqualified\r\n",gEldenUsb.session,
-             s.configured,s.dtr,s.events,gEldenUsb.txBytes,gEldenUsbLog.dropped);
+             s.configured,s.dtr,s.events,gEldenUsb.txBytes,eldenUsbDropped());
 #endif
     eldenUsbReply(line);
   } else if(!strcmp(gEldenUsb.command,"reboot-fastboot")||!strcmp(gEldenUsb.command,"reboot")) {
@@ -140,13 +159,15 @@ static void eldenUsbPump(bool commands) {
     if(n){size_t sent=dwc3_queue(eldenDwc(),bytes,n);gEldenUsb.txBytes+=sent;if(sent!=n)gEldenUsb.failed=true;}
   }
 }
+#if !defined(ELDEN_RECOVERY_USB)
 extern "C" void elden_usb_panic_drain(void) {
   if(!gEldenUsb.active||gEldenUsb.failed||current_processor()!=gEldenUsb.processor)return;
-  if(!__sync_bool_compare_and_swap(&gEldenUsb.busy,0,1))return;
+  if(!eldenUsbAcquire(&gEldenUsb.busy))return;
   // Bounded, nonallocating drain; never execute received commands during panic.
   for(unsigned i=0;i<4&&!gEldenUsb.failed;i++)eldenUsbPump(false);
-  __sync_lock_release(&gEldenUsb.busy);
+  __atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
 }
+#endif
 static bool eldenUsbInitialize() {
   gEldenUsb.stage="cache geometry";
   uint64_t ctr;__asm__ volatile("mrs %0, ctr_el0":"=r"(ctr));
@@ -207,26 +228,29 @@ static void eldenUsbWorker(void *,wait_result_t) {
   thread_bind(gEldenUsb.processor);
   if(current_processor()!=gEldenUsb.processor)thread_block(THREAD_CONTINUE_NULL);
   if(current_processor()!=gEldenUsb.processor||!eldenUsbInitialize()) {
+    IOLog("ELDEN_USB: unavailable at %s\n",gEldenUsb.stage?gEldenUsb.stage:"worker affinity");
     __atomic_store_n(&gEldenUsb.initState,3,__ATOMIC_RELEASE);thread_terminate(current_thread());return;
   }
   __atomic_store_n(&gEldenUsb.initState,2,__ATOMIC_RELEASE);
   for(;;) {
     if(gEldenUsb.failed)break;
-    if(__sync_bool_compare_and_swap(&gEldenUsb.busy,0,1)) {
-      eldenUsbPump(true);bool ready=dwc3_ready(eldenDwc());__sync_lock_release(&gEldenUsb.busy);
+    if(eldenUsbAcquire(&gEldenUsb.busy)) {
+      eldenUsbPump(true);bool ready=dwc3_ready(eldenDwc());__atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
       if(ready&&!gEldenUsb.readyReported){gEldenUsb.readyReported=true;IOLog("ELDEN_USB: host connected; console stream active\n");}
+#if !defined(ELDEN_RECOVERY_USB)
       if(__atomic_load_n(&gEldenUserTrapSeen,__ATOMIC_ACQUIRE)&&!gEldenUsb.userReported){gEldenUsb.userReported=true;IOLog("ELDEN_BOOT: PID1 AArch64 EL0 BSD syscall observed after init exec\n");}
+#endif
     }
     IOSleep(1);
   }
-  if(__sync_bool_compare_and_swap(&gEldenUsb.busy,0,1)){dwc3_stop(eldenDwc());__sync_lock_release(&gEldenUsb.busy);}
+  if(eldenUsbAcquire(&gEldenUsb.busy)){dwc3_stop(eldenDwc());__atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);}
   IOLog("ELDEN_USB: stopped trace=%u a=%x b=%x; DMA retained\n",gEldenUsb.traceEvent,gEldenUsb.traceA,gEldenUsb.traceB);
   thread_terminate(current_thread());
 }
 static void eldenStartUsbDebug() {
   unsigned enabled=0;PE_parse_boot_argn("elden-usb-debug",&enabled,sizeof(enabled));
   if(enabled!=1)return;
-  if(__sync_bool_compare_and_swap(&gEldenUsb.attempted,0,1)) {
+  if(eldenUsbAcquire(&gEldenUsb.attempted)) {
     strlcpy(gEldenUsb.session,"unbound",sizeof(gEldenUsb.session));
     PE_parse_boot_argn("elden-debug-session",gEldenUsb.session,sizeof(gEldenUsb.session));
     gEldenUsb.session[sizeof(gEldenUsb.session)-1]=0;
@@ -239,6 +263,7 @@ static void eldenStartUsbDebug() {
     if(kernel_thread_start(eldenUsbWorker,nullptr,&thread)==KERN_SUCCESS)thread_deallocate(thread);
     else {__atomic_store_n(&gEldenUsb.initState,3,__ATOMIC_RELEASE);IOLog("ELDEN_USB: worker creation failed; controller untouched\n");}
   }
+#if !defined(ELDEN_RECOVERY_USB)
   unsigned required=0;PE_parse_boot_argn("elden-usb-required",&required,sizeof(required));
   if(required==1) {
     for(unsigned i=0;i<500&&__atomic_load_n(&gEldenUsb.initState,__ATOMIC_ACQUIRE)==1;i++)IOSleep(10);
@@ -246,5 +271,6 @@ static void eldenStartUsbDebug() {
     if(state!=2)panic("ELDEN_USB qualification: state=%u stage=%s trace=%u a=%x b=%x; controller DMA retained",state,
                      gEldenUsb.stage?gEldenUsb.stage:"unknown",gEldenUsb.traceEvent,gEldenUsb.traceA,gEldenUsb.traceB);
   }
+#endif
 }
 #endif
