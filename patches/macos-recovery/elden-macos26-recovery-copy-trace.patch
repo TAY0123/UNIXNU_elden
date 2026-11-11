@@ -148,7 +148,7 @@
 +		return;
 +	}
 +
-+	struct cs_blob *blob = ubc_cs_blob_get(imgp->ip_vp, -1, -1, imgp->ip_arch_offset);
++	struct cs_blob *blob = csvnode_get_blob(imgp->ip_vp, imgp->ip_arch_offset);
 +	unsigned long long blob_flags = blob == NULL ? 0 : blob->csb_flags;
 +	printf("SHENG-RECOVERY-EXEC: pid=%d ppid=%d name=%s before=%llx new=%x caller=%llx blob=%llx\n",
 +	    proc_pid(proc), proc_ppid(proc), name, (unsigned long long)proc_getcsflags(proc),
@@ -334,3 +334,88 @@
  
  	return result;
  }
+--- a/bsd/kern/kern_cs.c
++++ b/bsd/kern/kern_cs.c
+@@ -62,6 +62,9 @@
+ #include <kern/kern_types.h>
+ #include <kern/startup.h>
+ #include <kern/task.h>
++#if SHENG
++#include <kern/thread.h>
++#endif
+ 
+ #include <vm/vm_map_xnu.h>
+ #include <vm/pmap.h>
+@@ -593,6 +596,33 @@
+ 	return ubc_cs_blob_get(p->p_textvp, -1, -1, p->p_textoff);
+ }
+ 
++#if SHENG
++extern unsigned sheng_pid1_trace_enabled;
++
++static __attribute__((noinline)) void
++sheng_trace_recovery_blob(struct cs_blob *blob, const char *stage, off_t offset,
++    uintptr_t caller)
++{
++	static unsigned records;
++	const char *identity = csblob_get_identity(blob);
++	if (identity == NULL || (strcmp(identity, "com.apple.rc_script_wrapper") != 0 &&
++	    strcmp(identity, "com.apple.ditto") != 0) ||
++	    __atomic_fetch_add(&records, 1, __ATOMIC_RELAXED) >= 96) {
++		return;
++	}
++
++	const void *entitlements = blob->csb_entitlements;
++	printf("SHENG-RECOVERY-BLOB: stage=%s id=%s tid=%llu pc=%llx offset=%lld\n",
++	    stage, identity, thread_tid(current_thread()),
++	    (unsigned long long)VM_KERNEL_UNSLIDE(caller), (long long)offset);
++	printf("SHENG-RECOVERY-BLOB: tid=%llu blob=%llx object=%llx flags=%x published=%d\n",
++	    thread_tid(current_thread()),
++	    (unsigned long long)VM_KERNEL_ADDRHASH(blob),
++	    entitlements == NULL ? 0 : (unsigned long long)VM_KERNEL_ADDRHASH(entitlements),
++	    blob->csb_flags, blob == blob->csb_ro_addr);
++}
++#endif
++
+ /*
+  * Function: csvnode_get_blob
+  *
+@@ -602,7 +632,13 @@
+ struct cs_blob *
+ csvnode_get_blob(struct vnode *vp, off_t offset)
+ {
+-	return ubc_cs_blob_get(vp, -1, -1, offset);
++	struct cs_blob *blob = ubc_cs_blob_get(vp, -1, -1, offset);
++#if SHENG
++	if (__improbable(sheng_pid1_trace_enabled && blob != NULL)) {
++		sheng_trace_recovery_blob(blob, "lookup", offset, (uintptr_t)__builtin_return_address(0));
++	}
++#endif
++	return blob;
+ }
+ 
+ /*
+@@ -810,11 +846,23 @@
+ 		osobject_retain(entitlements);
+ 	}
+ 	csblob->csb_entitlements = entitlements;
++#if SHENG
++	if (__improbable(sheng_pid1_trace_enabled)) {
++		sheng_trace_recovery_blob(csblob, "attach", csblob->csb_base_offset,
++		    (uintptr_t)__builtin_return_address(0));
++	}
++#endif
+ }
+ 
+ void *
+ csblob_os_entitlements_copy(struct cs_blob *csblob)
+ {
++#if SHENG
++	if (__improbable(sheng_pid1_trace_enabled)) {
++		sheng_trace_recovery_blob(csblob, "copy", csblob->csb_base_offset,
++		    (uintptr_t)__builtin_return_address(0));
++	}
++#endif
+ 	if (!csblob->csb_entitlements) {
+ 		return NULL;
+ 	}

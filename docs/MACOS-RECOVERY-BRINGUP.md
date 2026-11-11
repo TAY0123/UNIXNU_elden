@@ -1831,6 +1831,29 @@ discrepancy is in how AMFI evaluates the entitlement during the credential
 update. Recovery repeated all 18 metadata denials and returned to bootloader
 fastboot on slot A after sending the complete panic over USB.
 
+The paired AMFI hook and the registered Boolean query interface call the
+same entitlement evaluator. The r67 diagnostic records signature-blob
+lookup, entitlement attachment, and entitlement copy for the original
+`rc_script_wrapper` and `ditto`. It records the program counter, thread, slice
+offset, flags, and hashed blob and entitlement object identities. The
+diagnostic observes the existing calls without changing their inputs or
+results. The build passed the 30-module prelink, storage and display ABI
+audits, DarwinBoot preflight, and MacBook image checksum. The r67 RAM
+image SHA-256 is
+`b0df59bde82d074c701621dd1c375c8310575650f3e92f4bbfdb512242d42ad9`.
+[XNU signature and entitlement accessors](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/kern_cs.c)
+
+On the tablet, both AMFI lookups for each executable selected its
+published, valid signature blob at offset zero. The entitlement-copy
+trace on the same thread saw the same blob and parsed object immediately
+before AMFI returned. The post-hook lookup saw that same object and both
+entitlement queries succeeded. The compiler outlined the attachment and
+copy trace calls, so their recorded program counters point into XNU;
+the lookup counters resolve directly to the paired AMFI instructions.
+AMFI left the installer flags unset. All 18 protected metadata denials
+recurred, and the tablet sent the full panic over USB before returning
+automatically to bootloader fastboot on slot A.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
