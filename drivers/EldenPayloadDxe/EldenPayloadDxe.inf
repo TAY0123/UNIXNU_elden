@@ -12,6 +12,7 @@
 
 [Sources]
   EldenPayloadDxe.c
+  EldenPayloadLz4.h
 
 [Packages]
   MdePkg/MdePkg.dec

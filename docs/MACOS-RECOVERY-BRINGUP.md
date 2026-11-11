@@ -944,6 +944,36 @@ remained active with UFS boot LUN 2, and both boot partitions were read-only
 after verification. The original slot A backup and `vbmeta_a` were saved
 privately. The installed image has yet to boot on the tablet.
 
+### Raw Android v4 image for slot A
+
+The owner reported that the installed gzip image returned to fastboot.
+Its signed partition readback had matched the host image. The bootloader
+error is unknown. The image used Android header v4 with OS metadata
+`13.0.0` / `2023-04`, and ABL had to expand its kernel field to 228 MiB.
+The working Linux slot B image uses native `mkbootimg` v4 with an empty
+ramdisk and a raw 94 MiB ARM64 kernel. The stock slot A image also uses a
+raw ARM64 kernel and has OS metadata `16.0.0` / `2026-08`.
+
+Build a new FD with `build_phase2_firmware.py`, then pass
+`--embed-payload --raw-boot-reference <saved-stock-boot-a>` to
+`build_phase2_image.py`. This path uses AOSP `mkbootimg` and the stock A
+header metadata. It stores the FAT volume in independently compressed
+64 KiB LZ4 blocks. EldenPayloadDxe reads the volume using one 64 KiB
+buffer, so the bootloader only loads the 78 MiB raw ARM64 image. The
+Linux EFI payload, A/B choices and Recovery payload match the previous
+image byte for byte. This host path requires `mkbootimg` and `liblz4`.
+
+Run `verify_phase2_artifact.py --embed-payload --raw-packed-payload`
+with the built FD, raw shim and original FAT. The host verified the full
+FAT readback, checked the firmware decoder against every compressed
+block, and compared the new Android header with the stock slot A header.
+The RAM image is `~/Downloads/elden-macos26-linux-raw-v4-ram.img` on the
+MacBook, SHA-256 `5276aab993601fe4a1fcd754ec68d414b86ca1881f59938d165fc542c1f039d2`.
+The signed 96 MiB candidate is `~/Downloads/elden-macos26-linux-raw-v4-boot-a.img`,
+SHA-256 `87591804ebb4f581e72cb140a7a5d564026fbb0a9d00765792cdbc4ee4f02f6c`.
+It preserves the original slot A AVB key, salt, rollback index and boot
+properties. The RAM and installed boot paths still need tablet testing.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

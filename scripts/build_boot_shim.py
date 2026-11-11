@@ -63,6 +63,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--clang", default="clang")
+    parser.add_argument("--raw-arm64-image", action="store_true")
     parser.add_argument("--entry-fdt-mailbox", action="store_true",
                         help="record ABL x0 at RAM FAT byte 0x1d0; requires reserved ELDFDT01 slot")
     parser.add_argument(
@@ -74,6 +75,8 @@ def main() -> None:
         parser.error("--payload-bytes must not be negative")
     if args.entry_fdt_mailbox and args.payload_bytes < 512:
         parser.error("--entry-fdt-mailbox needs an embedded FAT payload")
+    if args.raw_arm64_image and (not args.payload_bytes or args.entry_fdt_mailbox):
+        parser.error("--raw-arm64-image requires a payload without an FDT mailbox")
 
     with tempfile.TemporaryDirectory(prefix="elden-shim-") as temp:
         obj = Path(temp) / "BootShim.elf"
@@ -90,7 +93,8 @@ def main() -> None:
             ] + (
                 [f"-DEMBEDDED_PAYLOAD_SIZE={args.payload_bytes}"]
                 if args.payload_bytes else []
-            ) + (["-DENTRY_FDT_MAILBOX_OFFSET=0x1d0"] if args.entry_fdt_mailbox else []),
+            ) + (["-DENTRY_FDT_MAILBOX_OFFSET=0x1d0"] if args.entry_fdt_mailbox else [])
+            + (["-DRAW_ARM64_IMAGE=1"] if args.raw_arm64_image else []),
             check=True,
         )
         image = extract_alloc_sections(obj.read_bytes())
@@ -99,9 +103,12 @@ def main() -> None:
         raise ValueError("BootShim image header magic is missing")
     if args.entry_fdt_mailbox and len(image) != 128:
         raise ValueError("FDT mailbox shim must retain the accepted 128-byte layout")
-    if struct.unpack_from("<Q", image, 0x08)[0] != UEFI_BASE:
-        raise ValueError("BootShim firmware base does not match the SM8750 config")
+    text_offset = 0 if args.raw_arm64_image else UEFI_BASE
+    if struct.unpack_from("<Q", image, 0x08)[0] != text_offset:
+        raise ValueError("BootShim image text offset does not match the selected layout")
     expected_size = UEFI_SIZE + args.payload_bytes
+    if args.raw_arm64_image:
+        expected_size += len(image)
     if struct.unpack_from("<Q", image, 0x10)[0] != expected_size:
         raise ValueError("BootShim image size does not match the SM8750 config")
 

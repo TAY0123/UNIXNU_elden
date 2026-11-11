@@ -13,6 +13,10 @@ Two layouts are supported:
 
 --header-version 4 re-labels the v3 header as the Android v4 layout (header
 size 1584, empty boot signature).
+
+--raw-boot-reference uses mkbootimg v4 and the reference boot header's
+OS metadata and command line. The raw ARM64 kernel carries an LZ4-block FAT
+volume, which EldenPayloadDxe reads after the firmware starts.
 """
 
 from __future__ import annotations
@@ -24,6 +28,9 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+from elden_packed_payload import MAGIC as PACKED_MAGIC, pack_volume
+from verify_phase2_artifact import decompress_fvmain
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +65,22 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def raw_boot_metadata(reference: Path) -> tuple[str, str, str]:
+    with reference.open("rb") as source:
+        header = source.read(4096 + 64)
+    if (len(header) != 4160 or header[:8] != b"ANDROID!"
+            or struct.unpack_from("<I", header, 12)[0] != 0
+            or struct.unpack_from("<I", header, 20)[0] != 1584
+            or struct.unpack_from("<I", header, 40)[0] != 4
+            or struct.unpack_from("<I", header, 1580)[0] != 0
+            or header[4096 + 56:4096 + 60] != b"ARM\x64"):
+        raise SystemExit("reference must be a raw ARM64 Android v4 boot image with an empty ramdisk")
+    version, = struct.unpack_from("<I", header, 16)
+    os_version = f"{version >> 25}.{(version >> 18) & 127}.{(version >> 11) & 127}"
+    patch_level = f"{2000 + ((version >> 4) & 127)}-{version & 15:02}"
+    return os_version, patch_level, header[44:1580].split(b"\0", 1)[0].decode("ascii")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kind", choices=tuple(KINDS), required=True)
@@ -69,12 +92,17 @@ def main() -> None:
     parser.add_argument("--header-version", type=int, choices=(3, 4), default=3)
     parser.add_argument("--embed-payload", action="store_true")
     parser.add_argument("--entry-fdt-mailbox", action="store_true")
+    parser.add_argument("--raw-boot-reference", type=Path,
+                        help="use this original Android v4 image's boot metadata for a raw ARM64 kernel")
+    parser.add_argument("--mkbootimg", default="mkbootimg", help="AOSP mkbootimg for raw v4 images")
     parser.add_argument("--work", type=Path, default=OUT,
                         help="directory for the generated shim and kernel gzip")
     parser.add_argument("--clang", default=CLANG)
     args = parser.parse_args()
     if args.entry_fdt_mailbox and not args.embed_payload:
         parser.error("--entry-fdt-mailbox requires --embed-payload")
+    if args.raw_boot_reference and (not args.embed_payload or args.entry_fdt_mailbox):
+        parser.error("--raw-boot-reference requires --embed-payload without --entry-fdt-mailbox")
 
     default_ramdisk, default_output = KINDS[args.kind]
     if args.embed_payload:
@@ -105,21 +133,33 @@ def main() -> None:
                 record = source.read(24)
             if record != b'ELDFDT01' + struct.pack('<IIQ', 1, 0, 0):
                 raise SystemExit('RAM FAT must reserve the empty ELDFDT01 mailbox before shim construction')
-        shim = work / f"shim-{args.kind}-embed.bin"
+        stored_payload = payload.read_bytes()
+        if args.raw_boot_reference:
+            if PACKED_MAGIC not in decompress_fvmain(fd.read_bytes()):
+                raise SystemExit("firmware lacks support for the packed Elden payload")
+            stored_payload = pack_volume(stored_payload)
+        suffix = "raw" if args.raw_boot_reference else "embed"
+        shim = work / f"shim-{args.kind}-{suffix}.bin"
         command = [
             sys.executable,
             str(ROOT / "scripts" / "build_boot_shim.py"),
-            "--payload-bytes", str(payload.stat().st_size),
+            "--payload-bytes", str(len(stored_payload)),
             "--output", str(shim),
             "--clang", args.clang,
         ]
         if args.entry_fdt_mailbox:
             command.append("--entry-fdt-mailbox")
+        if args.raw_boot_reference:
+            command.append("--raw-arm64-image")
         print("+ " + " ".join(command))
         subprocess.run(command, check=True)
-        kernel_bytes = shim.read_bytes() + fd.read_bytes() + payload.read_bytes()
-        kernel = work / f"kernel-{args.kind}-embed.gzip"
-        kernel.write_bytes(gzip.compress(kernel_bytes, 9, mtime=0))
+        kernel_bytes = shim.read_bytes() + fd.read_bytes() + stored_payload
+        if args.raw_boot_reference:
+            kernel = work / f"kernel-{args.kind}-raw.Image"
+            kernel.write_bytes(kernel_bytes)
+        else:
+            kernel = work / f"kernel-{args.kind}-embed.gzip"
+            kernel.write_bytes(gzip.compress(kernel_bytes, 9, mtime=0))
         ramdisk = None
     else:
         if not args.shim.is_file():
@@ -146,11 +186,18 @@ def main() -> None:
         "--os_version", "13.0.0",
         "--os_patch_level", "2023-04-01",
     ]
-    if ramdisk is not None:
+    if args.raw_boot_reference:
+        os_version, patch_level, cmdline = raw_boot_metadata(args.raw_boot_reference)
+        empty_ramdisk = work / "empty-ramdisk"
+        empty_ramdisk.write_bytes(b"")
+        command = [args.mkbootimg, "--header_version", "4", "--kernel", str(kernel),
+                   "--ramdisk", str(empty_ramdisk), "--os_version", os_version,
+                   "--os_patch_level", patch_level, "--cmdline", cmdline, "--output", str(output)]
+    elif ramdisk is not None:
         command.extend(["--ramdisk", str(ramdisk)])
     print("+ " + " ".join(command))
     subprocess.run(command, check=True)
-    if args.header_version == 4 or args.embed_payload:
+    if not args.raw_boot_reference and (args.header_version == 4 or args.embed_payload):
         relabel_v4(output)
 
     print(f"image:   {output} ({output.stat().st_size} bytes)")

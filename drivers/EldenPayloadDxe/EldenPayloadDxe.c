@@ -19,6 +19,8 @@
 #include <Protocol/DevicePath.h>
 #include <Protocol/GraphicsOutput.h>
 
+#include "EldenPayloadLz4.h"
+
 #define ELDEN_PAYLOAD_BLOCK_SIZE  512
 
 typedef struct {
@@ -39,6 +41,10 @@ STATIC CONST EFI_GUID  mEldenPayloadDeviceGuid = {
 
 STATIC UINT8                 *mPayload;
 STATIC UINTN                  mPayloadSize;
+STATIC CONST UINT32          *mChunkOffsets;
+STATIC CONST UINT8           *mChunkData;
+STATIC UINT8                 *mChunkBuffer;
+STATIC UINTN                  mCachedChunk = MAX_UINTN;
 STATIC EFI_BLOCK_IO_MEDIA     mMedia;
 STATIC EFI_BLOCK_IO_PROTOCOL  mBlockIo;
 
@@ -146,6 +152,79 @@ EldenBlockReset (
 }
 
 STATIC
+BOOLEAN
+EldenReadChunk (
+  UINTN  Chunk
+  )
+{
+  UINTN        Offset;
+  UINTN        Size;
+  UINTN        PackedSize;
+  CONST UINT8  *Source;
+
+  if (Chunk == mCachedChunk) {
+    return TRUE;
+  }
+  mCachedChunk = MAX_UINTN;
+  Offset = Chunk * ELDEN_PACKED_CHUNK;
+  Size = MIN (ELDEN_PACKED_CHUNK, mPayloadSize - Offset);
+  Source = mChunkData + mChunkOffsets[Chunk];
+  PackedSize = mChunkOffsets[Chunk + 1] - mChunkOffsets[Chunk];
+  if (PackedSize == Size) {
+    CopyMem (mChunkBuffer, Source, Size);
+  } else if (!EldenLz4Decode (Source, PackedSize, mChunkBuffer, Size)) {
+    return FALSE;
+  }
+  mCachedChunk = Chunk;
+  return TRUE;
+}
+
+STATIC
+EFI_STATUS
+EldenOpenPackedPayload (
+  UINTN  StoredSize
+  )
+{
+  UINTN  Chunks;
+  UINTN  TableSize;
+  UINTN  Chunk;
+  UINTN  Size;
+
+  // The magic is followed by a u32 logical size and an array of u32
+  // offsets into the packed data, including its final end offset.
+  mPayloadSize = ((CONST UINT32 *)mPayload)[2];
+  if ((mPayloadSize == 0) || (mPayloadSize > ELDEN_PACKED_MAX_VOLUME) ||
+      ((mPayloadSize % ELDEN_PAYLOAD_BLOCK_SIZE) != 0)) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+  Chunks = (mPayloadSize + ELDEN_PACKED_CHUNK - 1) / ELDEN_PACKED_CHUNK;
+  TableSize = 12 + (Chunks + 1) * sizeof (UINT32);
+  if (TableSize >= StoredSize) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+  mChunkOffsets = (CONST UINT32 *)(mPayload + 12);
+  mChunkData = mPayload + TableSize;
+  if ((mChunkOffsets[0] != 0) || (mChunkOffsets[Chunks] > StoredSize - TableSize)) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+  for (Chunk = 0; Chunk < Chunks; Chunk++) {
+    Size = MIN (ELDEN_PACKED_CHUNK, mPayloadSize - Chunk * ELDEN_PACKED_CHUNK);
+    if ((mChunkOffsets[Chunk + 1] <= mChunkOffsets[Chunk]) ||
+        (mChunkOffsets[Chunk + 1] - mChunkOffsets[Chunk] > Size)) {
+      return EFI_VOLUME_CORRUPTED;
+    }
+  }
+  mChunkBuffer = AllocatePool (ELDEN_PACKED_CHUNK);
+  if (mChunkBuffer == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+  if (!EldenReadChunk (0)) {
+    return EFI_VOLUME_CORRUPTED;
+  }
+  return EFI_SUCCESS;
+}
+
+STATIC
 EFI_STATUS
 EFIAPI
 EldenBlockRead (
@@ -183,7 +262,24 @@ EldenBlockRead (
     return EFI_INVALID_PARAMETER;
   }
 
-  CopyMem (Buffer, mPayload + (UINTN)Offset, BufferSize);
+  if (mChunkBuffer == NULL) {
+    CopyMem (Buffer, mPayload + (UINTN)Offset, BufferSize);
+  } else {
+    UINT8  *Output = Buffer;
+
+    while (BufferSize != 0) {
+      UINTN  InChunk = (UINTN)Offset % ELDEN_PACKED_CHUNK;
+      UINTN  Length = MIN (BufferSize, ELDEN_PACKED_CHUNK - InChunk);
+
+      if (!EldenReadChunk ((UINTN)Offset / ELDEN_PACKED_CHUNK)) {
+        return EFI_DEVICE_ERROR;
+      }
+      CopyMem (Output, mChunkBuffer + InChunk, Length);
+      Output += Length;
+      Offset += Length;
+      BufferSize -= Length;
+    }
+  }
   return EFI_SUCCESS;
 }
 
@@ -222,6 +318,7 @@ EldenPayloadDxeEntry (
   EFI_HANDLE                  Handle;
   EFI_HOB_GUID_TYPE           *Hob;
   ELDEN_PAYLOAD_INFO          *Info;
+  CONST UINT8                 *BootSector;
   MEDIA_RAM_DISK_DEVICE_PATH  *RamDiskPath;
   EFI_DEVICE_PATH_PROTOCOL    *EndPath;
   UINTN                       DevicePathSize;
@@ -256,15 +353,22 @@ EldenPayloadDxeEntry (
 
   mPayload = (UINT8 *)(UINTN)Info->Base;
   mPayloadSize = (UINTN)Info->Size;
-  if ((mPayload[510] != 0x55) || (mPayload[511] != 0xAA)) {
+  BootSector = mPayload;
+  if (CompareMem (mPayload, ELDEN_PACKED_MAGIC, 8) == 0) {
+    Status = EldenOpenPackedPayload ((UINTN)Info->Size);
+    if (EFI_ERROR (Status)) {
+      goto Failed;
+    }
+    BootSector = mChunkBuffer;
+  }
+  if ((BootSector[510] != 0x55) || (BootSector[511] != 0xAA)) {
     DEBUG ((
       DEBUG_ERROR,
       "ELDEN-PAYLOAD: no FAT boot signature at 0x%lx\n",
       Info->Base
       ));
-    mPayload = NULL;
-    mPayloadSize = 0;
-    return EFI_LOAD_ERROR;
+    Status = EFI_LOAD_ERROR;
+    goto Failed;
   }
 
   ZeroMem (&mMedia, sizeof (mMedia));
@@ -288,7 +392,8 @@ EldenPayloadDxeEntry (
   DevicePathSize = sizeof (MEDIA_RAM_DISK_DEVICE_PATH) + sizeof (EFI_DEVICE_PATH_PROTOCOL);
   RamDiskPath = AllocateZeroPool (DevicePathSize);
   if (RamDiskPath == NULL) {
-    return EFI_OUT_OF_RESOURCES;
+    Status = EFI_OUT_OF_RESOURCES;
+    goto Failed;
   }
 
   RamDiskPath->Header.Type = MEDIA_DEVICE_PATH;
@@ -297,9 +402,9 @@ EldenPayloadDxeEntry (
   RamDiskPath->StartingAddr[0] = (UINT32)(UINTN)mPayload;
   RamDiskPath->StartingAddr[1] = (UINT32)(((UINT64)(UINTN)mPayload) >> 32);
   RamDiskPath->EndingAddr[0] =
-    (UINT32)((UINT64)(UINTN)mPayload + mPayloadSize - 1);
+    (UINT32)(Info->Base + Info->Size - 1);
   RamDiskPath->EndingAddr[1] =
-    (UINT32)(((UINT64)(UINTN)mPayload + mPayloadSize - 1) >> 32);
+    (UINT32)((Info->Base + Info->Size - 1) >> 32);
   CopyMem (&RamDiskPath->TypeGuid, &mEldenPayloadDeviceGuid, sizeof (EFI_GUID));
 
   EndPath =
@@ -319,7 +424,7 @@ EldenPayloadDxeEntry (
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "ELDEN-PAYLOAD: BlockIo install failed: %r\n", Status));
     FreePool (RamDiskPath);
-    return Status;
+    goto Failed;
   }
 
   DEBUG ((
@@ -331,4 +436,11 @@ EldenPayloadDxeEntry (
     ));
   EldenSetIndicator ((EFI_GRAPHICS_OUTPUT_BLT_PIXEL){ 0x00, 0xE0, 0x00, 0x00 });
   return EFI_SUCCESS;
+
+Failed:
+  if (mChunkBuffer != NULL) {
+    FreePool (mChunkBuffer);
+    mChunkBuffer = NULL;
+  }
+  return Status;
 }

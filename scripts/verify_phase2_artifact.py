@@ -21,6 +21,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
+from elden_packed_payload import MAGIC as PACKED_MAGIC, unpack_volume
+
 
 ROOT = Path(__file__).resolve().parents[1]
 MU = ROOT / "third_party" / "mu_wide_platforms"
@@ -49,7 +51,7 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def verify_embedded_shim(shim: bytes, payload_bytes: int) -> None:
+def verify_embedded_shim(shim: bytes, payload_bytes: int, raw: bool = False) -> None:
     """Check both advertised size and the size actually handed to PrePi in x3.
 
     Editing only the ARM64 header leaves the old compiled x3 constant intact.
@@ -58,7 +60,10 @@ def verify_embedded_shim(shim: bytes, payload_bytes: int) -> None:
     """
     if len(shim) < 64 or shim[56:60] != b"ARM\x64":
         raise SystemExit("BootShim ARM64 header is missing")
-    if struct.unpack_from("<Q", shim, 16)[0] != FD_SIZE + payload_bytes:
+    text_offset, image_size, flags = struct.unpack_from("<QQQ", shim, 8)
+    if raw and (text_offset, flags) != (0, 0xa):
+        raise SystemExit("raw BootShim does not advertise the expected ARM64 load properties")
+    if image_size != FD_SIZE + payload_bytes + (len(shim) if raw else 0):
         raise SystemExit("BootShim header size does not cover FD + payload")
     # add x2, x1, #0x400, lsl #12: payload base follows the 4 MiB FD.
     candidates = [offset for offset in range(64, len(shim) - 8, 4)
@@ -306,6 +311,7 @@ def main() -> None:
     parser.add_argument("--shim", type=Path, default=MU / "BootShim" / "BootShim.bin")
     parser.add_argument("--report", type=Path, default=OUT / "verify.json")
     parser.add_argument("--embed-payload", action="store_true")
+    parser.add_argument("--raw-packed-payload", action="store_true")
     parser.add_argument("--payload", type=Path)
     parser.add_argument("--expect-kernel-bytes", type=int, default=KERNEL_MACHO_BYTES)
     parser.add_argument("--expect-kernel-sha256", default=KERNEL_MACHO_SHA256)
@@ -320,6 +326,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.expect_timeout != -1 and not 1 <= args.expect_timeout <= 3600:
         raise SystemExit('expected timeout must be -1 or 1..3600 seconds')
+    if args.raw_packed_payload and not args.embed_payload:
+        parser.error("--raw-packed-payload requires --embed-payload")
 
     image = args.image.read_bytes()
     fd = args.fd.read_bytes()
@@ -338,7 +346,7 @@ def main() -> None:
         if signature_size != 0:
             raise SystemExit(f"unexpected v4 boot signature size: {signature_size}")
     kernel = image[PAGE_SIZE : PAGE_SIZE + kernel_size]
-    unpacked = gzip.decompress(kernel)
+    unpacked = kernel if args.raw_packed_payload else gzip.decompress(kernel)
     if unpacked[: len(shim)] != shim:
         raise SystemExit("BootShim bytes differ from the built shim")
 
@@ -348,9 +356,17 @@ def main() -> None:
         if args.payload is None:
             raise SystemExit("--embed-payload requires --payload")
         payload = args.payload.read_bytes()
-        verify_embedded_shim(shim, len(payload))
-        if unpacked[len(shim) :] != fd + payload:
-            raise SystemExit("kernel payload is not shim + FD + embedded FAT image")
+        fd_end = len(shim) + FD_SIZE
+        if unpacked[len(shim):fd_end] != fd:
+            raise SystemExit("embedded FD does not match the build output")
+        stored_payload = unpacked[fd_end:]
+        verify_embedded_shim(shim, len(stored_payload), raw=args.raw_packed_payload)
+        if args.raw_packed_payload:
+            if header_version != 4 or PACKED_MAGIC not in decompress_fvmain(fd):
+                raise SystemExit("raw packed image requires v4 and matching firmware")
+            stored_payload = unpack_volume(stored_payload)
+        if stored_payload != payload:
+            raise SystemExit("embedded FAT differs from the supplied volume")
         ramdisk = payload
     else:
         if ramdisk_size == 0:
@@ -376,7 +392,7 @@ def main() -> None:
         "ramdisk_bytes": ramdisk_size,
         "ramdisk_sha256": sha256(ramdisk),
         "embedded_payload": args.embed_payload,
-        "kernel_gzip_bytes": kernel_size,
+        ("kernel_raw_bytes" if args.raw_packed_payload else "kernel_gzip_bytes"): kernel_size,
         "fvmain_bytes": len(fvmain),
         "fd_sha256": sha256(fd),
         "shim_bytes": len(shim),
@@ -401,7 +417,7 @@ def main() -> None:
 
     print(f"artifact: OK ({len(image)} bytes)")
     print(f"  boot header: v{header_version}, ramdisk {ramdisk_size} bytes")
-    print(f"  kernel gzip: {kernel_size} bytes")
+    print(f"  kernel {'raw' if args.raw_packed_payload else 'gzip'}: {kernel_size} bytes")
     if args.embed_payload:
         print(f"  unpacked: shim {len(shim)} + FD {len(fd)} + payload {len(ramdisk)}")
     else:

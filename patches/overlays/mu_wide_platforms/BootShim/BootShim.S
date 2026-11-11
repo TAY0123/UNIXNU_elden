@@ -9,18 +9,28 @@ _Head:
 
 _StackBase:
 	/* Text Offset */
+#ifdef RAW_ARM64_IMAGE
+	.quad 0
+#else
 	.quad UEFI_BASE
+#endif
 
 _StackSize:
 	/* Image Size: firmware plus embedded FAT payload when present */
-#ifdef EMBEDDED_PAYLOAD_SIZE
+#ifdef RAW_ARM64_IMAGE
+	.quad UEFI_SIZE + (EMBEDDED_PAYLOAD_SIZE) + (_Payload - _Head)
+#elif defined(EMBEDDED_PAYLOAD_SIZE)
 	.quad	UEFI_SIZE + (EMBEDDED_PAYLOAD_SIZE)
 #else
 	.quad	UEFI_SIZE
 #endif
 
 	/* Flags */
+#ifdef RAW_ARM64_IMAGE
+	.quad 0xa	/* 4 KiB pages, relocatable physical placement */
+#else
 	.quad 0
+#endif
 
 	/* Reserved */
 	.quad 0
@@ -39,7 +49,11 @@ _StackSize:
 
 _Start:
 	mov		x4, x1
+#ifdef RAW_ARM64_IMAGE
+	ldr		x5, _FirmwareBase
+#else
 	ldr		x5, _StackBase
+#endif
 	cmp		x4, x5
 	beq		_Entry
 #ifdef EMBEDDED_PAYLOAD_SIZE
@@ -53,7 +67,11 @@ _CopyLoop:
 	stp		x2, x3, [x5], #16
 	subs	x6, x6, #16
 	b.ne	_CopyLoop
+#ifdef RAW_ARM64_IMAGE
+	ldr		x5, _FirmwareBase
+#else
 	ldr		x5, _StackBase
+#endif
 
 _Entry:
 #ifdef EMBEDDED_PAYLOAD_SIZE
@@ -78,6 +96,12 @@ _Dead:
 _CopySize:
 	/* Only the firmware volume is copied; the payload stays in place. */
 	.quad	UEFI_SIZE
+#endif
+
+#ifdef RAW_ARM64_IMAGE
+_FirmwareBase:
+	.quad UEFI_BASE
+	.ltorg
 #endif
 
 .text
