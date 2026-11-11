@@ -1649,10 +1649,25 @@ checks returning EPERM. Those checks completed before the failing copy
 operations. The MacBook received the complete task failure panic and
 verified the automatic return to bootloader fastboot.
 
-The next diagnostic checks the `com.apple.rootless` write in `vn_setxattr`.
+The r55 diagnostic checks the `com.apple.rootless` write in `vn_setxattr`.
 It reports whether the denial is from MAC policy, vnode authorization,
 the filesystem, or the fallback, and records the active CSR flags. The
-trace does not change the permission check or its result.
+trace preserves the permission check and its result. All 18 denials on
+the tablet came from MAC policy, with CSR `0x82`. The original task
+failed and the tablet reset to fastboot. The r55 image SHA-256 is
+`3ee5d0926052d16e63b42438eaba9b4b8368d798b0c2441dbf3b51efa0936281`.
+
+The signed `rc_script_wrapper` has
+`com.apple.rootless.install.heritable`, and the paired executable invokes
+`execv`. The Recovery shell binaries have no installer entitlement of
+their own. In the paired Sandbox module, the `com.apple.rootless` check
+consults the current process's code-signing entitlement flags before
+checking the mount. The opt-in diagnostic now records the existing
+flags and the flags selected at exec for the wrapper, the two shells,
+and `ditto` to locate any loss of inheritance. The r56 image passed the
+Recovery prelink, DarwinBoot preflight, FAT readback, and MacBook checksum
+checks. Its SHA-256 is
+`cd4adaea06e803342c4d6e141aa81de593877be948d3093189befd1a5be90135`.
 
 ### Adreno 830 GMU firmware
 
