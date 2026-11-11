@@ -1370,8 +1370,11 @@ The XNU scheduler must be able to run the timed reset callout. The saved
 Linux shutdown journal identifies a Qualcomm PON watchdog on this tablet
 as `/dev/watchdog0`. The saved board device tree describes the watchdog
 and a separate PMIC reboot-mode cell. The Linux driver configures a hard
-reset. The resulting boot mode after hardware expiry still needs a test
-before this can cover XNU hangs with a stopped scheduler.
+reset. A read-only follow-up RAM-booted the Linux maintenance image and
+confirmed the `nvmem-reboot-mode` driver was bound. That image did not
+register a watchdog. It returned to bootloader fastboot using its normal
+reboot request. Testing the hardware expiry needs a Linux image with the
+watchdog driver and a check of the boot mode selected after expiry.
 [Linux PON watchdog driver](https://github.com/torvalds/linux/blob/master/drivers/watchdog/pm8916_wdt.c)
 
 ### Recovery shared cache signature granule
