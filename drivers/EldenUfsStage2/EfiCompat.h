@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
 #include <Uefi.h>
+#include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 typedef UINT8 uint8_t;
 typedef UINT16 uint16_t;
@@ -16,3 +17,5 @@ typedef BOOLEAN bool;
 #define SIZE_MAX MAX_UINTN
 #define memcpy(destination,source,bytes) CopyMem((destination),(source),(bytes))
 #define memset(destination,value,bytes) SetMem((destination),(bytes),(value))
+#define memcmp(left,right,bytes) CompareMem((left),(right),(bytes))
+#define strcmp(left,right) AsciiStrCmp((left),(right))

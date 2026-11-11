@@ -130,7 +130,7 @@ static void delay_us(void *Context,uint32_t Microseconds)
 {(VOID)Context;gBS->Stall(Microseconds);}
 static BOOLEAN clock_on(UINT32 V){return (V&3)&&(!(V&0x80000000U)||(V&2));}
 
-EFI_STATUS EldenUfsHardwareOpen(EFI_HANDLE SourceVolume,ELDEN_UFS_HARDWARE *H)
+static EFI_STATUS open_hardware(EFI_HANDLE SourceVolume,ELDEN_UFS_HARDWARE *H,BOOLEAN SlotMode)
 {
     EFI_STATUS Status;VOID *Fdt;UINT64 El,Sctlr,Ctr;
     if(!H||H->Allocated||H->Session.state!=ELDEN_UFS_CLOSED)return EFI_INVALID_PARAMETER;
@@ -150,9 +150,20 @@ EFI_STATUS EldenUfsHardwareOpen(EFI_HANDLE SourceVolume,ELDEN_UFS_HARDWARE *H)
     if(EFI_ERROR(Status))return Status;
     H->Allocated=TRUE;
     struct elden_ufs_backend Backend={{H,read32,write32,sync_device,sync_cpu,now_ms,delay_us,true},admit_dma};
-    int Result=elden_ufs_open(&H->Session,&Backend,(VOID *)(UINTN)H->Arena,8192,H->Arena);
+    int Result=SlotMode ? elden_ufs_open_slot(&H->Session,&Backend,(VOID *)(UINTN)H->Arena,8192,H->Arena) :
+                         elden_ufs_open(&H->Session,&Backend,(VOID *)(UINTN)H->Arena,8192,H->Arena);
     if(Result){Print(L"ELDEN_UFS: stage %u failed %d\r\n",H->Session.stage,Result);return EFI_DEVICE_ERROR;}
     return EFI_SUCCESS;
+}
+
+EFI_STATUS EldenUfsHardwareOpen(EFI_HANDLE SourceVolume,ELDEN_UFS_HARDWARE *H)
+{
+    return open_hardware(SourceVolume,H,FALSE);
+}
+
+EFI_STATUS EldenUfsHardwareOpenSlot(EFI_HANDLE SourceVolume,ELDEN_UFS_HARDWARE *H)
+{
+    return open_hardware(SourceVolume,H,TRUE);
 }
 
 EFI_STATUS EldenUfsHardwareClose(ELDEN_UFS_HARDWARE *H)

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #pragma once
-#include "Core/storage_ufs.h"
+#include <storage_ufs.h>
+#include "EldenSlotSwitch.h"
 
 enum elden_ufs_state { ELDEN_UFS_CLOSED, ELDEN_UFS_OPENING, ELDEN_UFS_READY,
                        ELDEN_UFS_FAILED, ELDEN_UFS_QUARANTINED };
@@ -14,11 +15,14 @@ struct elden_ufs_session {
     struct elden_ufs_backend backend;
     struct kshim_ufs_host host;
     struct kshim_ufs_lun lun;
+    struct kshim_ufs_lun slot_luns[ELDEN_SLOT_DISKS];
     struct kshim_partition partition;
     enum elden_ufs_state state;
     unsigned stage, blocked_commands;
     int result;
-    bool busy;
+    bool busy, slot_mode;
+    const struct elden_slot_change *slot_write_plan;
+    uint32_t slot_lun_write;
     uint8_t scratch[KSHIM_STORAGE_SCRATCH_BYTES];
 };
 /* Zero-initialize once. Every failed open/read must be followed by close.
@@ -26,6 +30,10 @@ struct elden_ufs_session {
  * A quarantined session requires an external controller reset/new boot. */
 int elden_ufs_open(struct elden_ufs_session *, const struct elden_ufs_backend *,
                    void *arena, size_t bytes, uint64_t physical);
+int elden_ufs_open_slot(struct elden_ufs_session *, const struct elden_ufs_backend *,
+                       void *arena, size_t bytes, uint64_t physical);
+int elden_ufs_plan_slot(struct elden_ufs_session *, struct elden_slot_change *, uint32_t target);
+int elden_ufs_apply_slot(struct elden_ufs_session *, struct elden_slot_change *);
 int elden_ufs_read(struct elden_ufs_session *, uint64_t offset, size_t bytes, void *output);
 int elden_ufs_close(struct elden_ufs_session *);
 bool elden_ufs_can_handoff(const struct elden_ufs_session *);

@@ -1,0 +1,54 @@
+--- a/storage_ufs.c
++++ b/storage_ufs.c
+@@ -218,7 +218,8 @@
+         q[1]=direction==2?0x40:direction==1?0x20:0;
+         be32(q+12,bytes);memcpy(q+16,command,16);
+     } else if(kind==0x16){
+-        q[5]=1;q[12]=query_opcode;q[13]=descriptor;q[14]=index;
++        q[5]=query_opcode==4?0x81:1;q[12]=query_opcode;q[13]=descriptor;q[14]=index;
++        if(query_opcode==4)be32(q+20,*(const uint32_t *)data);
+         if(query_opcode==1){
+             q[18]=(uint8_t)(*length>>8);q[19]=(uint8_t)*length;
+         }
+@@ -299,9 +300,9 @@
+         uint16_t n=get16(rsp+18),segment=get16(rsp+10);
+         if(rsp[7]||rsp[12]!=query_opcode||rsp[13]!=descriptor||
+            rsp[14]!=index||rsp[15]!=0)return KSHIM_UFS_RESPONSE;
+-        if(query_opcode==3){
++        if(query_opcode==3||query_opcode==4){
+             if(n||segment)return KSHIM_UFS_RESPONSE;
+-            *(uint32_t *)data=get32(rsp+20);
++            if(query_opcode==3)*(uint32_t *)data=get32(rsp+20);
+         } else {
+             if(n<2||n>*length||n!=segment||n>255||
+                rsp[32]!=n||rsp[33]!=descriptor)return KSHIM_UFS_RESPONSE;
+@@ -317,6 +318,18 @@
+ {
+     if(!out||!length||*length<2||*length>255)return KSHIM_STORAGE_ARG;
+     return transfer(h,0x16,0,NULL,0,0,out,id,index,length,1);
++}
++int kshim_ufs_get_boot_lun(struct kshim_ufs_host *h,uint32_t *value)
++{
++    if(!value)return KSHIM_STORAGE_ARG;
++    int rc=transfer(h,0x16,0,NULL,0,0,value,0,0,NULL,3);
++    if(!rc&&*value!=1&&*value!=2)return KSHIM_UFS_RESPONSE;
++    return rc;
++}
++int kshim_ufs_set_boot_lun(struct kshim_ufs_host *h,uint32_t value)
++{
++    if(value!=1&&value!=2)return KSHIM_STORAGE_ARG;
++    return transfer(h,0x16,0,NULL,0,0,&value,0,0,NULL,4);
+ }
+ static int scsi(struct kshim_ufs_host *h,uint8_t lun,const uint8_t *cdb,
+                  void *data,uint32_t bytes,int direction)
+--- a/storage_ufs.h
++++ b/storage_ufs.h
+@@ -89,6 +89,8 @@
+                               uint8_t index, void *out, uint16_t *length);
+ int kshim_ufs_open_lun(struct kshim_ufs_host *, uint8_t number,
+                        bool allow_writes, struct kshim_ufs_lun *);
++int kshim_ufs_get_boot_lun(struct kshim_ufs_host *, uint32_t *value);
++int kshim_ufs_set_boot_lun(struct kshim_ufs_host *, uint32_t value);
+ /* Success proves that our list stopped and all firmware register values were
+  * restored. Failure forbids releasing the arena/mapping or payload handoff. */
+ int kshim_ufs_release(struct kshim_ufs_host *);

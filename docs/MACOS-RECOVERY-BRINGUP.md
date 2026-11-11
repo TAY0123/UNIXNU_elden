@@ -985,6 +985,29 @@ remained active with UFS boot LUN 2, and both boot partitions were read-only
 after verification. The original slot A backup and `vbmeta_a` were saved
 privately. The installed image has yet to boot on the tablet.
 
+### Direct boot slot selection in UniXNU
+
+`EldenBootSlot.efi` runs from the UniXNU menu using the inherited UFS
+controller. **Inspect boot slot** reads the active GPT state and UFS boot
+LUN. **Switch directly to slot A and restart** and its slot B counterpart
+require explicit confirmation. The action verifies both GPT copies and
+the selected boot image header, updates the reviewed A/B pairs on LUNs 0
+and 4, and sets `bBootLunEn`. It re-reads the updates before restarting.
+The command filter permits writes only to the validated GPT sectors and
+the boot LUN attribute. If a write fails, it attempts to restore and
+verify the original state. A power interruption across the LUNs can leave
+the selection incomplete.
+
+Build the application with `scripts/build-ufs-stage2.py` and pass the
+resulting `EldenBootSlot.efi` to `make_phase2_payload.py --slot-switch`.
+Host tests exercised both directions, GPT integrity, the UFS command
+filter and rollback. An in-memory replay also passed using read-only
+copies of the tablet's actual GPTs and verified boot-image headers.
+The MacBook RAM image is `~/Downloads/elden-native-slot-switch-ram.img`,
+SHA-256 `f2bd708a9d63bc48f980af0b2a14567944d7a6687d088c57281ae4b3ccd604d2`.
+The first firmware test should use **Inspect boot slot**. The native
+read and write paths remain unverified on the tablet.
+
 ### Raw Android v4 image for slot A
 
 The owner reported that the installed gzip image returned to fastboot.

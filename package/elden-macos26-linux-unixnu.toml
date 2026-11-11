@@ -47,23 +47,24 @@ type = "action"
 action = "fastboot"
 
 [[entry]]
-id = "slot-a"
-title = "Switch to slot A and reboot (via Linux)"
-type = "linux"
-path = "Payloads/linux.efi"
-dtb = "Payloads/linux.dtb"
-args = "root=PARTLABEL=rootfs"
+id = "slot-status"
+title = "Inspect boot slot"
+type = "efi"
+path = "Payloads/EldenBootSlot.efi"
+args = "inspect"
 
-[entry.chosen]
-"unixnu,boot-slot" = "a"
+[[entry]]
+id = "slot-a"
+title = "Switch directly to slot A and restart"
+type = "efi"
+path = "Payloads/EldenBootSlot.efi"
+args = "a"
+confirm = "Select slot A in UFS boot metadata and restart?"
 
 [[entry]]
 id = "slot-b"
-title = "Switch to slot B and reboot (via Linux)"
-type = "linux"
-path = "Payloads/linux.efi"
-dtb = "Payloads/linux.dtb"
-args = "root=PARTLABEL=rootfs"
-
-[entry.chosen]
-"unixnu,boot-slot" = "b"
+title = "Switch directly to slot B and restart"
+type = "efi"
+path = "Payloads/EldenBootSlot.efi"
+args = "b"
+confirm = "Select slot B in UFS boot metadata and restart?"

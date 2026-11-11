@@ -10,7 +10,8 @@ static struct fixture {
     uint8_t disk[64][4096];
     uint64_t ticks;
     unsigned writes,submits,admissions,reject_at;
-    bool ignore_restore;
+    uint32_t boot_lun;
+    bool ignore_restore, slot_mode;
 } f;
 static struct elden_ufs_session session;
 static void le32(uint8_t *p,uint32_t n){for(unsigned i=0;i<4;++i)p[i]=(uint8_t)(n>>(8*i));}
@@ -26,6 +27,7 @@ static uint32_t crc(const uint8_t *p,size_t n)
 static void reset_fixture(void)
 {
     memset(&f,0,sizeof(f));memset(&session,0,sizeof(session));
+    f.boot_lun=2;
     f.reg[0]=1u<<24;f.reg[0x34/4]=1;f.reg[0x30/4]=0x10f;
     f.reg[0x50/4]=0x90000000;f.reg[0x60/4]=1;f.reg[0x24/4]=0x55;
     uint8_t *h=f.disk[1],*e=f.disk[2];
@@ -50,18 +52,30 @@ static int wr(void *ctx,uint32_t offset,uint32_t value)
     ++x->submits;assert(value==1);
     uint8_t *q=arena+1024,*r=arena+1536,*c=q+16;
     unsigned direction=(arena[3]>>1)&3;
-    assert(direction!=1);memset(r,0,512);r[0]=q[0]+0x20;r[2]=q[2];
+    assert(x->slot_mode||direction!=1);memset(r,0,512);r[0]=q[0]+0x20;r[2]=q[2];
     if(q[0]==0x16){
-        assert(q[5]==1&&q[12]==3&&q[13]==2);
-        memcpy(r+12,q+12,4);putbe32(r+20,0x11);
+        memcpy(r+12,q+12,4);
+        if(x->slot_mode&&q[13]==0){
+            assert(!q[14]&&!q[15]&&direction==0);
+            if(q[12]==4){
+                assert(q[5]==0x81&&!q[20]&&!q[21]&&!q[22]&&(q[23]==1||q[23]==2));
+                x->boot_lun=q[23];
+            } else assert(q[5]==1&&q[12]==3);
+            putbe32(r+20,x->boot_lun);
+        } else {
+            assert(q[5]==1&&q[12]==3&&q[13]==2);putbe32(r+20,0x11);
+        }
     } else if(q[0]==1){
-        assert(q[2]==4);
+        assert(q[2]==4||(x->slot_mode&&q[2]==0));
         if(c[0]==0x9e){
             assert(direction==2&&c[1]==0x10);memset(arena+4096,0,32);
             arena[4103]=63;putbe32(arena+4104,4096);
         } else if(c[0]==0x88){
             uint64_t lba=be64(c+2);assert(lba<64&&direction==2&&c[13]==1);
             memcpy(arena+4096,x->disk[lba],4096);
+        } else if(c[0]==0x8a){
+            uint64_t lba=be64(c+2);assert(lba<64&&direction==1&&c[1]==8&&c[13]==1);
+            memcpy(x->disk[lba],arena+4096,4096);
         } else assert(c[0]==0&&direction==0);
     } else assert(q[0]==0&&direction==0);
     arena[8]=0;x->reg[0x58/4]=0;return 0;
@@ -110,5 +124,31 @@ int main(void)
     reset_fixture();struct elden_ufs_backend b=backend();
     assert(elden_ufs_open(&session,&b,NULL,8192,0xa0000000)==KSHIM_STORAGE_ARG&&f.admissions==0);
     puts("session: readonly wire guard, bounded partition reads, fresh DMA admission, GPT CRC and release readback PASS");
+
+    reset_fixture();f.slot_mode=true;
+    assert(!elden_ufs_open_slot(&session,&b,arena,sizeof(arena),0xa0000000));
+    uint32_t lun;
+    assert(!kshim_ufs_get_boot_lun(&session.host,&lun)&&lun==2);
+    before=f.submits;
+    assert(kshim_ufs_set_boot_lun(&session.host,1)!=0&&f.submits==before&&f.boot_lun==2);
+    assert(!elden_ufs_close(&session));
+
+    reset_fixture();f.slot_mode=true;
+    assert(!elden_ufs_open_slot(&session,&b,arena,sizeof(arena),0xa0000000));
+    static struct elden_slot_change permitted;
+    permitted.disks[0].header_lba[0]=1;
+    permitted.disks[0].header_lba[1]=63;
+    permitted.disks[0].table_lba[0]=2;
+    permitted.disks[0].table_lba[1]=59;
+    permitted.disks[0].table_blocks=1;
+    session.slot_write_plan=&permitted;
+    session.slot_lun_write=1;
+    assert(!kshim_ufs_set_boot_lun(&session.host,1));
+    assert(!kshim_ufs_get_boot_lun(&session.host,&lun)&&lun==1);
+    assert(!kshim_block_write(&session.slot_luns[0].block,2,1,output));
+    before=f.submits;
+    assert(kshim_block_write(&session.slot_luns[0].block,8,1,output)!=0&&f.submits==before);
+    assert(!elden_ufs_close(&session));
+    puts("slot transport: boot-LUN wire encoding and blocked unarmed/out-of-GPT writes PASS");
     return 0;
 }

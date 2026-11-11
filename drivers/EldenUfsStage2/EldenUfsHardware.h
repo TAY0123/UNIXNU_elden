@@ -12,4 +12,5 @@ typedef struct {
     BOOLEAN Allocated;
 } ELDEN_UFS_HARDWARE;
 EFI_STATUS EldenUfsHardwareOpen(EFI_HANDLE SourceVolume, ELDEN_UFS_HARDWARE *Hardware);
+EFI_STATUS EldenUfsHardwareOpenSlot(EFI_HANDLE SourceVolume, ELDEN_UFS_HARDWARE *Hardware);
 EFI_STATUS EldenUfsHardwareClose(ELDEN_UFS_HARDWARE *Hardware);

@@ -83,6 +83,7 @@ def build_payload(
     *,
     linux_kernel: Path | None = None,
     linux_dtb: Path | None = None,
+    slot_switch: Path | None = None,
 ) -> None:
     data = kernel.read_bytes()
     if len(data) != expect_kernel_bytes or sha256(kernel) != expect_kernel_sha256:
@@ -97,6 +98,10 @@ def build_payload(
         for linux_file in (linux_kernel, linux_dtb):
             if not linux_file.is_file() or linux_file.stat().st_size == 0:
                 raise SystemExit(f"missing or empty Linux file: {linux_file}")
+    if "Payloads/EldenBootSlot.efi" in config.read_text() and slot_switch is None:
+        raise SystemExit("the native Elden slot entries require --slot-switch")
+    if slot_switch is not None and (not slot_switch.is_file() or slot_switch.stat().st_size == 0):
+        raise SystemExit(f"missing or empty Elden slot application: {slot_switch}")
     total_sectors = size_mib * 1024 * 1024 // 512
     builder = Fat16Builder(total_sectors, label=VOLUME, media_id=VOLUME_ID)
     efi = builder.add_directory(0, "EFI")
@@ -110,6 +115,8 @@ def build_payload(
     if linux_kernel is not None and linux_dtb is not None:
         add_long_name_file(output, linux_kernel, f"{PAYLOAD_IMAGE_DIR}/linux.efi")
         add_long_name_file(output, linux_dtb, f"{PAYLOAD_IMAGE_DIR}/linux.dtb")
+    if slot_switch is not None:
+        add_long_name_file(output, slot_switch, f"{PAYLOAD_IMAGE_DIR}/EldenBootSlot.efi")
 
 
 def main() -> None:
@@ -122,6 +129,7 @@ def main() -> None:
     parser.add_argument("--adt", type=Path)
     parser.add_argument("--linux-kernel", type=Path, help="ARM64 EFI-stub kernel extracted from boot.img")
     parser.add_argument("--linux-dtb", type=Path, help="DTB from the same Linux build")
+    parser.add_argument("--slot-switch", type=Path, help="built EldenBootSlot.efi application")
     parser.add_argument("--kernel-bytes", type=int, default=KERNEL_MACHO_BYTES,
                         help="expected kernel size; override for a probe kernel")
     parser.add_argument("--kernel-sha256", default=KERNEL_MACHO_SHA256,
@@ -148,6 +156,7 @@ def main() -> None:
             args.kernel_sha256,
             linux_kernel=args.linux_kernel,
             linux_dtb=args.linux_dtb,
+            slot_switch=args.slot_switch,
         )
         print(f"kernel:  {files['kernel'].stat().st_size} bytes sha256={sha256(files['kernel'])}")
 

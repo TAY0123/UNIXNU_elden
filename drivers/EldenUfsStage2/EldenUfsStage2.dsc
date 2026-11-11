@@ -24,6 +24,7 @@
   StackCheckLib|MdePkg/Library/StackCheckLibNull/StackCheckLibNull.inf
 
 [Components]
+  EldenUfsStage2/EldenBootSlot.inf
   EldenUfsStage2/EldenUfsProbe.inf
   EldenUfsStage2/EldenStage2.inf
   EldenUfsStage2/EldenStage2Test.inf

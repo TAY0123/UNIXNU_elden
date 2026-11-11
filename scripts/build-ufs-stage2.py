@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / 'drivers/EldenUfsStage2'
@@ -21,27 +22,40 @@ def prepare():
     provenance = json.loads((MODULE / 'provenance.json').read_text())
     for name, expected in provenance['files'].items():
         data = (MODULE / name).read_bytes()
-        if len(data) != expected['bytes'] or hashlib.sha256(data).hexdigest() != expected['sha256']:
+        # Git normalizes the imported CRLF files to LF in this checkout.
+        variants = (data, data.replace(b'\n', b'\r\n')) if b'\r' not in data else (data,)
+        if not any(len(value) == expected['bytes'] and hashlib.sha256(value).hexdigest() == expected['sha256']
+                   for value in variants):
             raise SystemExit('vendor provenance mismatch: ' + name)
     generated = MODULE / 'Generated'
     generated.mkdir(exist_ok=True)
     sources = [*sorted((MODULE / 'Core').glob('*.[ch]')),
                MODULE / 'EldenUfsSession.c', MODULE / 'EldenUfsSession.h',
-               MODULE / 'EldenBundle.c', MODULE / 'EldenBundle.h']
+               MODULE / 'EldenBundle.c', MODULE / 'EldenBundle.h',
+               MODULE / 'EldenSlotSwitch.c', MODULE / 'EldenSlotSwitch.h']
     report = {}
-    for source in sources:
-        original = source.read_bytes()
-        content = original.decode()
-        content = re.sub(r'^#include <(?:stdint|stddef|stdbool|string)\.h>\s*$',
-                         '', content, flags=re.MULTILINE)
-        content = re.sub(r'#include <(storage_\w+\.h)>', r'#include "\1"', content)
-        content = content.replace('"Core/storage_ufs.h"', '"storage_ufs.h"')
-        content = content.replace('"Core/storage_block.h"', '"storage_block.h"')
-        content = '#include "../EfiCompat.h"\n' + content
-        (generated / source.name).write_text(content, newline='\n')
-        report[source.name] = dict(source=str(source.relative_to(ROOT)),
-            sha256=hashlib.sha256(original).hexdigest(),
-            compiled_sha256=hashlib.sha256((generated/source.name).read_bytes()).hexdigest())
+    patch = MODULE / 'EldenUfsBootLun.patch'
+    patched = ('storage_ufs.c', 'storage_ufs.h')
+    with tempfile.TemporaryDirectory(prefix='elden-ufs-source-') as directory:
+        stage = Path(directory)
+        for name in patched:
+            (stage / name).write_text((MODULE / 'Core' / name).read_text(), newline='\n')
+        subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(patch)],
+                       cwd=stage, check=True, capture_output=True)
+        for source in sources:
+            original = source.read_bytes()
+            content = (stage / source.name).read_text() if source.name in patched else original.decode()
+            content = re.sub(r'^#include <(?:stdint|stddef|stdbool|string)\.h>\s*$',
+                             '', content, flags=re.MULTILINE)
+            content = re.sub(r'#include <(storage_\w+\.h)>', r'#include "\1"', content)
+            content = re.sub(r'"Core/(storage_\w+\.h)"', r'"\1"', content)
+            target = generated / source.name
+            target.write_text('#include "../EfiCompat.h"\n' + content, newline='\n')
+            report[source.name] = dict(source=str(source.relative_to(ROOT)),
+                sha256=hashlib.sha256(original).hexdigest(),
+                compiled_sha256=hashlib.sha256(target.read_bytes()).hexdigest())
+            if source.name in patched:
+                report[source.name]['overlay_sha256'] = hashlib.sha256(patch.read_bytes()).hexdigest()
     for name in ('EldenFdtHandoff.c', 'EldenFdtHandoff.h'):
         source = ROOT / 'drivers/EldenPayloadLoader' / name
         shutil.copyfile(source, generated / name)
@@ -87,7 +101,8 @@ def main():
     source = MU/'Build/EldenUfsStage2/DEBUG_CLANGPDB/AARCH64/EldenUfsProbe.efi'
     destination = work/source.name
     shutil.copyfile(source, destination)
-    for name in ('EldenStage2.efi', 'EldenStage2Test.efi', 'EldenStage2Consumer.efi', 'EldenExternalTest.efi'):
+    for name in ('EldenBootSlot.efi', 'EldenStage2.efi', 'EldenStage2Test.efi',
+                 'EldenStage2Consumer.efi', 'EldenExternalTest.efi'):
         shutil.copyfile(source.with_name(name), work/name)
     report = dict(path=str(destination), bytes=destination.stat().st_size,
         sha256=hashlib.sha256(destination.read_bytes()).hexdigest(), hardware_tested=False)
