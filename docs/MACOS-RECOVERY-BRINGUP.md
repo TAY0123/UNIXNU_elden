@@ -1044,7 +1044,23 @@ index and boot properties. Its SHA-256 is
 The running Linux system wrote it to inactive `boot_a` over SSH and
 verified the full partition digest. The original `boot_b` digest matched
 before and after the write. Both partitions returned to read-only and
-slot B remained active. The combined image still needs its first boot.
+slot B remained active after flashing.
+
+The owner's first Recovery run of the combined image reached PID 1 and
+printed the Darwin Ignition startup banner. At 127 seconds after
+`launchd exec`, the tablet showed `SHENG-PID1-IF done=67/67 vm=0` and
+`SHENG-PID1-SVC done=50/52 code=202 errno=-1`. The final recorded
+instruction fault completed successfully. The trace had no completion
+sample for the latest `sysctl`. `errno=-1` is the pending sentinel in the
+trace. PID 1 still showed one start, zero exits, and no main acknowledgment.
+The tracked Recovery and WindowServer services had zero starts.
+
+The matching macOS-ForSheng reference run stopped after the same Ignition
+banner and identified its last call as `security.mac.img4.ignition_blob`.
+That makes the Image4 Ignition wait a candidate for the tablet stall.
+The Elden trace identifies the syscall number and program counter, so
+the specific sysctl still needs confirmation on hardware. The Linux
+diagnostic result is pending.
 
 ### Adreno 830 GMU firmware
 
