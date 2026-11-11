@@ -1344,6 +1344,36 @@ is disabled at `ExitBootServices()`. A hard lockup after handoff still
 needs a qualified hardware watchdog.
 [UEFI Boot Services specification](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)
 
+### Timed Recovery USB test
+
+Select **Timed Recovery USB Test** for an unattended run. The entry
+sets `elden-usb-run-timeout=900`. The countdown starts at the XNU USB
+startup hook and expires even if a Mac has already opened the console.
+The regular **Recovery USB Console** entry keeps its 90-second
+no-host timeout. An example for the timed entry is:
+
+```sh
+python3 elden-usb-control.py boot recovery-usb-timed \
+  --require-fastboot --seconds 1500 --log elden-recovery-timed.log
+```
+
+The r58 RAM image used a 60-second deadline and the existing 90-second
+no-host timeout. The MacBook opened XNU USB and received the kernel log.
+XNU reported `Recovery test deadline expired` and reset to bootloader
+fastboot before `launchd` started. The only host command after RAM boot
+was the menu selection. The MacBook verified `is-userspace: no` and
+`current-slot: a`. The RAM image is
+`~/Downloads/elden-recovery-test-deadline-ram.img`, SHA-256
+`e91854591f2ab932ff7fa8df5c988b91c0bfac76b159ba4d7686fcb5c418fe92`.
+
+The XNU scheduler must be able to run the timed reset callout. The saved
+Linux shutdown journal identifies a Qualcomm PON watchdog on this tablet
+as `/dev/watchdog0`. The saved board device tree describes the watchdog
+and a separate PMIC reboot-mode cell. The Linux driver configures a hard
+reset. The resulting boot mode after hardware expiry still needs a test
+before this can cover XNU hangs with a stopped scheduler.
+[Linux PON watchdog driver](https://github.com/torvalds/linux/blob/master/drivers/watchdog/pm8916_wdt.c)
+
 ### Recovery shared cache signature granule
 
 The installed USB capture shows `disallowing unsupported code signature
