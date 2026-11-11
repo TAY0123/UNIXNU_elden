@@ -147,7 +147,7 @@ inputs = ["SM8750 UFS host at 0x1d84000 (+0x3000) and QMP PHY at 0x1d80000 (+0x2
 configuration = ["elden-ufs_probe_defconfig selects the read-only observation build; elden-ufs_rootcheck_defconfig builds the complete read-only IOBlockStorageDevice interface.", "The SM8750 board patch keeps explicit LUN0/4 selection and validates inherited SMMUv2 identity DMA without changing the admitted route.", "Root-check uses ARMADA_BACKUP for the existing LUN4 test window; production root partition and manifest remain separate configuration work.", "The macOS 26.5 Elden build opts into read-only legacy queue takeover on LUN 0 after verifying the firmware clock and identity DMA state."]
 procedure = ["Build on the configured Mac using the selected source-kernel headers and pinned storage reference.", "Qualify the original and concrete 190-slot ABI, link the complete kernel, then audit the final candidate and real class-registration path.", "Package the accepted FD with a 56 MiB payload, preserve exact stock rollback values, and perform independent signature/content/entry checks.", "Verify the macOS read-only UFS diagnostics on hardware before publishing or mounting Recovery media."]
 findings = ["2026-11-07: LUN0/ipados root header read is device-verified. New AVB-kernel-pinned complete-image and per-block verification, live readonly media ancestry bridge, SystemOS union and RAM Data startup candidate compile/link and host checks pass; new mount/startup remains untested on hardware.", "2026-11-06 prerequisites: official21H461 OS/SystemOS and original trust inputs are verified. Native readonly APFS inspection supplies actual filesystem UUIDs. A9381609472-byte raw root layout passes file readback and the actual RootLayout parser with file callbacks; Data, runtime policies and real root-target kernel remain pending. No hardware disk access.", "2026-11-06: standalone GPL UEFI UFS backend and current/previous stage2 applications compile; original/session suites and independent SHA/header/torn-update tests pass. Actual AAVMF probe platform rejection and RAM FAT child failure/cleanup/retry pass; no tablet UFS operation is claimed. See docs/UFS-STAGE2-20261106.md.", "The full root-check kernel 07d4df1d… compiled/prelinked successfully; the diagnostic derivative is 3fd40e9f….", "190 original/concrete slots, 23 concrete overrides, 11 original imports and actual C2/D2 were qualified without replacing the storage class with stubs.", "The final derivative executes to the real registered original storage class in QEMU using the actual menu arguments; class sizes are 0xd8/0x90/0x88.", "The compressed EFI loader decoded all complete assets in AAVMF, and a neutral-debug DarwinBoot test build passed EBS to the same XNU console and UFS registration gate. This is not a test of the entire vendor firmware.", "The exact accepted DarwinBoot binary needs its platform graphics debug sink in AAVMF; its observed fault is before EBS, unlike a proved hardware handoff failure.", "2026-11-06 hardware: corrected arm-io/AAPL,phandle ADT and fixed-address SMMU loads reach read-only LUN4 GPT/block checks. LUN0/ipados source configuration is added; block publication and root mounting remain pending."]
-completion = ["Controller and PHY initialize.", "Read-only capacity, GPT and known-block checks match the device.", "The configured OS volume mounts and launchd starts."]
+completion = ["Controller and PHY initialize.", "Read-only capacity, GPT and known-block checks match the device.", "The configured OS volume mounts and launchd starts.", "A verified APFS install on the former Android data extent boots with writes bounded to the selected partition."]
 limits = ["LUN4 read-only capacity/GPT/block checks passed on hardware; LUN0/ipados publication and root mount remain unverified.", "The existing 2 GiB ARMADA_BACKUP is an empty test window, not an installed iPadOS root.", "The standalone compressed recovery branch still needs TWRP hardware boot, USB, touch and FBE checks.", "The new standalone EFI UFS backend needs tablet qualification. ADB slot transport has only root/su model tests. The actual external bundle and 3ffa745d signed bootstrap are packaged, with menu/reset and QEMU-ADT XNU-path evidence. Tablet UFS and physical power-loss behavior remain unqualified."]
 next_action = ["Test the new signed manual startup candidate, retain the 6GiB read-check as the device-qualified fallback, and inspect verified-image/media/mount stages before changing policy.", "Use the Recovery PID 1 Trace image to distinguish post-mount startup from storage discovery. Service startup and the Recovery GUI remain pending."]
 evidence = [
@@ -221,13 +221,13 @@ id = "input"
 status = "planned"
 components = []
 paths = ["docs/**"]
-inputs = ["Novatek SPI touch on SPI4 and GPIO 162 interrupt.", "Volume and power keys used by the UEFI menu."]
+inputs = ["Novatek SPI touch on SPI4 and GPIO 162 interrupt.", "Volume and power keys used by the UEFI menu.", "The installed Linux image names novatek_ts_csot_3k_fw.bin and specifies a 10 MHz GENI SPI4 bus with GPIO 162 falling-edge interrupts."]
 configuration = ["The phase 1 menu accepts volume-key input through UEFI.", "No XNU HID or Novatek transport is selected."]
 procedure = ["Preserve UEFI key navigation as the bring-up input path.", "Inventory the touch firmware and protocol from read-only sources.", "Add QCOM GENI SPI, touch protocol and HID input after XNU boots."]
 findings = ["Volume-key menu input is device-verified.", "Touch has not been initialized by XNU.", "The panel and touch controller share board state that must be validated together."]
 completion = ["Touch coordinates map to the display.", "Contact IDs, releases and multi-touch remain stable.", "Buttons produce expected HID events in XNU."]
 limits = ["No touch component is selected.", "The NT36536 firmware and ABI inputs are not yet integrated."]
-next_action = ["Read the touch controller model and firmware version without modifying flash, then define the board transport."]
+next_action = ["Verify live Linux touch reports and orientation, then qualify the GENI SPI transport and Novatek HID bridge under XNU."]
 evidence = [
   { kind = "source", reference = "docs/PHASE1-STATUS.md", result = "Volume-key navigation reached the accepted menu." },
   { kind = "source", reference = "docs/porting-analysis.md", result = "Novatek SPI wiring and input bring-up requirements." },
@@ -252,17 +252,17 @@ evidence = [
 
 [[area]]
 id = "network"
-status = "not-applicable"
+status = "planned"
 components = []
-paths = ["proprietary-files.txt"]
-inputs = ["Wi-Fi is outside the current bring-up milestone."]
-configuration = ["No Wi-Fi or MHI component is selected."]
-procedure = ["Revisit after the USB or PCIe transport and firmware ownership are established."]
-findings = ["There is no verified Wi-Fi source or firmware path for elden."]
-completion = ["Not required for this milestone."]
-limits = ["Wi-Fi, Bluetooth and cellular are not implemented or claimed."]
-next_action = ["Open a separate network bring-up task when the base kernel and root volume are stable."]
-evidence = []
+paths = ["proprietary-files.txt", "docs/MACOS-RECOVERY-BRINGUP.md"]
+inputs = ["Wi-Fi PCIe function 17cb:110e on the SM8750 root complex.", "WCN7861 Bluetooth over UART with brhbtnv20.bin and brhbtfw20.tlv.", "Shared WCN7861 PMU."]
+configuration = ["No Elden XNU radio transport is selected."]
+procedure = ["Inspect the live Linux radio bindings and firmware names.", "Verify PMU and PCIe state before Wi-Fi bring-up.", "Bring up Bluetooth over UART and check HCI initialization."]
+findings = ["The installed Linux device tree identifies both radio functions and the shared PMU."]
+completion = ["Wi-Fi associates and transfers traffic on the tablet.", "Bluetooth pairs and exchanges data with a peripheral."]
+limits = ["Radio operation under XNU remains unverified."]
+next_action = ["Record the tablet Linux drivers and firmware identities, then map the PMU, PCIe and UART dependencies to XNU."]
+evidence = [{ kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "dtc -I dtb -O dts and inspect the peripheral nodes", revision = "9ba3a222426de0702e669d7d69c879c81700e1a0", result = "Read-only inspection of the installed Linux image DTB identified the PCIe ID, Bluetooth UART firmware names and shared radio PMU." }]
 
 [[area]]
 id = "audio"
@@ -287,9 +287,9 @@ inputs = ["PM8550-class PMIC, RPMh resources and device power domains.", "Volume
 configuration = ["The first DTS selects only CPU and GIC resources.", "No platform power component is selected."]
 procedure = ["Keep suspend and CPU power management disabled during first XNU entry.", "Record regulator and clock ownership.", "Add platform power only after the boot CPU reaches a stable checkpoint."]
 findings = ["2026-11-05 marker menu retains existing reset/shutdown actions and uses a 600-second no-input fallback to reset. No new PMIC write path or device power qualification; see docs/OFFLINE-PAYLOAD-20261105.md.", "UEFI power and key handling are verified only at the firmware layer.", "The selected OS profile does not supply sleep-disabled, so board.toml now adds it under [adt.defaults.u32].", "The final Phase 2.1 ADT was decoded with sleep-disabled=1.", "The XNU power topology is not complete."]
-completion = ["Declared power controls match readings.", "Sleep/resume or shutdown transitions restore dependent peripherals."]
+completion = ["Declared power controls match readings.", "Sleep/resume or shutdown transitions restore dependent peripherals.", "An installed macOS system resumes from a hybrid hibernation image and restores storage, display, input and radios."]
 limits = ["Battery, charging, thermal and sleep are not implemented."]
-next_action = ["Phase 2.5: use armcpu-diagnostics=1 to observe boot-CPU quiesce/halt behavior. Audit RPMh ownership and keep suspend/secondary CPU power management out of initial qualification."]
+next_action = ["Audit RPMh resource ownership and PSCI suspend states. Qualify peripheral suspend and resume before testing hybrid hibernation on a writable install."]
 evidence = [
   { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "build and verify the Elden Adreno 830 GMU probe", revision = "a6190077af83a6e02645a6b02a70f86c43696e3e", result = "The diagnostic validates the GMU image before any future transport work. Its boot hook only counts validated firmware blocks." },
   { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "inspect the combined Recovery and Linux menu", revision = "cf9b0ba7c8a000b3ed4f4199707095ffd9b5fa0c", result = "The menu retains the Reboot to Fastboot action." },

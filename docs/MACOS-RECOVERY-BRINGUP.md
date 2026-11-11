@@ -1525,3 +1525,37 @@ The on-device XNU probe result is pending.
 Hardware bring-up requires GMU power and clock control, an owned GPU
 SMMU context, and a bounded GMU boot and HFI handshake. A command ring,
 fences, rendering, and the macOS Metal interface follow those milestones.
+
+### Installation target and hardware inventory
+
+The saved LUN 0 GPT and the post-resize GPT readback both pass the primary
+header and partition-array CRC checks. Both records use 4 KiB logical blocks.
+
+| Partition | LBA range, inclusive | Capacity in bytes |
+| --- | --- | ---: |
+| `userdata` | 5972392–62500000 | 231537086464 |
+| `rootfs` | 62500096–122822399 | 247080157184 |
+| `macosroot` | 122822400–123870975 | 4294967296 |
+
+`userdata` is the intended space for an installed macOS system. The read-only
+`macosroot` contains Recovery BaseSystem. Installation needs a verified backup
+of `userdata`, an APFS target with the OS and auxiliary volumes, and a
+write-capable UFS path bounded to the selected partition. The current native
+UFS driver supplies reads. This inventory used saved records only.
+
+The installed Linux image's device tree identifies the Novatek NT36536 on
+GENI SPI4 at up to 10 MHz. It specifies GPIO 162 with falling-edge interrupts,
+`novatek_ts_csot_3k_fw.bin`, and panel-linked coordinates. The XNU touch path
+needs the GENI SPI transport, Novatek report decoding and HID events qualified
+against the panel orientation.
+
+The same device tree describes the Wi-Fi PCIe function `17cb:110e` and the
+WCN7861 Bluetooth function on UART with `brhbtnv20.bin` and `brhbtfw20.tlv`.
+The radio functions depend on the WCN7861 PMU. The next Linux hardware check
+will identify the bound drivers, firmware and resource states before bringing
+up PCIe and UART in XNU.
+
+An installed system still needs to exercise all eight cores, restore storage,
+display, input and radios after sleep, and resume from a hybrid hibernation
+image on writable storage. The current Recovery entry uses one core and
+keeps sleep disabled.
