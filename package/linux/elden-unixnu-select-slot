@@ -1,0 +1,15 @@
+#!/bin/bash
+set -euo pipefail
+
+request=/sys/firmware/devicetree/base/chosen/unixnu,boot-slot
+if cmp -s "$request" <(printf 'a\0'); then
+    slot=a
+elif cmp -s "$request" <(printf 'b\0'); then
+    slot=b
+else
+    printf 'Invalid UniXNU slot request\n' >&2
+    exit 1
+fi
+
+/usr/local/libexec/tb322fc-select-boot-slot select "$slot"
+/usr/bin/systemctl --no-block reboot

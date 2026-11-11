@@ -898,6 +898,42 @@ The **Elden Linux - keep panic on screen** entry needs a tablet test.
 The original `boot_b` backup is also staged on the MacBook for a direct
 RAM boot and possible `pstore` capture.
 
+### Linux EFI device tree and A/B menu
+
+The installed Linux Image selected its built-in DTB in `setup_arch`,
+discarding the EFI stub's device tree and the live EFI memory map carried in
+its `/chosen` node. `scripts/prepare-elden-linux-efi.py` checks the original
+Image digest and instruction bytes and patches only the EFI payload copy.
+The new instructions pass the physical FDT address saved from x0 to
+`setup_machine_fdt`. The direct-boot Linux image still uses its built-in tree.
+This corrects a confirmed handoff defect. The prior reboot has no captured
+panic or EFI return status to establish its cause.
+
+Use the patched Image as `--linux-kernel` when packaging
+`package/elden-macos26-linux-unixnu.toml`. **Switch to slot A and reboot (via
+Linux)** and **Switch to slot B and reboot (via Linux)** boot the installed
+rootfs with the selected slot in `/chosen/unixnu,boot-slot`. The Linux service
+uses the installed TB322FC protected slot selector to check the GPT and UFS
+boot LUN and reboots after the selector succeeds. The normal Linux entry
+does not set the property. On a rootfs with the protected selector installed,
+install the service from this repository with:
+
+```sh
+sudo install -m 0755 package/linux/elden-unixnu-select-slot /usr/local/libexec/
+sudo install -m 0644 package/linux/elden-unixnu-select-slot.service /etc/systemd/system/
+sudo systemctl enable elden-unixnu-select-slot.service
+```
+
+The host verified the firmware, embedded FAT contents and both slot requests.
+The tablet's current Linux verified a dry run for slot A and reported that
+slot B was already selected with UFS boot LUN 2. The installed service was
+skipped on the normal Linux boot because the request property was absent.
+The RAM image is `~/Downloads/elden-macos26-linux-slot-menu-ram.img` on the
+MacBook with SHA-256
+`4024f857c08220976fed9070c4b3470c3f9b78516f665680513f55ff3a5b5bd2`.
+An end-to-end test needs a tablet boot through the new Linux EFI entry and
+verification of a slot change triggered by the UniXNU menu.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

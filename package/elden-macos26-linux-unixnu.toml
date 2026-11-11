@@ -31,3 +31,25 @@ id = "fastboot"
 title = "Reboot to Fastboot"
 type = "action"
 action = "fastboot"
+
+[[entry]]
+id = "slot-a"
+title = "Switch to slot A and reboot (via Linux)"
+type = "linux"
+path = "Payloads/linux.efi"
+dtb = "Payloads/linux.dtb"
+args = "root=PARTLABEL=rootfs"
+
+[entry.chosen]
+"unixnu,boot-slot" = "a"
+
+[[entry]]
+id = "slot-b"
+title = "Switch to slot B and reboot (via Linux)"
+type = "linux"
+path = "Payloads/linux.efi"
+dtb = "Payloads/linux.dtb"
+args = "root=PARTLABEL=rootfs"
+
+[entry.chosen]
+"unixnu,boot-slot" = "b"

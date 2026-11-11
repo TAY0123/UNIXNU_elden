@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply the UniXNU boot slot selection
+ConditionPathExists=/sys/firmware/devicetree/base/chosen/unixnu,boot-slot
+After=tb322fc-boot-success.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/libexec/elden-unixnu-select-slot
+RemainAfterExit=yes
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target
