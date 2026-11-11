@@ -1613,11 +1613,34 @@ The r51 control uses the byte-identical r47 kernel with the original
 Apple trust module. It loaded the module, passed `mount-phase-1`, and
 mounted the three ISC volumes. During `restore-datapartition`, the
 original `ditto` received EPERM on the protected Data template entries
-again. Recovery panicked after the task exited with status 1, then
-returned to bootloader fastboot without a host reset command after
+again. A read-only mount of the paired 25F71 image confirmed that all
+18 denied entries carry `SF_RESTRICTED` and `com.apple.rootless`. The
+original Recovery script invokes `ditto` after mounting temporary Data
+with `mount_tmpfs`. Recovery panicked after the task exited with status 1
+and returned to bootloader fastboot without a host reset command after
 handoff. The r51 MacBook image is
 `~/Downloads/elden-recovery-apple-trust-control-ram.img` with SHA-256
 `a1c2472973e56b36d7b5f9121fa491617ccd936f21175d3c2a8cc28156ea5e45`.
+
+The r53 control uses the byte-identical r50 kernel with the verified
+eight-core ADT. All eight CPUs started, and the original `launchd`
+reached the same `OSEntitlements.cpp:806` panic before `ditto` ran. The
+tablet returned to fastboot. The MacBook image is
+`~/Downloads/elden-recovery-copy-trace-smp8-ram.img` with SHA-256
+`dc98c6394a936d591b003dd6d23457fe78c63774c7bf93bd4eda3eb5f0cbd165`.
+
+Comparing all 6,151 staged r47 and r50 source entries isolated the source
+change to `bsd/dev/arm/systemcalls.c`. Normal builds now omit the
+experimental overlay. The default build linked successfully from the
+same staged source diff as r47. Use `--trace-recovery-copy` to build with
+the bounded diagnostic. The updated trace records the failed syscall and
+file flags through a separate function with no user-memory read. This
+keeps the diagnostic's local storage out of the syscall stack frame.
+The linked handler uses the same 128-byte frame as r47. The original
+r50 probe used 208 bytes. The r54 diagnostic image passed the Recovery
+prelink, DarwinBoot preflight, FAT readback and MacBook checksum checks.
+Its SHA-256 is
+`a48a39f00ec84f2a3436fbb06f17079b80cfcbb2f6f727d971988031f4e337ad`.
 
 ### Adreno 830 GMU firmware
 
