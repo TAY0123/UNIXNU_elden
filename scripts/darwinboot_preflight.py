@@ -144,6 +144,7 @@ def adt_walk(data: bytes) -> dict:
         "trustcache": None,
         "gpuaddon": None,
         "window": 0,
+        "window_offset": None,
         "keep_packed": False,
     }
 
@@ -221,6 +222,7 @@ def adt_walk(data: bytes) -> dict:
             result["window"] = _u64(data, memory_candidate)
             if not window_size_valid(result["window"]):
                 raise ValueError(f"ADT window {result['window']:#x} is not a valid allocation size")
+            result["window_offset"] = memory_candidate
         if children > (size - offset) // 8:
             raise ValueError(f"ADT node at depth {depth} claims too many children")
         for _ in range(children):
@@ -230,6 +232,16 @@ def adt_walk(data: bytes) -> dict:
     if walk(0, 0, 3) != size:
         raise ValueError("ADT walk did not consume the whole tree")
     return result
+
+
+def set_owned_memory_size(data: bytes, size: int) -> bytes:
+    """Change the existing /chosen window request without altering other ADT properties."""
+    if not window_size_valid(size):
+        raise ValueError(f"ADT window {size:#x} is not a valid allocation size")
+    offset = adt_walk(data)["window_offset"]
+    if offset is None:
+        raise ValueError("ADT is missing /chosen/darwinboot-memory-size")
+    return data[:offset] + struct.pack("<Q", size) + data[offset + 8:]
 
 
 def sha256(data: bytes) -> str:

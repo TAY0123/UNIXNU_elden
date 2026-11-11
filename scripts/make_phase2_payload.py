@@ -33,6 +33,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from darwinboot_preflight import set_owned_memory_size
 from make_payload import Fat16Builder, add_long_name_file
 
 
@@ -140,6 +141,8 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--kernel", type=Path)
     parser.add_argument("--adt", type=Path)
+    parser.add_argument("--owned-memory-size", type=lambda value: int(value, 0),
+                        help="override the ADT's requested contiguous XNU RAM window in bytes")
     parser.add_argument("--linux-kernel", type=Path, help="ARM64 EFI-stub kernel extracted from boot.img")
     parser.add_argument("--linux-dtb", type=Path, help="DTB from the same Linux build")
     parser.add_argument("--slot-switch", type=Path, help="built EldenBootSlot.efi application")
@@ -158,6 +161,13 @@ def main() -> None:
             files = {"kernel": args.kernel, "adt": args.adt}
         else:
             raise SystemExit("pass --from-image or --kernel/--adt")
+        if args.owned_memory_size is not None:
+            adt = stage / "kernel-owned-memory.adt"
+            try:
+                adt.write_bytes(set_owned_memory_size(files["adt"].read_bytes(), args.owned_memory_size))
+            except ValueError as error:
+                parser.error(str(error))
+            files["adt"] = adt
         if not args.config.is_file():
             raise SystemExit(f"missing config: {args.config}")
         config = args.config

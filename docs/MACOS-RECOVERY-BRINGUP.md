@@ -1388,6 +1388,20 @@ storage and display ABI comparisons, DarwinBoot and packaged image
 checks passed. The MacBook copy is
 `~/Downloads/elden-recovery-cache-buffered-ram.img` with SHA-256
 `d6b0654f32841f0c4ad25838cd7a408836719bd34e3ab512160b5b16aabaf307`.
+On the tablet, the buffered reads verified 32 MiB of `.01` within two
+seconds. XNU then reported `Failed to open swap file 30`, and the test
+stayed below 64 MiB. At VM bootstrap it had reported 28,212 free pages
+and 37,324 wired pages, totaling 256 MiB at 4 KiB per page.
+
+The `r41-recovery-4g-memory` image reuses the buffered-read kernel and
+requests a 4 GiB allocation through the existing ADT property. DarwinBoot
+allocates the window from a contiguous run of conventional pages in the
+live EFI memory map. It requires allocation to succeed before handing
+the range to XNU. The package command accepts `--owned-memory-size
+0x100000000`. FAT readback and preflight confirm the request, and restoring
+the previous value produces the original ADT byte for byte. The MacBook
+copy is `~/Downloads/elden-recovery-4g-memory-ram.img` with SHA-256
+`e06c3796abc25b6d8b79da2e0a5d5e7c58d718e41433945d05811e9530765701`.
 
 ### Adreno 830 GMU firmware
 
