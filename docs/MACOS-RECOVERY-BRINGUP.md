@@ -1682,6 +1682,14 @@ DarwinBoot preflight, packed image and MacBook checksum checks passed.
 Its SHA-256 is
 `d97e195b03e3d2f65900142adc6dc902e0b6daa6ccd84472dc18627c1e9e3103`.
 
+On the physical r57 boot, the wrapper's first exec reported UBC blob
+flags `0x24014a01` and selected process flags `0x22014a01`. Both lacked
+`CS_INSTALLER` and `CS_EXEC_INHERIT_SIP`. The same bits were absent for
+the shells and `ditto`. The result places the discrepancy at or before
+flag assignment to the executable blob. The 18 MAC denials recurred,
+the MacBook received the complete panic, and the tablet automatically
+returned to bootloader fastboot on slot A.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
@@ -1746,6 +1754,21 @@ header and partition-array CRC checks. Both records use 4 KiB logical blocks.
 of `userdata`, an APFS target with the OS and auxiliary volumes, and a
 write-capable UFS path bounded to the selected partition. The current native
 UFS driver supplies reads. This inventory used saved records only.
+
+The verified 25F71 restore archive supplied three original APFS images.
+Read-only inspection after AEA decryption identified the OS volume and
+the sealed System and App cryptexes. All three use 4 KiB blocks.
+
+| Restore image | APFS volume | Bytes |
+| --- | --- | ---: |
+| OS | `Macintosh HD` | 13071548416 |
+| SystemOS | `CheerF25F71.arm64eSystemCryptex` | 7096762368 |
+| AppOS | `AppCryptex` | 52428800 |
+
+The images total 20,220,739,584 bytes. The proposed `userdata` extent
+has room for these source images. A bootable target still needs its APFS
+volume group and auxiliary volumes, writable storage, and an installed
+boot test.
 
 The installed Linux image's device tree identifies the Novatek NT36536 on
 GENI SPI4 at up to 10 MHz. It specifies GPIO 162 with falling-edge interrupts,
