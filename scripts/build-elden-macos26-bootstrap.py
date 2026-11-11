@@ -54,6 +54,8 @@ def main() -> None:
                         help="build directory name under the reference checkout's out directory")
     parser.add_argument("--elden-ufs-device", type=Path,
                         help="also compile the read-only UFS companion from this device checkout")
+    parser.add_argument("--elden-recovery-contract", type=Path,
+                        help="pair the read-only BaseSystem with a local ISC seed contract")
     parser.add_argument("--build-gop-display", action="store_true",
                         help="include the Elden framebuffer in the UFS companion")
     parser.add_argument("--adreno830-gmu-firmware", type=Path,
@@ -64,6 +66,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.build_gop_display and args.elden_ufs_device is None:
         parser.error("--build-gop-display requires --elden-ufs-device")
+    if args.elden_recovery_contract is not None and args.elden_ufs_device is None:
+        parser.error("--elden-recovery-contract requires --elden-ufs-device")
 
     root = args.sheng_root.resolve(strict=True)
     sys.path.insert(0, str(root / "scripts"))
@@ -192,6 +196,8 @@ def main() -> None:
     if args.elden_ufs_device is not None:
         device = args.elden_ufs_device.resolve(strict=True)
         sys.argv.extend(["--build-ufs-driver", "--elden-ufs-device", str(device)])
+        if args.elden_recovery_contract is not None:
+            sys.argv.extend(["--elden-recovery-contract", str(args.elden_recovery_contract.resolve(strict=True))])
         if args.build_gop_display:
             sys.argv.extend(["--build-gop-display", "--elden-gop-board", str(device / "board.toml")])
     build.main()

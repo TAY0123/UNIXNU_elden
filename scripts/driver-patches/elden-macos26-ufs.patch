@@ -493,6 +493,28 @@
    }
    if (probe == 11) {
      // After the root image is flashed: manifest, then each window's own GPT (sector 1 of the
+@@ -1949,8 +2116,11 @@ bool NativeUfs::startRoot (IOService *provider)
+     return false;
+   }
+   native_ufs_root_step = 2;
++  uint32_t iscManifest = 0;
++  const bool tailManifest = PE_parse_boot_argn ("elden-ufs-isc-sidecar", &iscManifest, sizeof (iscManifest)) &&
++      iscManifest == 1;
+   RootLayout *layout = static_cast<RootLayout *> (IOMalloc (sizeof (RootLayout)));
+-  if (!layout || !findRootLayout (layout, &why)) {
++  if (!layout || !findRootLayout (layout, &why, tailManifest)) {
+     rootDiagnosticFailure (layout ? why : "root layout allocation failed");
+     IOLog ("NativeUfs: root layout failed: %s\n", why);
+     if (layout) IOFree (layout, sizeof (RootLayout));
+@@ -1967,7 +2137,7 @@ bool NativeUfs::startRoot (IOService *provider)
+   gStoreGeometry = { true, layout->userdataFirst, layout->userdataLast, layout->imageBytes, layout->gptEntriesLba,
+                      layout->gptHeaderCrc, layout->gptEntriesCrc, layout->gptEntryCount };
+ #if defined(NATIVE_UFS_RECOVERY_ROOT) && NATIVE_UFS_RECOVERY_ROOT
+-  bool paired = layout->windows >= 1 && layout->windows <= 2;
++  bool paired = layout->windows >= (tailManifest ? 2U : 1U) && layout->windows <= 2;
+   for (unsigned i = 0; paired && i < layout->windows; ++i)
+     paired = ufsRecoveryRootIdentity (layout->window[i].name, layout->window[i].size, layout->window[i].sha256);
+   if (!paired) {
 --- a/RootCommands.h
 +++ b/RootCommands.h
 @@ -35,6 +35,7 @@
@@ -513,3 +535,44 @@
      return kIOReturnBadArgument;
    }
    IOLockLock (gHost.lock);
+diff --git a/RootLayout.h b/RootLayout.h
+index b4a4b22..9ba9953 100644
+--- a/RootLayout.h
++++ b/RootLayout.h
+@@ -54,9 +54,8 @@ static bool rootEntryUsed (const uint8_t *entry)
+   return used != 0;
+ }
+ 
+-// Find the partition named "userdata" in LUN 0's primary GPT (4096-byte sectors), then read the
+-// manifest at its first block. Read-only. Returns false only if the GPT itself is unusable.
+-static bool findRootLayout (RootLayout *layout, const char **why)
++// Find the configured partition in LUN 0 and read its root-image manifest.
++static bool findRootLayout (RootLayout *layout, const char **why, bool tailManifest = false)
+ {
+   gRootDiagnostic.stage = "GPT header";
+   bzero (layout, sizeof (*layout));
+@@ -147,10 +146,10 @@ static bool findRootLayout (RootLayout *layout, const char **why)
+   }
+   gRootDiagnostic.first = layout->userdataFirst;
+   gRootDiagnostic.last = layout->userdataLast;
+-  gRootDiagnostic.stage = "root manifest";
+-  // First block of the partition: manifest if the root image was flashed, ext4 otherwise.
+-  if (hostRead4k (0, layout->userdataFirst, 1, gScratch) != kIOReturnSuccess) {
+-    *why = "userdata first block read";
++  gRootDiagnostic.stage = tailManifest ? "root tail manifest" : "root manifest";
++  const uint64_t manifestLba = tailManifest ? layout->userdataLast : layout->userdataFirst;
++  if (hostRead4k (0, manifestLba, 1, gScratch) != kIOReturnSuccess) {
++    *why = "root manifest block read";
+     return false;
+   }
+   layout->magic0 = le32 (gScratch);
+@@ -170,7 +169,8 @@ static bool findRootLayout (RootLayout *layout, const char **why)
+       SHA256_Final (digest, &context);
+       layout->manifestStatus = 3;
+       if (memcmp (digest, gScratch + 4064, 32) == 0) {
+-        uint64_t partitionBytes = (layout->userdataLast - layout->userdataFirst + 1) * 4096ULL;
++        // Keep every data window before an opted-in tail manifest.
++        uint64_t partitionBytes = (layout->userdataLast - layout->userdataFirst + !tailManifest) * 4096ULL;
+         layout->manifestStatus = 4;
+         bool bounds = imageBytes >= 4096 && !(imageBytes & 4095) && imageBytes <= partitionBytes;
+         for (uint32_t index = 0; index < n && bounds; index++) {

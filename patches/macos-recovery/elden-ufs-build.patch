@@ -1,5 +1,5 @@
 diff --git a/scripts/build_macos26_storage.py b/scripts/build_macos26_storage.py
-index ea9283a..cfbafe9 100644
+index ea9283a..452ea8b 100644
 --- a/scripts/build_macos26_storage.py
 +++ b/scripts/build_macos26_storage.py
 @@ -5,7 +5,9 @@ import hashlib
@@ -12,7 +12,7 @@ index ea9283a..cfbafe9 100644
  import uuid
  
  from native_macho import macho
-@@ -18,10 +20,49 @@ PROTOCOL_CHARACTERISTICS = {
+@@ -18,10 +20,52 @@ PROTOCOL_CHARACTERISTICS = {
  }
  
  
@@ -33,6 +33,7 @@ index ea9283a..cfbafe9 100644
 +    resources = {
 +        'NativeUfs.cpp': upstream,
 +        'RootCommands.h': upstream.with_name('RootCommands.h'),
++        'RootLayout.h': upstream.with_name('RootLayout.h'),
 +        'EldenUfsIdentity.h': driver_patches / 'EldenUfsIdentity.h',
 +        'EldenUfsHandoff.h': device / 'soc/sm8750/include/EldenUfsHandoff.h',
 +    }
@@ -55,15 +56,17 @@ index ea9283a..cfbafe9 100644
 +
  def build(root, out, compile_record, source, run, record, env, *, transport='virtio', gop_display=False,
 -          recovery_input=False, display_board=None):
-+          recovery_input=False, display_board=None, elden_device=None):
++          recovery_input=False, display_board=None, elden_device=None, elden_recovery_contract=None):
      if transport not in ('virtio', 'ufs'):
          raise ValueError('unsupported native storage transport')
 +    if elden_device is not None and transport != 'ufs':
 +        raise ValueError('Elden UFS requires the UFS transport')
++    if elden_recovery_contract is not None and elden_device is None:
++        raise ValueError('an Elden Recovery contract requires the Elden UFS transport')
      if recovery_input and not gop_display:
          raise ValueError('the QEMU input experiment requires the GOP companion')
      component = 'NativeVirtioBlock' if transport == 'virtio' else 'NativeUfs'
-@@ -42,6 +83,10 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -42,12 +86,27 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
      include.mkdir(parents=True, exist_ok=True)
      for header in (root / 'sources/macos26/IOStorageFamily').glob('*.h'):
          (include / header.name).write_bytes(header.read_bytes())
@@ -74,7 +77,24 @@ index ea9283a..cfbafe9 100644
      wrapper = destination / (component + '.cpp')
      entry_prefix = 'sheng_virtio' if transport == 'virtio' else 'sheng_ufs'
      recovery_prefix = ''
-@@ -70,19 +115,22 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+     recovery_root = None
+     if transport == 'ufs':
+         recovery_root = json.loads((root / 'config/macos26-recovery-root.json').read_text())
++        if elden_recovery_contract is not None:
++            local = json.loads(elden_recovery_contract.read_text())
++            isc = local.pop('isc')
++            if local != {key: value for key, value in recovery_root.items() if key != 'isc'}:
++                raise ValueError('Elden ISC contract changes the paired BaseSystem')
++            volumes = isc['volumes']
++            if (set(volumes) != {'SHENG-xART', 'SHENG-Preboot', 'SHENG-Hardware'}
++                    or uuid.UUID(isc['volume_uuid']) != uuid.UUID(volumes['SHENG-xART'])
++                    or len({uuid.UUID(value) for value in volumes.values()}) != 3):
++                raise ValueError('Elden ISC requires distinct xART, Preboot and Hardware volumes')
++            recovery_root = dict(local, isc=isc)
+         digest = bytes.fromhex(recovery_root['sha256'])
+         identity = str(uuid.UUID(recovery_root['volume_uuid'])).upper()
+         if (recovery_root['build'] != '25F71' or recovery_root['variant'] != 'recoveryos'
+@@ -70,19 +129,22 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
                  '#define NATIVE_UFS_ISC_DIGEST {' + ','.join(str(b) for b in isc_digest) + '}\n'
                  f'#define NATIVE_UFS_ISC_UUID "{isc_uuid}"\n')
          recovery_prefix += f'#include "{root / "platform/sheng/macos26/storage/recovery_root.h"}"\n'
@@ -106,7 +126,7 @@ index ea9283a..cfbafe9 100644
          (f'#include "{display["source"]}"\n' if display else '') +
          '#include <mach/kmod.h>\n'
          f'extern "C" kern_return_t {entry_prefix}_start(kmod_info_t *, void *) {{ return KERN_SUCCESS; }}\n'
-@@ -111,6 +159,8 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -111,6 +173,8 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
          command[1:1] = ['-DNATIVE_QEMU_SCRATCH_BLOCK=1']
      else:
          command[1:1] = ['-DNATIVE_UFS_ROOT_PARTITION_NAME="macosroot"']
@@ -115,7 +135,7 @@ index ea9283a..cfbafe9 100644
      sdk = Path(subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip())
      command += ['-I', str(source / 'osfmk'), '-I', str(sdk / 'usr/include'),
                  '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
-@@ -189,11 +239,14 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -189,11 +253,14 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
      if input_driver:
          evidence['native_recovery_input'] = input_driver
      if transport == 'ufs':
@@ -136,42 +156,47 @@ index ea9283a..cfbafe9 100644
                          android_userdata_used=False, root_media_layout_qualified=False,
                          recovery_root=recovery_root,
 diff --git a/scripts/build_macos26_xnu.py b/scripts/build_macos26_xnu.py
-index 873a6f7..0edf4f6 100644
+index 873a6f7..be252b5 100644
 --- a/scripts/build_macos26_xnu.py
 +++ b/scripts/build_macos26_xnu.py
-@@ -565,7 +565,8 @@ def compile_sources(args, record: dict) -> None:
+@@ -565,7 +565,9 @@ def compile_sources(args, record: dict) -> None:
              if args.build_ufs_driver:
                  build_storage(ROOT, OUT, compile_record, source, run, record, env,
                                transport='ufs', gop_display=args.build_gop_display,
 -                              recovery_input=args.build_recovery_input, display_board=args.elden_gop_board)
 +                              recovery_input=args.build_recovery_input, display_board=args.elden_gop_board,
-+                              elden_device=args.elden_ufs_device)
++                              elden_device=args.elden_ufs_device,
++                              elden_recovery_contract=args.elden_recovery_contract)
              save(record)
  
  
-@@ -650,6 +651,8 @@ def main() -> None:
+@@ -650,6 +652,10 @@ def main() -> None:
      parser.add_argument('--link-kernel', action='store_true', help='build runtime and attempt the native executable link')
      parser.add_argument('--build-ufs-driver', action='store_true',
                          help='compile the default-off sheng UFS transport with the paired ARM64E ABI')
 +    parser.add_argument('--elden-ufs-device', type=Path,
 +                        help='build the read-only SM8750 firmware-handoff transport from the Elden device repo')
++    parser.add_argument('--elden-recovery-contract', type=Path,
++                        help='bind Elden UFS to the paired BaseSystem and a local ISC seed')
      parser.add_argument('--build-gop-display', action='store_true',
                          help='include the default-off paired CPU GOP display in the UFS companion')
      parser.add_argument('--build-qemu-gop-display', action='store_true',
-@@ -664,6 +667,8 @@ def main() -> None:
+@@ -664,6 +670,10 @@ def main() -> None:
      args = parser.parse_args()
      if args.build_ufs_driver and (not args.link_kernel or args.arch != 'arm64e'):
          parser.error('--build-ufs-driver requires --link-kernel --arch arm64e')
 +    if args.elden_ufs_device and not args.build_ufs_driver:
 +        parser.error('--elden-ufs-device requires --build-ufs-driver')
++    if args.elden_recovery_contract and not args.elden_ufs_device:
++        parser.error('--elden-recovery-contract requires --elden-ufs-device')
      if args.build_gop_display and not args.build_ufs_driver:
          parser.error('--build-gop-display requires --build-ufs-driver')
      if args.build_qemu_gop_display and (not args.link_kernel or args.arch != 'arm64e'):
 diff --git a/scripts/native_storage_module.py b/scripts/native_storage_module.py
-index 58c742a..7c20a51 100644
+index 58c742a..9a46774 100644
 --- a/scripts/native_storage_module.py
 +++ b/scripts/native_storage_module.py
-@@ -110,6 +110,19 @@ def prepare(directory: Path, base: int, native: dict, original: bytes,
+@@ -110,6 +110,21 @@ def prepare(directory: Path, base: int, native: dict, original: bytes,
                  or evidence.get('read_only_transport') is not True
                  or evidence.get('hardware_enable_required') is not True):
              raise ValueError('UFS transport must restrict its read-only root to macosroot on LUN0')
@@ -179,6 +204,8 @@ index 58c742a..7c20a51 100644
 +            profile = evidence['elden_ufs']
 +            names = {'NativeUfs.cpp', 'RootCommands.h', 'EldenUfsIdentity.h',
 +                     'EldenUfsHandoff.h', 'EldenUfsProfile.h'}
++            if 'RootLayout.h' in profile.get('files', {}):
++                names.add('RootLayout.h')
 +            if (profile.get('board') != 'elden' or profile.get('boot_argument') != 'native-ufs-elden=1'
 +                    or profile.get('read_only') is not True or profile.get('inherited_dma') is not True
 +                    or profile.get('legacy_queue') is not True or 'macoslog' in evidence

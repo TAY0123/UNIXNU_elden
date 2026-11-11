@@ -1505,7 +1505,37 @@ mapping the verified dyld cache. It printed the original launchd greeting,
 started its BaseSystem environment and recorded PID 1 `main=1`. It ran
 `apfs_boot_util` during `mount-phase-1`, which timed out waiting for the
 iSC xART role (256). The task then exited with SIGABRT. The MacBook
-captured the complete panic over USB.
+captured the complete panic over USB, and the tablet returned to
+bootloader fastboot automatically.
+
+### Recovery auxiliary volumes
+
+The Elden storage build accepts a local ISC contract via
+`--elden-recovery-contract`. It checks that the BaseSystem contract is
+unchanged and binds the new seed to three distinct APFS volume identities.
+The prepared seed has xART, Preboot and Hardware roles. Its 2,149,580,800
+bytes fit in the unused `macosroot` extent immediately after BaseSystem.
+
+The r47 Recovery USB entry selects `elden-ufs-isc-sidecar=1` and
+`native-ufs-isc-overlay=1`. The former reads a dual-window manifest from
+the last 4 KiB block of `macosroot` and excludes that block from the
+data windows. Earlier boots keep using the primary BaseSystem manifest.
+The latter supplies a bounded 64 MiB RAM write overlay for the ISC seed.
+Native UFS writes to the underlying media remain disabled.
+
+The production parser passed its existing mutation tests and the recorded
+Elden GPT with both manifests. It rejected a corrupt tail hash and a
+layout overlapping the tail manifest. The r47 kernel and driver passed
+prelink ABI and packed image verification. The MacBook copy is
+`~/Downloads/elden-recovery-isc-ram.img` with SHA-256
+`a2457ffa9326a2e138c2c8d18e534648554eabdeadbd2db48f647458171fd387`.
+
+The maintenance RAM boot verified the live GPT and the complete original
+BaseSystem image. It wrote only the unused ISC extent and the final
+manifest block within `macosroot`. It verified the seed before committing
+the tail manifest, then flushed and reread the manifest from LUN 0. The
+original BaseSystem image and both live GPT copies matched after the
+write. The boot slots and Android `userdata` were outside the write range.
 
 ### Adreno 830 GMU firmware
 
