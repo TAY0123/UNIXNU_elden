@@ -1805,9 +1805,15 @@ boot test.
 
 The installed Linux image's device tree identifies the Novatek NT36536 on
 GENI SPI4 at up to 10 MHz. It specifies GPIO 162 with falling-edge interrupts,
-`novatek_ts_csot_3k_fw.bin`, and panel-linked coordinates. The XNU touch path
-needs the GENI SPI transport, Novatek report decoding and HID events qualified
-against the panel orientation.
+`novatek_ts_csot_3k_fw.bin`, and panel-linked coordinates. The Elden report
+reader uses `QcomGeniSpi` to select the event page and receive the 108-byte
+payload. It checks the report checksum and decodes ten contact slots with
+inclusive limits of 19040 × 30400. Transfer or checksum failures preserve
+the previous frame, and an empty valid frame releases all contacts. Host
+tests exercised the SPI transaction, bounds, releases and failure handling
+with AddressSanitizer and UndefinedBehaviorSanitizer. XNU still needs
+controller clocks and pins, firmware upload, IRQs and HID delivery.
+[NT36536 Linux driver at the board reference revision](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/input/touchscreen/novatek-nvt36xxx-spi.c)
 
 The same device tree describes the Wi-Fi PCIe function `17cb:110e` and the
 WCN7861 Bluetooth function on UART with `brhbtnv20.bin` and `brhbtfw20.tlv`.

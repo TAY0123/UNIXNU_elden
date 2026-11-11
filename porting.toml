@@ -223,17 +223,18 @@ evidence = [
 
 [[area]]
 id = "input"
-status = "planned"
-components = []
-paths = ["docs/**"]
+status = "host-verified"
+components = ["QcomGeniSpi"]
+paths = ["drivers/EldenNovatekTouch/**", "docs/**"]
 inputs = ["Novatek SPI touch on SPI4 and GPIO 162 interrupt.", "Volume and power keys used by the UEFI menu.", "The installed Linux image names novatek_ts_csot_3k_fw.bin and specifies a 10 MHz GENI SPI4 bus with GPIO 162 falling-edge interrupts."]
-configuration = ["The phase 1 menu accepts volume-key input through UEFI.", "No XNU HID or Novatek transport is selected."]
+configuration = ["The phase 1 menu accepts volume-key input through UEFI.", "The NT36536 report reader uses the shared QcomGeniSpi transfer interface and emits complete ten-slot contact frames."]
 procedure = ["Preserve UEFI key navigation as the bring-up input path.", "Inventory the touch firmware and protocol from read-only sources.", "Add QCOM GENI SPI, touch protocol and HID input after XNU boots."]
 findings = ["Volume-key menu input is device-verified.", "Touch has not been initialized by XNU.", "The panel and touch controller share board state that must be validated together."]
 completion = ["Touch coordinates map to the display.", "Contact IDs, releases and multi-touch remain stable.", "Buttons produce expected HID events in XNU."]
-limits = ["No touch component is selected.", "The NT36536 firmware and ABI inputs are not yet integrated."]
-next_action = ["Verify live Linux touch reports and orientation, then qualify the GENI SPI transport and Novatek HID bridge under XNU."]
+limits = ["The report reader has host coverage. Board clock, pin and interrupt ownership, firmware upload and HID integration remain pending in XNU."]
+next_action = ["Qualify the SPI4 clock, pin and firmware handoff on Elden, then connect the report reader to XNU interrupt and HID delivery."]
 evidence = [
+  { kind = "host", reference = "drivers/EldenNovatekTouch/test-frame.c", command = "Compile EldenNovatekTouch.c and test-frame.c with QcomGeniSpi headers, AddressSanitizer and UndefinedBehaviorSanitizer", revision = "f4bd859be237d6a06d1464f2ae823b0e7b1482f4", result = "Base revision plus the report reader. Verified the event-page command, dummy bytes, checksum, contact IDs, coordinate bounds, release frame and transfer errors. The shared GENI PIO and DMA register-model tests also passed." },
   { kind = "source", reference = "docs/PHASE1-STATUS.md", result = "Volume-key navigation reached the accepted menu." },
   { kind = "source", reference = "docs/porting-analysis.md", result = "Novatek SPI wiring and input bring-up requirements." },
 ]
