@@ -1361,7 +1361,21 @@ packed payload readback, and the Recovery storage and display ABI checks.
 The MacBook copy is `~/Downloads/elden-recovery-cache-signature-ram.img`
 with SHA-256
 `5d2f530235b4c9636ab7e5aa53b07ff33f0bc1662da685265b317f04ca7d54f5`.
-The device test uses `fastboot boot` and captures Recovery over USB.
+On the tablet, the `fastboot boot` test streamed both UniXNU and XNU over
+USB. XNU mounted the BaseSystem and executed `launchd`. The previous
+page-shift rejection did not recur. AMFI reached the main cache and the
+720,125,952-byte signed range in subcache `.01`. PID 1 remained in an
+`fcntl` call for more than nine minutes, and the Recovery service counters
+stayed at zero.
+
+The `r39-recovery-cache-progress` build reports the beginning of a large
+signature validation, the start of file reads, the first MiB verified,
+each 64 MiB boundary, and the registration result. These messages bracket
+allocation, reads and hashing in the existing verification path. The
+linked kernel and the packaged image contain the progress messages. The
+MacBook copy is `~/Downloads/elden-recovery-cache-progress-ram.img`
+with SHA-256
+`6c48666d7b3e5e5cff9f7043153a46ba21b6dbef6674bd86532d5b88af3ca2e5`.
 
 ### Adreno 830 GMU firmware
 

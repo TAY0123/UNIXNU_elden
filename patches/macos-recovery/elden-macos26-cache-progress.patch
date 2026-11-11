@@ -1,0 +1,55 @@
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -5886,7 +5886,7 @@
+ 	vm_offset_t storage = 0;
+ 	vm_size_t allocation = 0, count = 0;
+ 	uint8_t *buffer = NULL;
+-	uint64_t limit, offset, chunk;
++	uint64_t limit, offset, chunk = 0;
+ 	int error = EBADEXEC, ioflags;
+ 	kern_return_t kr;
+ 
+@@ -5906,6 +5906,10 @@
+ 	    ntohl(cd->nCodeSlots) != ((limit + 16383) >> 14)) {
+ 		return ENOTSUP;
+ 	}
++	bool report = limit >= CS_NATIVE4K_UNCACHED;
++	if (report) {
++		printf("ELDEN-CS: verifying %llu bytes against 16 KiB hashes\n", (unsigned long long)limit);
++	}
+ 	count = (limit + PAGE_MASK) >> PAGE_SHIFT;
+ 	if (os_mul_overflow(count, (vm_size_t)md->cs_size, &allocation) ||
+ 	    round_page_overflow(allocation, &allocation)) {
+@@ -5923,6 +5927,9 @@
+ 	}
+ 	/* Executables are faulted in right after their signature is added and stay cached. */
+ 	ioflags = limit > CS_NATIVE4K_UNCACHED ? IO_NOCACHE : 0;
++	if (report) {
++		printf("ELDEN-CS: starting file reads\n");
++	}
+ 	for (chunk = 0; chunk < limit; chunk += CS_NATIVE4K_CHUNK) {
+ 		size_t chunk_length = MIN((uint64_t)CS_NATIVE4K_CHUNK, limit - chunk);
+ 		int resid = 0;
+@@ -5975,6 +5982,11 @@
+ 			}
+ 		}
+ 		os_atomic_add(&cs_native4k_hash_ticks, mach_absolute_time() - hash_start, relaxed);
++		uint64_t verified = chunk + chunk_length;
++		if (report && (chunk == 0 || verified % (64 * 1024 * 1024) == 0 || verified == limit)) {
++			printf("ELDEN-CS: verified %llu of %llu bytes\n",
++			    (unsigned long long)verified, (unsigned long long)limit);
++		}
+ 	}
+ 	kr = mach_vm_protect(kernel_map, storage, allocation, FALSE, VM_PROT_READ);
+ 	if (kr != KERN_SUCCESS) {
+@@ -5988,6 +6000,10 @@
+ 	os_atomic_inc(&cs_native4k_ready_blobs, relaxed);
+ 	error = 0;
+ out:
++	if (report) {
++		printf("ELDEN-CS: signature registration result %d at offset %llu\n",
++		    error, (unsigned long long)chunk);
++	}
+ 	kfree_data(buffer, CS_NATIVE4K_CHUNK);
+ 	if (storage) {
+ 		kmem_free(kernel_map, storage, allocation);
