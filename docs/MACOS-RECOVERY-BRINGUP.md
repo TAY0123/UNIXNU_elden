@@ -865,6 +865,22 @@ The combined image still needs a tablet RAM boot. Select **Elden Linux -
 installed rootfs** and verify Linux mounts the existing rootfs and reaches
 its login screen.
 
+### Slot B flash image
+
+The running tablet Linux system supplied raw backups of all 37 GPT
+partitions ending in `_b`, including the boot and recovery partitions.
+The host checked all 826,736,640 bytes against their device SHA-256
+digests. The backup files and manifest are stored privately.
+
+The dual-boot RAM image was prepared as a 96 MiB raw image for `boot_b`.
+The AVB footer uses the key named by the live `vbmeta_b` boot descriptor
+and the existing boot image's `SHA256_RSA4096` algorithm, `boot` descriptor,
+salt and rollback index `1738713600` at location `0`. The host verified
+the RSA signature, AVB payload digest and byte-for-byte RAM image prefix.
+The signed image SHA-256 is
+`ccf4d3e02891e6d3ac586b4c52f9845bb78189272f0f033fca4705d8a8ae5107`.
+Persistent boot from slot B remains untested.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
