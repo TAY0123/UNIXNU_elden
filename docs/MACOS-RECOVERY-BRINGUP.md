@@ -1230,7 +1230,7 @@ record firmware and Recovery output in one log:
 
 ```sh
 python3 elden-usb-control.py boot recovery-usb \
-  --ram-image elden-usb-management-ram.img --seconds 240 --log elden-boot.log
+  --ram-image elden-recovery-panic-usb-ram.img --seconds 440 --log elden-boot.log
 ```
 
 `boot slot-status` runs the read-only preflight. `list` displays menu IDs,
@@ -1322,10 +1322,17 @@ and matched the MacBook copy at SHA-256
 Fastboot wrote `boot_a`, then the installed UniXNU menu returned all nine
 entries over USB. Slot B was marked successful and was left untouched.
 
+On a second run from installed slot A, the MacBook captured the kernel
+log from `arm_init`, the macOS Base System mount, and the `launchd` exec.
+It received the complete framed panic including dyld's `no dyld cache`
+reason, then detected bootloader fastboot with no host reboot command.
+The MacBook log is `~/Downloads/elden-recovery-panic-usb-slot-a.log`.
+
 The **Recovery USB Console** entry sets `elden-usb-timeout=90`. Once
 XNU reaches its startup hook, a kernel callout requests fastboot if no
 host opens the console within 90 seconds. The callout can run after the
 loader hands control to XNU if XNU's scheduler is still running. The
+no-host timeout has not been exercised on the tablet. The
 UEFI boot-services watchdog expires only during firmware execution and
 is disabled at `ExitBootServices()`.
 [UEFI Boot Services specification](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)
