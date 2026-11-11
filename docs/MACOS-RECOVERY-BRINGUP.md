@@ -1230,7 +1230,7 @@ record firmware and Recovery output in one log:
 
 ```sh
 python3 elden-usb-control.py boot recovery-usb \
-  --ram-image elden-usb-management-ram.img --seconds 180 --log elden-boot.log
+  --ram-image elden-usb-management-ram.img --seconds 240 --log elden-boot.log
 ```
 
 `boot slot-status` runs the read-only preflight. `list` displays menu IDs,
@@ -1290,6 +1290,45 @@ fastboot's successful write and the installed boot and USB tests. The
 MacBook then sent `boot fastboot`, verified bootloader fastboot on slot A,
 rebooted, and listed the nine entries over USB again. The MacBook log is
 `~/Downloads/elden-usb-management-slot-a.log`.
+
+### Recovery panic capture and restart
+
+The installed `r36` Recovery test reproduced the dyld panic in PID 1.
+The MacBook saw the XNU CDC device after the initial 90-second capture
+window, but neither logs nor a `ping` reply came through. The on-device
+panic record reported `Library not loaded: /usr/lib/libSystem.B.dylib`.
+The old panic hook checked for an already-open CDC session and returned
+without polling. Once XNU panicked, its normal USB worker could no longer
+service the late connection.
+
+The revised hook polls for up to 12 seconds for the host to open CDC.
+It then drains the retained log, sends the framed panic, and requests a
+fastboot reboot after TX completes. The MacBook controller waits for
+bootloader fastboot after seeing the end of the panic record.
+
+The `r37-recovery-panic-usb` RAM image was built and verified at SHA-256
+`cd4ffad892d8aa33603c05ba817070c38a5f47a7c27fcd4c516493745bf0c5af`.
+The MacBook copy is `~/Downloads/elden-recovery-panic-usb-ram.img`.
+On the tablet the host first received UniXNU, then XNU CDC about three
+minutes after the loader handoff. XNU replayed the retained log from
+`arm_init`. The MacBook reconnected, sent `reboot-fastboot`, recorded
+`ELDEN ACK reboot-fastboot`, and verified the tablet in bootloader
+fastboot on slot A. The MacBook log is
+`~/Downloads/elden-recovery-panic-usb.log`.
+
+The signed `elden-recovery-panic-usb-boot-a.img` passed AVB verification
+and matched the MacBook copy at SHA-256
+`14f8a4b6e975a1321bea15f332d26383e8514f9a65575841acfb6ce6d4527991`.
+Fastboot wrote `boot_a`, then the installed UniXNU menu returned all nine
+entries over USB. Slot B was marked successful and was left untouched.
+
+The **Recovery USB Console** entry sets `elden-usb-timeout=90`. Once
+XNU reaches its startup hook, a kernel callout requests fastboot if no
+host opens the console within 90 seconds. The callout can run after the
+loader hands control to XNU if XNU's scheduler is still running. The
+UEFI boot-services watchdog expires only during firmware execution and
+is disabled at `ExitBootServices()`.
+[UEFI Boot Services specification](https://uefi.org/specs/UEFI/2.10/07_Services_Boot_Services.html)
 
 ### Adreno 830 GMU firmware
 

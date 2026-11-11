@@ -94,6 +94,8 @@ def run(args, log):
     received = 0
     received_xnu = False
     boot_acknowledged = False
+    panic_captured = False
+    recovery_boot = args.operation == 'boot' and args.entry.startswith('recovery')
     last_fastboot_check = 0.0
     latest = b''
     try:
@@ -117,12 +119,16 @@ def run(args, log):
                     record(b'\n[Elden USB disconnected for restart]\n')
                     return 0
                 now = time.monotonic()
-                if (args.operation == 'fastboot' or args.ram_image) and now - last_fastboot_check > 1:
+                watch_fastboot = args.operation == 'fastboot' or args.ram_image or (recovery_boot and sent)
+                if watch_fastboot and now - last_fastboot_check > 1:
                     last_fastboot_check = now
                     device = fastboot_device()
                     if device and args.operation == 'fastboot':
                         record(b'\n[Elden entered bootloader fastboot]\n')
                         return 0
+                    if device and recovery_boot and sent:
+                        record(b'\n[Recovery returned to bootloader fastboot]\n')
+                        return 0 if received_xnu else 1
                     if device and args.ram_image and not ram_booted:
                         result = command('fastboot', '-s', device, 'boot', str(args.ram_image), timeout=90)
                         record((result.stdout + result.stderr).encode())
@@ -185,14 +191,17 @@ def run(args, log):
                     return 0 if re.search(rb'ELDEN SLOT: .*result=0\b', latest) else 1
             if sent and args.operation == 'list' and re.search(rb'tty: entry [0-9]+ id=', latest):
                 deadline = min(deadline, time.monotonic() + 0.8)
-            if args.operation == 'boot' and b'ELDEN PANIC END' in latest:
+            if recovery_boot and not panic_captured and b'ELDEN PANIC END' in latest:
+                panic_captured = True
                 record(b'\n[Complete Recovery panic captured]\n')
-                return 0
+                deadline = time.monotonic() + 15
         if args.operation == 'capture':
             return 0 if received else 1
         if args.operation == 'list' and b'tty: entry' in latest:
             return 0
-        if args.operation == 'boot' and sent and args.entry.startswith('recovery') and received_xnu:
+        if recovery_boot and sent and received_xnu:
+            if panic_captured:
+                record(b'\n[Recovery fastboot reset was not observed]\n')
             return 0
         if args.operation == 'boot' and args.entry != 'slot-status' and not args.entry.startswith('recovery') and boot_acknowledged:
             return 0

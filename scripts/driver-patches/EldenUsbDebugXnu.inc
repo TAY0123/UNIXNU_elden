@@ -82,6 +82,7 @@ static struct {
   char command[64];unsigned commandBytes;bool commandOverflow;
 #if defined(ELDEN_RECOVERY_USB)
   bool management;
+  unsigned hostSeen;
   unsigned resetRequest;
 #endif
 } gEldenUsb;
@@ -203,19 +204,40 @@ static bool eldenUsbDrain(unsigned attempts)
   return false;
 }
 
+static bool eldenUsbWaitForPanicHost()
+{
+  uint64_t deadline;
+  clock_interval_to_deadline(12, 1000000000, &deadline);
+  while (!dwc3_ready(eldenDwc()) && mach_absolute_time() < deadline) {
+    if (dwc3_poll(eldenDwc(), 8) < 0 || gEldenUsb.failed) return false;
+    IODelay(1000);
+  }
+  return dwc3_ready(eldenDwc());
+}
+
 extern "C" void elden_usb_capture_panic(const char *message);
 void elden_usb_capture_panic(const char *message)
 {
   if (!gEldenUsb.management || !gEldenUsb.active || gEldenUsb.failed ||
       current_processor() != gEldenUsb.processor || !eldenUsbAcquire(&gEldenUsb.busy)) return;
-  if (dwc3_ready(eldenDwc()) && eldenUsbDrain(300)) {
+  if (eldenUsbWaitForPanicHost() && eldenUsbDrain(300)) {
+    // Replay the retained prefix and tail before the final panic packet. Do not
+    // handle received commands or take a blocking lock in the panic context.
+    for (unsigned i = 0; i < 160; ++i) {
+      uint8_t log[512];
+      size_t bytes = eldenUsbTakeLog(log, sizeof(log));
+      if (!bytes || dwc3_queue(eldenDwc(), log, bytes) != bytes || !eldenUsbDrain(25)) break;
+    }
     const char begin[] = "\r\nELDEN PANIC BEGIN\r\n";
     const char end[] = "\r\nELDEN PANIC END\r\n";
     size_t size = message ? strnlen(message, 4095) : 0;
-    dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1);
-    if (size) dwc3_queue(eldenDwc(), message, size);
-    dwc3_queue(eldenDwc(), end, sizeof(end) - 1);
-    if (eldenUsbDrain(600)) eldenUsbReset(true);
+    if (dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1) == sizeof(begin) - 1 &&
+        (!size || dwc3_queue(eldenDwc(), message, size) == size) &&
+        dwc3_queue(eldenDwc(), end, sizeof(end) - 1) == sizeof(end) - 1 &&
+        eldenUsbDrain(600)) {
+      eldenUsbReset(true);
+      eldenUsbReset(false);
+    }
   }
   __atomic_store_n(&gEldenUsb.busy, 0, __ATOMIC_RELEASE);
 }
@@ -290,6 +312,11 @@ static void eldenUsbWorker(void *,wait_result_t) {
   if(current_processor()!=gEldenUsb.processor)thread_block(THREAD_CONTINUE_NULL);
   if(current_processor()!=gEldenUsb.processor||!eldenUsbInitialize()) {
     IOLog("ELDEN_USB: unavailable at %s\n",gEldenUsb.stage?gEldenUsb.stage:"worker affinity");
+#if defined(ELDEN_RECOVERY_USB)
+    char status[96];
+    snprintf(status, sizeof(status), "ELDEN USB unavailable: %s", gEldenUsb.stage ? gEldenUsb.stage : "worker affinity");
+    sheng_log_status(status);
+#endif
     __atomic_store_n(&gEldenUsb.initState,3,__ATOMIC_RELEASE);thread_terminate(current_thread());return;
   }
   __atomic_store_n(&gEldenUsb.initState,2,__ATOMIC_RELEASE);
@@ -306,7 +333,11 @@ static void eldenUsbWorker(void *,wait_result_t) {
         eldenUsbReply("ELDEN ERR firmware reset returned\r\n");
       }
 #endif
-      bool ready=dwc3_ready(eldenDwc());__atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
+      bool ready=dwc3_ready(eldenDwc());
+#if defined(ELDEN_RECOVERY_USB)
+      if (ready) __atomic_store_n(&gEldenUsb.hostSeen, 1, __ATOMIC_RELEASE);
+#endif
+      __atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
       if(ready&&!gEldenUsb.readyReported){gEldenUsb.readyReported=true;IOLog("ELDEN_USB: host connected; console stream active\n");}
 #if !defined(ELDEN_RECOVERY_USB)
       if(__atomic_load_n(&gEldenUserTrapSeen,__ATOMIC_ACQUIRE)&&!gEldenUsb.userReported){gEldenUsb.userReported=true;IOLog("ELDEN_BOOT: PID1 AArch64 EL0 BSD syscall observed after init exec\n");}
