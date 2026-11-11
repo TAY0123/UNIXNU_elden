@@ -1723,6 +1723,21 @@ flag assignment to the executable blob. The 18 MAC denials recurred,
 the MacBook received the complete panic, and the tablet automatically
 returned to bootloader fastboot on slot A.
 
+The r59 opt-in trace records the result of XNU's MAC signature check
+before the flags are copied to the published UBC blob. The original
+25F71 wrapper and `ditto` each contain XML and DER entitlements whose
+CodeDirectory hashes match. On the tablet both blobs reached policy
+with XML and DER present. Policy returned success and selected flags
+`0x24014a01` for both executables, without either installer bit. The
+wrapper still produced a separate non-fatal entitlement acceleration
+message. The cause of the missing flags remains in policy evaluation.
+[XNU's UBC signature path](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/ubc_subr.c)
+
+The tablet repeated all 18 protected metadata denials, delivered the
+complete `restore-datapartition` panic over XNU USB and returned to
+bootloader fastboot on slot A. The r59 RAM image SHA-256 is
+`ae0f98ee83f3ca52a65bb8e5107e4e0e9a93c41bd822f2113520c3c6c8d2cb86`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

@@ -170,3 +170,49 @@
  	proc_lock(p);
  	proc_csflags_update(p, imgp->ip_csflags);
  	proc_unlock(p);
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -4733,6 +4733,30 @@
+ 	return 0;
+ }
+ 
++#if SHENG && CONFIG_MACF
++extern unsigned sheng_pid1_trace_enabled;
++
++static __attribute__((noinline)) void
++sheng_trace_recovery_signature(vnode_t vp, const struct cs_blob *blob,
++    unsigned int flags, unsigned int signer, unsigned int platform, int error)
++{
++	const char *name = vnode_getname(vp);
++	if (name == NULL) {
++		return;
++	}
++	if (strcmp(name, "rc_script_wrapper") == 0 || strcmp(name, "ditto") == 0) {
++		static unsigned records;
++		if (__atomic_fetch_add(&records, 1, __ATOMIC_RELAXED) < 32) {
++			printf("SHENG-RECOVERY-SIGNATURE: name=%s blob=%x policy=%x signer=%u platform=%u xml=%d der=%d error=%d\n",
++			    name, blob->csb_flags, flags, signer, platform,
++			    blob->csb_entitlements_blob != NULL,
++			    blob->csb_der_entitlements_blob != NULL, error);
++		}
++	}
++	vnode_putname(name);
++}
++#endif
++
+ int
+ ubc_cs_blob_add(
+ 	struct vnode    *vp,
+@@ -4869,6 +4893,12 @@
+ 		&signer_type,
+ 		flags,
+ 		platform);
++
++#if SHENG
++	if (__improbable(sheng_pid1_trace_enabled)) {
++		sheng_trace_recovery_signature(vp, &tmp_blob, cs_flags, signer_type, platform, error);
++	}
++#endif
+ 
+ 	if (error != 0) {
+ 		printf("validation of code signature failed through MACF policy: %d\n", error);
