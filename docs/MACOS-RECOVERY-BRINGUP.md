@@ -1107,10 +1107,16 @@ copies matched the build-host SHA-256 values.
 | `~/Downloads/elden-recovery-linux-fixes-ram.img` | `8bd2593c3a485e137d07e0d89bd0cf6b1cdce9ec547baaf7d694622f6787233f` |
 | `~/Downloads/elden-recovery-linux-fixes-boot-a.img` | `98b443abee8a6737625586a66829e941aee96170fab7ca2375013292a2626ce2` |
 
-The RAM image is ready for a tablet test. Check for the root-authentication
-marker and the first Recovery service to start, then select **Elden Linux -
-installed rootfs** on a separate boot and capture the output after `tty0`
-registers. Neither image has been written to a tablet partition.
+The running slot B Linux system wrote the signed image to inactive
+`boot_a` over SSH. The full partition readback matched the signed SHA-256
+above. The previous `boot_a` image was backed up and verified before the
+write. `boot_b` matched its original Linux image before and after the
+write, both boot partitions returned to read-only, and slot B remained
+active with UFS boot LUN 2.
+
+Boot slot A to check for the root-authentication marker and the first
+Recovery service to start. On a separate boot, select **Elden Linux -
+installed rootfs** and capture the output after `tty0` registers.
 
 ### Adreno 830 GMU firmware
 
