@@ -1428,6 +1428,24 @@ before the USB worker starts. The MacBook selected the test entry at
 any XNU USB connection or host reset command. It then automatically
 RAM-booted the corrected Recovery image.
 
+The corrected 4 GiB boot returned to fastboot before opening XNU USB.
+Changing the USB connection timeout from 90 seconds to 15 seconds
+changed the observed reset interval from 149 seconds to 148 seconds.
+A read-only EFI diagnostic recovered the preceding kernel log over
+UniXNU USB after the reset. Some retained bytes were corrupted, including
+one kernel UUID byte. The VM log showed the 8 GiB compressor range and
+the later panic reported `write_pte_fast: PTE write is unaligned`.
+
+The XNU `arm_init` memory-size rule selects 16 KiB VM pages for allocations
+larger than 1 GiB. Elden's 4 KiB SHENG kernel now keeps the advertised VM
+page size equal to the 4 KiB hardware translation granule. This keeps
+the original PTE alignment assertion in place and lets the signature
+compatibility path continue verifying the original 16 KiB signing blocks.
+The `r43-recovery-4k-vm` image passes the 4 GiB request and all 30 Recovery
+modules through the same preflight and payload readback. The MacBook copy
+is `~/Downloads/elden-recovery-4k-vm-ram.img` with SHA-256
+`735362f2d57def94fc8c44bb105b8fe828330676fa0718bc4276e99b32e6bf79`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
