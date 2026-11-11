@@ -1414,7 +1414,7 @@ setup. The panic hook attempts to send the retained log and the panic frame
 when USB is available. When it cannot send the frame, it leaves the panic
 QR visible for eight seconds before requesting the same PSCI fastboot
 reset. This path covers panics that reach the retained-log hook before
-the USB worker starts. The tablet still needs to execute that hook.
+the USB worker starts.
 
 The `r42-recovery-memory-reset` RAM image uses the 4 GiB window and the
 8 GiB compressor cap. Its linked kernel contains the cap and the reset
@@ -1423,7 +1423,10 @@ MacBook copy is `~/Downloads/elden-recovery-memory-reset-ram.img` with
 SHA-256 `8fd1e3639e234302a1bbab1e87dd158caf335b97a085c2f7dad249baa09fc7ab`.
 The separate early-panic test adds `vm_compression_limit=16777216` only
 to the Recovery USB entry to reproduce the oversized compressor claim
-before the USB worker starts.
+before the USB worker starts. The MacBook selected the test entry at
+01:42:54 HKT and detected bootloader fastboot at 01:44:00 HKT without
+any XNU USB connection or host reset command. It then automatically
+RAM-booted the corrected Recovery image.
 
 ### Adreno 830 GMU firmware
 
