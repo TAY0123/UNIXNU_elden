@@ -1026,6 +1026,26 @@ If Linux returns to the menu, record the EFI status in the footer. If the
 tablet resets, record the last visible Linux line and whether the Lenovo
 splash appears. This diagnostic has not been flashed.
 
+### Combined Recovery and Linux diagnostics
+
+The combined raw-v4 image pairs the rebuilt Recovery PID 1 kernel with
+the Linux EFI diagnostic kernel and its matching DTB in the 224 MiB FAT
+payload. It uses the existing dual-boot menu. **Recovery Framebuffer
+Test** reports `SHENG-PID1-IF` and `SHENG-PID1-SVC`. **Elden Linux -
+installed rootfs** enables early framebuffer output, EFI debug logging
+and `panic=0`. Both slot menu entries use that Linux diagnostic kernel.
+
+DarwinBoot preflight, the full packed FAT comparison, and byte-for-byte
+Linux, DTB and menu readback passed. The RAM image SHA-256 is
+`8d7a2321b36ddbd32a79548a4ae62391ea446d5a621861655134b0e0b651586f`.
+The 96 MiB signed image preserves the stock slot A AVB key, salt, rollback
+index and boot properties. Its SHA-256 is
+`5241566c3b2e5acad07a07145735ccde31176de271b7522b236f4ca8a15504c2`.
+The running Linux system wrote it to inactive `boot_a` over SSH and
+verified the full partition digest. The original `boot_b` digest matched
+before and after the write. Both partitions returned to read-only and
+slot B remained active. The combined image still needs its first boot.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
