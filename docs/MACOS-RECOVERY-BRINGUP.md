@@ -881,8 +881,22 @@ The signed image SHA-256 is
 `ccf4d3e02891e6d3ac586b4c52f9845bb78189272f0f033fca4705d8a8ae5107`.
 The image was written to `boot_b` from the running tablet Linux system.
 The full partition readback matched the signed image, and the other 36
-slot B partition hashes matched the backup. Persistent boot from slot B
-remains untested.
+slot B partition hashes matched the backup. The tablet reached UniXNU
+from the installed image. The owner reported that selecting **Elden
+Linux - installed rootfs** returned to the UniXNU menu. There is no
+captured Linux panic or EFI return status for that run.
+
+The saved Linux kernel's embedded configuration enables
+`CONFIG_BUILTIN_DTB` and `CONFIG_CMDLINE_FORCE`, with `panic=10`.
+The diagnostic RAM image changes the three copies of the forced panic
+timeout to `panic=0` using an equal-length replacement. The host checked
+the original kernel hash, confirmed that reversing the replacement
+recovers the exact original bytes, and verified the packaged readback.
+The MacBook copy is `~/Downloads/elden-linux-panic-hold-ram.img` with
+SHA-256 `775c5cf107e517c66702486e705fb9f56b1ecc6d731db3f263aaa5c5b1d49892`.
+The **Elden Linux - keep panic on screen** entry needs a tablet test.
+The original `boot_b` backup is also staged on the MacBook for a direct
+RAM boot and possible `pstore` capture.
 
 ### Adreno 830 GMU firmware
 
