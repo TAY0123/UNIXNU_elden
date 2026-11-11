@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import shutil
+import struct
 import subprocess
 import tempfile
 from pathlib import Path
@@ -120,6 +121,13 @@ def build_payload(
         add_long_name_file(output, linux_dtb, f"{PAYLOAD_IMAGE_DIR}/linux.dtb")
     if slot_switch is not None:
         add_long_name_file(output, slot_switch, f"{PAYLOAD_IMAGE_DIR}/EldenBootSlot.efi")
+        mailbox = b'ELDFDT01' + struct.pack('<IIQ', 1, 0, 0)
+        with output.open('r+b') as volume:
+            volume.seek(0x1c0)
+            if any(volume.read(len(mailbox))):
+                raise SystemExit('FAT boot sector has no room for the live FDT mailbox')
+            volume.seek(0x1c0)
+            volume.write(mailbox)
     if usb_menu_driver is not None:
         add_long_name_file(output, usb_menu_driver, f"{PAYLOAD_IMAGE_DIR}/EldenUsbMenu.efi")
 

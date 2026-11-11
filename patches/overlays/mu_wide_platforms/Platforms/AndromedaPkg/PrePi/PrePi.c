@@ -57,12 +57,13 @@ STATIC UINT64  mEntryFdt = 0;
 typedef struct {
   UINT64  Base;
   UINT64  Size;
+  UINT64  EntryFdt;
 } ELDEN_PAYLOAD_INFO;
 
 STATIC CONST EFI_GUID  mEldenPayloadHobGuid = {
   0x5E1D9C3A, 0x7B24, 0x4F0E, { 0x9A, 0x6D, 0x2C, 0x8F, 0x1B, 0x4E, 0x7D, 0x10 }
 };
-STATIC ELDEN_PAYLOAD_INFO  mEldenPayload = { 0, 0 };
+STATIC ELDEN_PAYLOAD_INFO  mEldenPayload = { 0, 0, 0 };
 #endif
 
 ////////////////////////////////////////////
@@ -298,7 +299,8 @@ CEntryPoint (
 #ifdef ELDEN_EMBEDDED_PAYLOAD
   IN UINT64  MpId,
   IN UINT64  PayloadBase,
-  IN UINT64  PayloadSize
+  IN UINT64  PayloadSize,
+  IN UINT64  EntryFdt
 #elif defined (ELDEN_INITRD_HANDOFF)
   IN UINT64  MpId,
   IN UINT64  Fdt
@@ -318,6 +320,7 @@ CEntryPoint (
   if (mEldenPayload.Size == 0) {
     mEldenPayload.Base = PayloadBase;
     mEldenPayload.Size = PayloadSize;
+    mEldenPayload.EntryFdt = EntryFdt;
   }
 #endif
 

@@ -1245,10 +1245,51 @@ DarwinBoot preflight and the embedded firmware, kernel, device tree,
 and boot menu checks passed. A host pseudo-terminal test verified that
 the controller sends `boot slot-status` and records the returned result.
 
-The MacBook identified the physical tablet's Linux ADB and CDC interfaces.
-The USB reboot request disconnected Linux. The tablet owner reported
-the fastboot screen, but the MacBook did not enumerate a USB device in
-that state. The new image could not be transferred for hardware testing.
+The first USB reboot request disconnected Linux before the MacBook could
+see bootloader fastboot. Once fastboot was visible, the MacBook loaded
+the 20-second return-to-restart variant of `r35-usb-management`, SHA-256
+`cd065d6f43935901a4bede611a7afbda34e5c91b17691b25e209ad07f9c4a643`.
+Fastboot accepted the transfer and the tablet reached the visible UniXNU
+menu. The MacBook saw no CDC interface and received no `slot-status`
+result. The test used `fastboot boot` and performed no partition write.
+
+On the untimed `r35` RAM image, macOS attached the USB serial device as
+`/dev/cu.usbmodemELDEN_UEFI1`. With underscore handling in the host script,
+`list` returned all nine entries and `boot slot-status` returned
+`result=-2 open=Not Found close=Success`. The packed payload was missing
+the current ABL FDT required for UFS platform admission. SEC now saves
+the live pointer in the payload HOB. The read-only RAM block driver
+inserts it into the reserved FAT mailbox on reads of sector zero, so
+the slot app can validate and copy the actual bootloader tree.
+
+The MacBook also selected `recovery-usb` and captured the UniXNU loader
+handoff. No `ELDEN-XNU` device or XNU log appeared in the 110-second
+capture window. The two host logs are `elden-usb-management-device.log`
+and `elden-usb-management-recovery.log` in the MacBook's Downloads.
+
+The `r36-live-fdt` build retained the Recovery kernel and Linux payloads
+from `r35`. Its packed FAT readback included the reserved FDT mailbox.
+The 96 MiB signed `elden-usb-management-live-fdt-boot-a.img` passed AVB
+signature and payload verification and matched the MacBook copy at SHA-256
+`01db309f90b1e49a3b2ed54a546dfdd97836e91c28b107c4757b97d7c72e4b4b`.
+The previous signed slot A image remained available with the SHA-256
+recorded in the Recovery USB Console section.
+
+Bootloader fastboot reported active slot A and successful slot B. It
+accepted the write to `boot_a` and rebooted into the installed UniXNU
+USB console. `list` returned all nine entries. `boot slot-status`
+returned `result=-2 open=Unsupported close=Success`. The previous
+`Not Found` return came from FDT discovery. The newer return leaves
+platform identification, execution state and MMIO admission to check.
+The Elden firmware memory map omits the `0x01d84000` UFS host window,
+which the UFS application requires to be identity mapped. The specific
+rejected check still needs a hardware trace.
+
+The bootloader lacks `fetch`, so post-flash verification consists of
+fastboot's successful write and the installed boot and USB tests. The
+MacBook then sent `boot fastboot`, verified bootloader fastboot on slot A,
+rebooted, and listed the nine entries over USB again. The MacBook log is
+`~/Downloads/elden-usb-management-slot-a.log`.
 
 ### Adreno 830 GMU firmware
 

@@ -9,6 +9,7 @@
 **/
 
 #include <Uefi.h>
+#include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DevicePathLib.h>
@@ -22,10 +23,12 @@
 #include "EldenPayloadLz4.h"
 
 #define ELDEN_PAYLOAD_BLOCK_SIZE  512
+#define ELDEN_FDT_MAILBOX_OFFSET  0x1c0
 
 typedef struct {
   UINT64  Base;
   UINT64  Size;
+  UINT64  EntryFdt;
 } ELDEN_PAYLOAD_INFO;
 
 //
@@ -41,6 +44,7 @@ STATIC CONST EFI_GUID  mEldenPayloadDeviceGuid = {
 
 STATIC UINT8                 *mPayload;
 STATIC UINTN                  mPayloadSize;
+STATIC UINT64                 mEntryFdt;
 STATIC CONST UINT32          *mChunkOffsets;
 STATIC CONST UINT8           *mChunkData;
 STATIC UINT8                 *mChunkBuffer;
@@ -280,6 +284,18 @@ EldenBlockRead (
       BufferSize -= Length;
     }
   }
+
+  // Expose the live ABL pointer in the reserved FAT mailbox. Leave the
+  // original packed data and any mailbox already populated by BootShim intact.
+  if (Lba == 0 && mEntryFdt != 0) {
+    UINT8 *Mailbox = (UINT8 *)Buffer + ELDEN_FDT_MAILBOX_OFFSET;
+    if (CompareMem (Mailbox, "ELDFDT01", 8) == 0 &&
+        ReadUnaligned32 ((CONST UINT32 *)(Mailbox + 8)) == 1 &&
+        ReadUnaligned32 ((CONST UINT32 *)(Mailbox + 12)) == 0 &&
+        ReadUnaligned64 ((CONST UINT64 *)(Mailbox + 16)) == 0) {
+      WriteUnaligned64 ((UINT64 *)(Mailbox + 16), mEntryFdt);
+    }
+  }
   return EFI_SUCCESS;
 }
 
@@ -326,12 +342,13 @@ EldenPayloadDxeEntry (
   Handle = NULL;
   mPayload = NULL;
   mPayloadSize = 0;
+  mEntryFdt = 0;
 
   EldenSetIndicator ((EFI_GRAPHICS_OUTPUT_BLT_PIXEL){ 0x00, 0x00, 0xE0, 0x00 });
   EldenStartIndicator ();
 
   Hob = GetFirstGuidHob (&mEldenPayloadHobGuid);
-  if ((Hob == NULL) || (GET_GUID_HOB_DATA_SIZE (Hob) < sizeof (ELDEN_PAYLOAD_INFO))) {
+  if ((Hob == NULL) || (GET_GUID_HOB_DATA_SIZE (Hob) < OFFSET_OF (ELDEN_PAYLOAD_INFO, EntryFdt))) {
     DEBUG ((DEBUG_ERROR, "ELDEN-PAYLOAD: entry argument HOB is missing\n"));
     return EFI_NOT_FOUND;
   }
@@ -353,6 +370,9 @@ EldenPayloadDxeEntry (
 
   mPayload = (UINT8 *)(UINTN)Info->Base;
   mPayloadSize = (UINTN)Info->Size;
+  if (GET_GUID_HOB_DATA_SIZE (Hob) >= sizeof (*Info) && (Info->EntryFdt & 3) == 0) {
+    mEntryFdt = Info->EntryFdt;
+  }
   BootSector = mPayload;
   if (CompareMem (mPayload, ELDEN_PACKED_MAGIC, 8) == 0) {
     Status = EldenOpenPackedPayload ((UINTN)Info->Size);

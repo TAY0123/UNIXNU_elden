@@ -18,10 +18,10 @@ import tty
 def serial_port():
     ports = []
     for path in Path('/dev').glob('cu.usbmodem*'):
-        suffix = path.name.removeprefix('cu.usbmodem').replace('-', '').upper()
-        for mode in ('UEFI', 'XNU'):
-            if re.fullmatch(f'ELDEN{mode}[0-9]*', suffix):
-                ports.append((mode, path))
+        suffix = path.name.removeprefix('cu.usbmodem')
+        match = re.fullmatch(r'ELDEN[-_]?(UEFI|XNU)[0-9]*', suffix, re.I)
+        if match:
+            ports.append((match[1].upper(), path))
     if len(ports) > 1:
         raise RuntimeError('Multiple Elden management ports are present')
     return ports[0] if ports else (None, None)

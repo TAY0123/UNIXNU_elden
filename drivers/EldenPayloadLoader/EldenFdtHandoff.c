@@ -162,7 +162,8 @@ EldenPrepareFdt (EFI_HANDLE Volume, ELDEN_FDT_HANDOFF *State)
   }
   Address = ReadUnaligned64 ((UINT64 *)(Sector + POINTER_OFFSET));
   FreePages (Sector, 1);
-  if (Address == 0 || (Address & 3)) return EFI_NOT_FOUND;
+  if (Address == 0) goto Existing;
+  if (Address & 3) return EFI_NOT_FOUND;
   Status = GetMap (&Map, &MapBytes, &Stride);
   if (EFI_ERROR (Status)) return Status;
   if (!MapCovers (Map, MapBytes, Stride, Address, 40) ||

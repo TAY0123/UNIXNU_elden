@@ -13,7 +13,7 @@
 .set CTRL_SPAN_BIT, (1 << 23)
 
 ASM_FUNC(_ModuleEntryPoint)
-#ifdef ELDEN_INITRD_HANDOFF
+#if defined (ELDEN_INITRD_HANDOFF) || defined (ELDEN_EMBEDDED_PAYLOAD)
   // Save the bootloader FDT pointer before ArmReadMpidr overwrites x0.
   mov   x19, x0
 #endif
@@ -110,9 +110,10 @@ _EnableCache:
 _PrepareArguments:
   mov   x0, x10
 #if defined (ELDEN_EMBEDDED_PAYLOAD)
-  // x1 = embedded payload base, x2 = payload size (saved at entry)
+  // Embedded payload base, size, and bootloader FDT (saved at entry).
   mov   x1, x20
   mov   x2, x21
+  mov   x3, x19
 #elif defined (ELDEN_INITRD_HANDOFF)
   // x1 = bootloader FDT address (saved at entry)
   mov   x1, x19
