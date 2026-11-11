@@ -1543,6 +1543,20 @@ then published OS. XNU mounted BaseSystem, and the original
 `launchd` passed `mount-phase-1` and started `restore-datapartition`.
 These results were captured through XNU USB.
 
+The temporary Data volume mounted. The original `ditto` command failed
+with EPERM on protected entries while copying the Data template, causing
+`restore-datapartition` to exit with status 1. The MacBook captured the
+panic over USB and the tablet returned to fastboot.
+
+The r48 eight-core RAM image uses the same kernel and the reordered
+eight-core ADT. The live report showed `cpus=8 secondaries=7 enabled=1`.
+Every secondary recorded step 7, PSCI result 0, and matching MPIDR
+affinity. All eight cores handled both timer interrupts and IPIs. One
+snapshot recorded 3,205 IPIs sent and 3,205 received. This boot reached
+the same Data template copy failure and reset to fastboot. The MacBook
+image is `~/Downloads/elden-recovery-isc-smp8-ram.img` with SHA-256
+`b3a899d589281ac09f33d33152daaf60204b0656440124abee5c2643f3d1393e`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
