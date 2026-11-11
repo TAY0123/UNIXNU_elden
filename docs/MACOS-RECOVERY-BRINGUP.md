@@ -1740,10 +1740,13 @@ bootloader fastboot on slot A. The r59 RAM image SHA-256 is
 
 The paired AMFI module registers its installer-entitlement evaluation
 as `mpo_cred_label_update_execve`. The hook for `mpo_vnode_check_signature`
-is a separate function. XNU invokes the credential update after the
-signature check. The next trace records whether the credential check
+is a separate function. XNU can invoke the credential update after the
+signature check. The r61 trace records whether the credential check
 requests an update and which flags the update returns, before the existing
-process-signature diagnostic records the final flags.
+process-signature diagnostic records the final flags. The 30-module
+prelink, DarwinBoot preflight, packed image and MacBook checksum passed.
+The RAM image SHA-256 is
+`bafee26f763088f892ee6dad3597a2e7f1e80e91b34c6e743f9d1d4196cee318`.
 [XNU MAC policy hooks](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/security/mac_policy.h)
 
 ### Adreno 830 GMU firmware

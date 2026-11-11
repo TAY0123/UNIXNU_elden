@@ -216,3 +216,57 @@
  
  	if (error != 0) {
  		printf("validation of code signature failed through MACF policy: %d\n", error);
+--- a/security/mac_vfs.c
++++ b/security/mac_vfs.c
+@@ -786,6 +786,27 @@
+ 	return error;
+ }
+ 
++#if SHENG
++extern unsigned sheng_pid1_trace_enabled;
++
++static __attribute__((noinline)) void
++sheng_trace_recovery_exec_policy(vnode_t vp, const char *stage, int result, u_int flags)
++{
++	const char *name = vnode_getname(vp);
++	if (name == NULL) {
++		return;
++	}
++	if (strcmp(name, "rc_script_wrapper") == 0 || strcmp(name, "ditto") == 0) {
++		static unsigned records;
++		if (__atomic_fetch_add(&records, 1, __ATOMIC_RELAXED) < 32) {
++			printf("SHENG-RECOVERY-CREDENTIAL: name=%s stage=%s result=%d flags=%x\n",
++			    name, stage, result, flags);
++		}
++	}
++	vnode_putname(name);
++}
++#endif
++
+ void
+ mac_cred_label_update_execve(vfs_context_t ctx, kauth_cred_t new, struct vnode *vp, off_t offset,
+     struct vnode *scriptvp, struct label *scriptvnodelabel, struct label *execl, u_int *csflags,
+@@ -861,6 +882,11 @@
+ 	}
+ 	*labelupdateerror = error;
+ 	VFS_KERNEL_DEBUG_END1(27, vp);
++#if SHENG
++	if (__improbable(sheng_pid1_trace_enabled)) {
++		sheng_trace_recovery_exec_policy(vp, "update", error, *csflags);
++	}
++#endif
+ }
+ 
+ int
+@@ -927,6 +953,11 @@
+ 		}
+ 	}
+ 	VFS_KERNEL_DEBUG_END1(28, vp);
++#if SHENG
++	if (__improbable(sheng_pid1_trace_enabled)) {
++		sheng_trace_recovery_exec_policy(vp, "check", result, 0);
++	}
++#endif
+ 
+ 	return result;
+ }
