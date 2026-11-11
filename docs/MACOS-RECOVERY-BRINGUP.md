@@ -1749,6 +1749,18 @@ The RAM image SHA-256 is
 `bafee26f763088f892ee6dad3597a2e7f1e80e91b34c6e743f9d1d4196cee318`.
 [XNU MAC policy hooks](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/security/mac_policy.h)
 
+On the physical r61 boot, the credential check requested an update for
+both `rc_script_wrapper` and `ditto`. The update succeeded and returned
+`0x22014a01` for both, with neither installer flag. All 18 protected
+metadata denials recurred. The MacBook captured the complete panic, and
+the tablet returned to bootloader fastboot on slot A by itself.
+
+The r62 diagnostic checks whether the signed executables have parsed
+entitlements and whether the existing XNU vnode query sees their expected
+installer entitlement. The 30-module prelink, DarwinBoot preflight,
+packed image check and MacBook checksum passed. The RAM image SHA-256 is
+`afdc2fea194994e1239c8ae4122e236bf836b36f9fc9ebf6d030fe4096b703dc`.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`
