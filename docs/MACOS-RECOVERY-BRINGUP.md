@@ -1642,6 +1642,18 @@ prelink, DarwinBoot preflight, FAT readback and MacBook checksum checks.
 Its SHA-256 is
 `a48a39f00ec84f2a3436fbb06f17079b80cfcbb2f6f727d971988031f4e337ad`.
 
+The physical r54 boot passed `mount-phase-1` and reached the Data copy.
+The trace recorded 18 `setxattr` calls returning EPERM, one before each
+protected-directory error. It also recorded seven earlier `csrctl`
+checks returning EPERM. Those checks completed before the failing copy
+operations. The MacBook received the complete task failure panic and
+verified the automatic return to bootloader fastboot.
+
+The next diagnostic checks the `com.apple.rootless` write in `vn_setxattr`.
+It reports whether the denial is from MAC policy, vnode authorization,
+the filesystem, or the fallback, and records the active CSR flags. The
+trace does not change the permission check or its result.
+
 ### Adreno 830 GMU firmware
 
 On the tablet, Linux `7.2.8-y700-r2-androidcrypt1` and `vulkaninfo`

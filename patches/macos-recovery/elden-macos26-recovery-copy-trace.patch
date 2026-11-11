@@ -38,3 +38,88 @@
  	unix_syscall_kprintf("code %d, error %d, results %x, %x (pid %d - %s, tid %lld)\n", code, error,
  	    uthread->uu_rval[0], uthread->uu_rval[1],
  	    pid, get_bsdtask_info(current_task()) ? proc->p_comm : "unknown", thread_tid(current_thread()));
+--- a/bsd/vfs/vfs_xattr.c
++++ b/bsd/vfs/vfs_xattr.c
+@@ -34,6 +34,10 @@
+ 
+ #include <sys/param.h>
+ 
++#if SHENG && CONFIG_CSR
++#include <sys/csr.h>
++#endif
++
+ #include <sys/fcntl.h>
+ #include <sys/file_internal.h>
+ #include <sys/fsevents.h>
+@@ -178,6 +182,35 @@
+ 	return error;
+ }
+ 
++#if SHENG
++extern unsigned sheng_pid1_trace_enabled;
++
++static __attribute__((noinline)) void
++sheng_trace_ditto_xattr_denial(vfs_context_t context, const char *name,
++    const char *stage)
++{
++	static unsigned failures;
++	proc_t proc = vfs_context_proc(context);
++
++	if (!sheng_pid1_trace_enabled || proc == PROC_NULL ||
++	    strcmp(proc->p_comm, "ditto") != 0 ||
++	    strcmp(name, "com.apple.rootless") != 0 ||
++	    __atomic_fetch_add(&failures, 1, __ATOMIC_RELAXED) >= 48) {
++		return;
++	}
++
++	unsigned csr = 0;
++#if CONFIG_CSR
++	csr_config_t active;
++	if (csr_get_active_config(&active) == 0) {
++		csr = active;
++	}
++#endif
++	printf("SHENG-DITTO-XATTR: pid=%d attr=%s stage=%s csr=%x\n",
++	    proc_pid(proc), name, stage, csr);
++}
++#endif
++
+ /*
+  * Set the data of an extended attribute.
+  */
+@@ -206,11 +239,21 @@
+ #if CONFIG_MACF
+ 		error = mac_vnode_check_setextattr(context, vp, name, uio);
+ 		if (error) {
++#if SHENG
++			if (error == EPERM) {
++				sheng_trace_ditto_xattr_denial(context, name, "mac-policy");
++			}
++#endif
+ 			goto out;
+ 		}
+ #endif /* MAC */
+ 		error = vnode_authorize(vp, NULL, KAUTH_VNODE_WRITE_EXTATTRIBUTES, context);
+ 		if (error) {
++#if SHENG
++			if (error == EPERM) {
++				sheng_trace_ditto_xattr_denial(context, name, "vnode-authorization");
++			}
++#endif
+ 			goto out;
+ 		}
+ 	}
+@@ -260,6 +303,13 @@
+ 		 * A filesystem may keep some EAs natively and return ENOTSUP for others.
+ 		 */
+ 		error = default_setxattr(vp, name, uio, options, context);
++#if SHENG
++		if (error == EPERM) {
++			sheng_trace_ditto_xattr_denial(context, name, "fallback");
++		}
++	} else if (error == EPERM) {
++		sheng_trace_ditto_xattr_denial(context, name, "filesystem");
++#endif
+ 	}
+ #if CONFIG_MACF
+ 	if ((error == 0) && !(options & XATTR_NOSECURITY)) {
