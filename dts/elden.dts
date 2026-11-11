@@ -43,3 +43,68 @@
 &ufs_mem_phy {
 	status = "okay";
 };
+
+&spi4 {
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&touch_spi_data>;
+	pinctrl-1 = <&touch_spi_data_sleep>;
+
+	touchscreen@0 {
+		compatible = "novatek,nt36536-ts";
+		reg = <0>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <162 2>;
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&touch_irq_active &touch_spi_cs>;
+		pinctrl-1 = <&touch_irq_sleep &touch_spi_cs_sleep>;
+		spi-max-frequency = <10000000>;
+		firmware-name = "novatek_ts_csot_3k_fw.bin";
+		touchscreen-size-x = <19041>;
+		touchscreen-size-y = <30401>;
+		status = "disabled";
+	};
+};
+
+&tlmm {
+	touch_spi_data: touch-spi-data-state {
+		pins = "gpio48", "gpio49", "gpio50";
+		function = "qup1_se4";
+		drive-strength = <6>;
+		bias-pull-down;
+	};
+
+	touch_spi_cs: touch-spi-cs-state {
+		pins = "gpio51";
+		function = "qup1_se4";
+		drive-strength = <6>;
+		bias-pull-up;
+	};
+
+	touch_irq_active: touch-irq-state {
+		pins = "gpio162";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+
+	touch_spi_data_sleep: touch-spi-data-sleep-state {
+		pins = "gpio48", "gpio49", "gpio50";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	touch_spi_cs_sleep: touch-spi-cs-sleep-state {
+		pins = "gpio51";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
+	touch_irq_sleep: touch-irq-sleep-state {
+		pins = "gpio162";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+};

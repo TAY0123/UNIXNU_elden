@@ -86,6 +86,47 @@
 		unixnu,adt-name = "intc";
 	};
 
+	gcc: clock-controller@100000 {
+		compatible = "qcom,sm8750-gcc";
+		reg = <0x0 0x100000 0x0 0x1f4200>;
+		#clock-cells = <1>;
+		status = "disabled";
+	};
+
+	qupv3_1: geniqup@ac0000 {
+		compatible = "qcom,geni-se-qup";
+		reg = <0x0 0xac0000 0x0 0x2000>;
+		clocks = <&gcc 0x7d>, <&gcc 0x7e>;
+		clock-names = "m-ahb", "s-ahb";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		status = "disabled";
+
+		spi4: spi@a90000 {
+			compatible = "qcom,geni-spi";
+			reg = <0x0 0xa90000 0x0 0x4000>;
+			interrupts = <0 0x165 4>;
+			clocks = <&gcc 0x60>;
+			clock-names = "se";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "disabled";
+		};
+	};
+
+	tlmm: pinctrl@f100000 {
+		compatible = "qcom,sm8750-tlmm";
+		reg = <0x0 0xf100000 0x0 0x102000>;
+		interrupts = <0 0xd0 4>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#address-cells = <0>;
+		#interrupt-cells = <2>;
+		status = "disabled";
+	};
+
 	// UFS host controller and QMP PHY. Values come from the public SM8750
 	// Linux tree; the board DTS enables them.
 	//
