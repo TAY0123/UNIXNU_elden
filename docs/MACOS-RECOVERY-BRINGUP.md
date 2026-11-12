@@ -2985,12 +2985,12 @@ MacBook image `~/elden-ptn3222/elden-4k-recovery-guest-rpmh-ram.img`.
 Packed and MacBook SHA-256 matched
 `9f337fd9da7c4fa3848390d40ae133fac571499b7066aeb40713df4781749a80`.
 
-A follow-up attempted an active RPMh resource read through an idle
-slot before IOKit started USB. UniXNU acknowledged handoff, then the
-MacBook received no XNU console. The log does not locate the failing
-instruction or confirm that the command executed. The source retains
-the verified passive probe. Further transactions need a later hook,
-with USB logging and the reset timer already running.
+A follow-up enabled an active RPMh resource read at the early platform
+hook. UniXNU acknowledged handoff, then the MacBook saw neither the XNU
+console nor an automatic return to fastboot. The boot log leaves the
+failing instruction and command execution unknown. The source retains
+the verified passive probe. The next transaction should run after the
+host can receive XNU logs and verify the managed reset path.
 
 #### GPUCC handoff probe
 
