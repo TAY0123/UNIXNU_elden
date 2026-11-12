@@ -603,6 +603,26 @@ The Elden build now excludes `options` from that pass. All NVRAM
 property reads continue through the stock provider and its permission
 checks.
 
+The corrected kernel `0FA14065-0D97-3D65-AF8D-969FA6D58011` passed the
+same QEMU property trace. The RPC reached `IODTNVRAM::copyProperty`
+twice and returned a 16-byte serialized value containing `guest`.
+The original Recovery framework converted it and returned a nonnull
+boot mode. Language Chooser PID 174 started and remained present at
+440 seconds. A live screenshot showed the Apple progress screen.
+The final screenshot was blank, so the language controls remain
+unverified. A follow-up capture targets the chooser's own threads.
+
+The tablet guest-mode RAM image uses the same kernel and existing
+eight-core entry. The only device tree change is the volatile system
+NVRAM partition containing `recovery-boot-mode=guest`. The original
+common NVRAM data and tablet identity are retained. DarwinBoot,
+embedded payload and MacBook readback checks passed for
+`~/elden-ptn3222/elden-4k-recovery-guest-cmd-db-ram.img`, SHA-256
+`615d13720821d70fe52ff2d3a013b60cda9e4677293e50c153c29c1aaf8f457f`.
+The tablet USB trace captured WindowServer, RecoveryOS Agent, the
+software first frame and Language Chooser PID 162. Panel presentation
+of the chooser has yet to be observed.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its
@@ -2858,7 +2878,9 @@ SHA-256 `13ef2ce6536a25b6d9e0de85880bbdd9470af627fb23e35c456144fdc5cafa23`.
 On the tablet, all eight records matched the Linux addresses, lengths
 and independently calculated digests. All seven secondary CPUs
 reported online. GMU firmware validation still reported four blocks
-and 88,656 payload bytes.
+and 88,656 payload bytes. The normal-mode test reached a software
+first frame with timers and IPIs on all eight CPUs and returned
+automatically to bootloader fastboot.
 
 #### GPUCC handoff probe
 
