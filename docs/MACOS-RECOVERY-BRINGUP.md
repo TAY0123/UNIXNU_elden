@@ -1431,6 +1431,24 @@ current directory. Confirm the capture contains `ELDEN_USB` and XNU
 output. If enumeration fails, record the last `ELDEN_USB` line from the
 tablet display.
 
+### USB replug on the MC50
+
+At the UniXNU menu, a cable replug logged a Type-C attach in UFP device
+mode. The firmware then ran its WCD repeater reset, toggled GPIO
+`0x98`, and reported repeated GENI I²C NACKs for slave `0x0e`. The
+firmware still printed SuperSpeed PHY initialization success. Wireless
+ADB on the MC50 recorded a host-role attach and exposed only the phone's
+USB root hubs.
+
+The board's firmware build uses the patched `UsbConfigDxe` image. Its
+strings contain both the Type-C attach and WCD reset messages. The
+working Linux device tree connects the M31 USB 2 PHY to an NXP PTN3222
+at I²C address `0x4f` on GENI `0x00a94000`. The repeater reset uses
+PM8550VE GPIO 6 and the connector mux uses TLMM GPIO 29. This identifies
+a firmware initialization mismatch to investigate before CDC setup. The
+photo and MC50 trace do not establish which controller step ultimately
+prevents enumeration. [Elden Linux device tree](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/arch/arm64/boot/dts/qcom/sm8750-lenovo-elden.dts)
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded
