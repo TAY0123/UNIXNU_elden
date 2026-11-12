@@ -305,6 +305,16 @@ call chain through `WSInitialize`, `WSCompositorActivateDefault`,
 The GOP companion provides CPU scanout. The default compositor's
 Metal-device check aborts before it submits a surface to that driver.
 
+A separate eight-vCPU debugger run stopped at
+`exit_with_fatal_exception_and_notify` for `configd` with reason 37 and
+code 57. XNU supplied fault address `0x1011e2910`. The user exception
+return address was `0x1807a74f8` with shared-cache slide `0x248000`.
+The paired cache resolves `0x18055f4f8` to
+`-[CFPrefsSource copyOSLogDescription] + 116`. The instruction reads
+through the pointer stored at object offset `0x28`. This identifies the
+faulting read on QEMU. The origin and lifetime of the pointed-to mapping
+and any occurrence on the tablet require separate evidence.
+
 ### Bounded shared-cache verification
 
 The Elden 4 KiB build overlaps buffered vnode reads with verification of
@@ -1494,6 +1504,13 @@ the effective wrapper and engine in the firmware device tree, checks
 the Linux-confirmed GENI address and enabled status, and derives the
 I²C instance from the live engine counts. The MacBook copy matched
 SHA-256 `6a5b4ccd7d1fbab84f204e3e6579ca7817c5c77cb04913c8b5ef3da221d839e7`.
+
+The second RAM image passed `restore-datapartition` on the tablet,
+then executed `recoveryosd` and WindowServer. Recovery reported the
+missing `imgsrc` device in `mountrecursive` and continued to create
+an Aqua audit session. The MacBook retained the boot stream across
+reopening the serial port. A visible Recovery frame was not observed
+in the serial record.
 
 ### Manage UniXNU and Recovery over USB
 
