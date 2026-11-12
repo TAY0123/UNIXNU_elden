@@ -86,6 +86,8 @@ def main() -> None:
                         help="include the Elden framebuffer in the UFS companion")
     parser.add_argument("--adreno830-gmu-firmware", type=Path,
                         help="include Elden GMU, GPUCC and command database probes")
+    parser.add_argument("--adreno830-hfi-source", type=Path,
+                        help="include the HFI table probe using pinned AdrenoFirmware sources")
     parser.add_argument("--recovery-usb-core", type=Path,
                         help="directory containing the pinned DWC3 core for the Recovery USB console")
     parser.add_argument("--recovery-graphics-cache", type=Path,
@@ -100,6 +102,8 @@ def main() -> None:
         parser.error("--build-gop-display requires --elden-ufs-device")
     if args.elden_recovery_contract is not None and args.elden_ufs_device is None:
         parser.error("--elden-recovery-contract requires --elden-ufs-device")
+    if args.adreno830_hfi_source is not None and args.adreno830_gmu_firmware is None:
+        parser.error("--adreno830-hfi-source requires --adreno830-gmu-firmware")
 
     root = args.sheng_root.resolve(strict=True)
     sys.path.insert(0, str(root / "scripts"))
@@ -127,6 +131,19 @@ def main() -> None:
             root / "config/macos26-recovery-ui-pages.json",
             args.recovery_graphics_cache, kernel["page_bytes"]).encode()
         overlaid_headers.add("osfmk/vm/sheng_recovery_ui.h")
+    hfi_sources = []
+    hfi_sha256 = None
+    if args.adreno830_hfi_source is not None:
+        hfi_sources = [args.adreno830_hfi_source / name for name in (
+            "AdrenoHfi.h", "AdrenoHfiStartup.h", "AdrenoHfiA8xx.h", "AdrenoHfiA8xx.c",
+            "AdrenoHfiVotes.h", "AdrenoHfiVotes.c")]
+        digest = hashlib.sha256()
+        for path in hfi_sources:
+            digest.update(path.name.encode() + b"\0")
+            digest.update(bytes.fromhex(build.sha(path)))
+        hfi_sha256 = digest.hexdigest()
+        if hfi_sha256 != "7c1a5eae37863b3debeb1cd2a7c7562958a8c323fcf4ff0281d2de4aa20e3446":
+            raise ValueError("expected AdrenoFirmware HFI sources from deaaae24d7fe1a8f")
     profile_inputs = {
         "profile_sha256": build.sha(PROFILE),
         "wrapper_sha256": build.sha(Path(__file__)),
@@ -136,6 +153,7 @@ def main() -> None:
         if args.recovery_usb_core else None,
         "adreno830_firmware_sha256": build.sha(args.adreno830_gmu_firmware)
         if args.adreno830_gmu_firmware else None,
+        "adreno830_hfi_source_sha256": hfi_sha256,
         "armdt_nvram_patch_sha256": build.sha(PATCHES / "elden-armdt-nvram-options.patch"),
         "recovery_graphics_header_sha256": hashlib.sha256(graphics_header).hexdigest()
         if graphics_header is not None else None,
@@ -221,12 +239,17 @@ def main() -> None:
             soc = DEVICE / "soc/sm8750"
             inputs.extend(soc / name for name in ("include/Sm8750AdrenoResources.h",
                 "Sm8750CmdDb.c", "include/Sm8750CmdDb.h", "LICENSE.Adreno830"))
+            if hfi_sources:
+                inputs.extend(hfi_sources)
+                inputs.extend(driver / name for name in (
+                    "EldenAdreno830HfiConfig.c", "EldenAdreno830HfiConfig.h", "EldenAdreno830HfiBoot.inc"))
             for item in inputs:
                 write_if_changed(pexpert / item.name, item.read_bytes())
             rows = (", ".join(f"0x{byte:02x}" for byte in image[i:i + 16])
                     for i in range(0, len(image), 16))
             image_header = pexpert / "EldenAdreno830GmuImage.h"
-            write_if_changed(image_header, ("static const uint8_t elden_gmu_image[] = {\n    " +
+            hfi_define = "#define ELDEN_ADRENO830_HFI_PROBE 1\n" if hfi_sources else ""
+            write_if_changed(image_header, (hfi_define + "static const uint8_t elden_gmu_image[] = {\n    " +
                                             ",\n    ".join(rows) + "\n};\n").encode())
             if previous is None:
                 pe_init = pexpert / "pe_init.c"

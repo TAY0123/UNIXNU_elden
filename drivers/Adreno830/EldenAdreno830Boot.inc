@@ -6,6 +6,21 @@
 #include "EldenAdreno830GmuImage.h"
 #include "Sm8750CmdDb.c"
 
+static uint32_t
+elden_adreno830_fnv1a(const void *data, size_t bytes)
+{
+    const uint8_t *p = data;
+    uint32_t digest = 2166136261u;
+    for (size_t i = 0; i < bytes; ++i) {
+        digest = (digest ^ p[i]) * 16777619u;
+    }
+    return digest;
+}
+
+#ifdef ELDEN_ADRENO830_HFI_PROBE
+#include "EldenAdreno830HfiBoot.inc"
+#endif
+
 static void
 elden_adreno830_cmd_db_probe(void)
 {
@@ -54,13 +69,13 @@ elden_adreno830_cmd_db_probe(void)
             printf("ELDEN-A830: cmd-db %s status=%u\n", required[i].name, (unsigned)status);
             continue;
         }
-        uint32_t digest = 2166136261u;
-        for (size_t n = 0; n < resource.aux_bytes; ++n) {
-            digest = (digest ^ resource.aux[n]) * 16777619u;
-        }
+        uint32_t digest = elden_adreno830_fnv1a(resource.aux, resource.aux_bytes);
         printf("ELDEN-A830: cmd-db %s addr=%05x bytes=%lu fnv1a=%08x\n", required[i].name,
             resource.address, (unsigned long)resource.aux_bytes, digest);
     }
+#ifdef ELDEN_ADRENO830_HFI_PROBE
+    elden_adreno830_hfi_probe(snapshot);
+#endif
     kfree_data(snapshot, Sm8750CmdDbSize);
 }
 

@@ -20,6 +20,9 @@ typedef struct {
     size_t aux_bytes;
 } EldenAdrenoResource;
 
+typedef EldenAdrenoResourceStatus (*EldenAdrenoResourceLookup)(
+    void *, const char *name, unsigned slave, EldenAdrenoResource *);
+
 typedef struct {
     /* MSM_PARAM_CHIP_ID, including the reported speed-bin code in bits 47:32. */
     uint64_t drm_chip_id;
@@ -29,8 +32,7 @@ typedef struct {
     /* Lookup only in a complete, verified Elden command-db snapshot. Report
      * absence only after searching the complete snapshot. A read error,
      * malformed record or duplicate must return EldenAdrenoResourceInvalid. */
-    EldenAdrenoResourceStatus (*find_resource)(void *, const char *name, unsigned slave,
-                                                EldenAdrenoResource *);
+    EldenAdrenoResourceLookup find_resource;
 } EldenAdreno830HfiInputs;
 
 typedef struct {
@@ -57,6 +59,11 @@ typedef enum {
  * Refusal leaves the output untouched. No MMIO, power votes or HFI I/O. */
 EldenAdreno830HfiStatus EldenAdreno830BuildHfiConfig(const EldenAdreno830HfiInputs *,
                                                    EldenAdreno830HfiConfig *);
+
+/* Select the reviewed Elden OPPs using a same-device speed-bin measurement.
+ * The caller supplies the verified command database lookup and owns output. */
+EldenAdreno830HfiStatus EldenAdreno830BuildHfiConfigForFuse(
+    uint32_t speed_bin, EldenAdrenoResourceLookup, void *context, EldenAdreno830HfiConfig *);
 
 #ifdef __cplusplus
 }

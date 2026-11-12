@@ -75,7 +75,7 @@ static int read_resources(const EldenAdreno830HfiInputs *inputs, EldenAdrenoReso
 
 static uint16_t read_level(const uint8_t *bytes)
 {
-    return (uint16_t)bytes[0] | (uint16_t)bytes[1] << 8;
+    return (uint16_t)((uint32_t)bytes[0] | (uint32_t)bytes[1] << 8);
 }
 
 static int dependency_votes(const EldenAdrenoResource *mx, const uint32_t *levels,
@@ -163,4 +163,35 @@ EldenAdreno830HfiStatus EldenAdreno830BuildHfiConfig(const EldenAdreno830HfiInpu
         bw->cnoc_addresses, bw->cnoc_data, bw->ddr_addresses, bw->ddr_data,
     };
     return EldenAdrenoHfiSuccess;
+}
+
+EldenAdreno830HfiStatus
+EldenAdreno830BuildHfiConfigForFuse(uint32_t speed_bin, EldenAdrenoResourceLookup lookup,
+                                 void *context, EldenAdreno830HfiConfig *output)
+{
+    const uint64_t chip = (uint64_t)speed_bin << 32 | ELDEN_ADRENO830_CHIP_ID;
+    const unsigned mask = supported_mask(chip);
+    if (!mask) {
+        return EldenAdrenoHfiIdentity;
+    }
+
+    uint64_t gpu_rates[GpuLevelCount - 1];
+    uint64_t gmu_rates[GmuLevelCount - 1];
+    size_t gpu_count = 0;
+    for (size_t i = 0; i < GpuLevelCount - 1; ++i) {
+        if (gpu_opps[i].hardware_mask & mask) {
+            gpu_rates[gpu_count++] = gpu_opps[i].hz;
+        }
+    }
+    for (size_t i = 0; i < GmuLevelCount - 1; ++i) {
+        gmu_rates[i] = gmu_hz[i];
+    }
+
+    const EldenAdreno830HfiInputs inputs = {
+        .drm_chip_id = chip,
+        .gpu_hz = gpu_rates, .gpu_count = gpu_count,
+        .gmu_hz = gmu_rates, .gmu_count = GmuLevelCount - 1,
+        .context = context, .find_resource = lookup,
+    };
+    return EldenAdreno830BuildHfiConfig(&inputs, output);
 }

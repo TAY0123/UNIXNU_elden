@@ -621,7 +621,21 @@ embedded payload and MacBook readback checks passed for
 `615d13720821d70fe52ff2d3a013b60cda9e4677293e50c153c29c1aaf8f457f`.
 The tablet USB trace captured WindowServer, RecoveryOS Agent, the
 software first frame and Language Chooser PID 162. Panel presentation
-of the chooser has yet to be observed.
+of the chooser has yet to be observed. This run returned automatically
+to bootloader fastboot.
+
+The corrected chooser snapshot bound the native page-table attributes
+to the linked kernel's symbol addresses. At 340 seconds the main thread
+was initializing `IOBluetoothCoreBluetoothCoordinator`. At 440 seconds
+it was in a synchronous XPC reply wait from
+`-[CBPairingAgent initWithParentManager:]`, called from that same
+coordinator during AppKit launch notification. The background event
+thread was in its normal run loop. The baseline ADT has no Bluetooth
+controller node, though `bluetoothd` was running. A QEMU comparison
+adds the virtual Bluetooth controller from the DroidVM approach while
+retaining the baseline's existing `vmm-present=1`. This addresses the
+emulated dependency separately from the tablet's native UART transport.
+[DroidVM Bluetooth initialization](https://github.com/Droid-VM/macOS-DroidVM/blob/9db2f6f263173b660536530c2d102f480280cdb3/scripts/run-macos-vm.py)
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
@@ -2881,6 +2895,33 @@ reported online. GMU firmware validation still reported four blocks
 and 88,656 payload bytes. The normal-mode test reached a software
 first frame with timers and IPIs on all eight CPUs and returned
 automatically to bootloader fastboot.
+
+#### Native HFI table generation
+
+Build with `--adreno830-hfi-source` pointing to the pinned
+AdrenoFirmware `deaaae24d7fe1a8fdd10a0fe8bfb3fbc4c9a3c87` checkout.
+The wrapper checks the six HFI source hashes together. Select
+`elden-adreno830-cmd-db=1 elden-adreno830-hfi=1` and supply the
+same-device Linux speed bin via `elden-adreno830-linux-speed-bin`.
+For the tested tablet this is 232 (`0xe8`). The probe uses the native
+command database snapshot to produce the performance message and DDR
+table. An unknown speed bin is rejected.
+
+The initial candidate that attempted a direct QFPROM read returned to
+the UniXNU menu before XNU USB connected. The host could not identify
+the failing instruction. The next candidate used the recorded Linux
+speed bin and retained the live XNU command database lookup.
+
+Kernel `90DCD9AD-6F8B-3EBE-9D97-A2C3403C6EA0` produced 15 GX,
+four CX and eight DDR rows on the tablet. The 59-word performance
+payload and DDR table digests, `a4dd1617` and `ebb49651`, matched the
+host sanitizer run against the verified Linux data. The probe performs
+table construction in host memory. GMU power, firmware startup and HFI
+exchange remain separate steps.
+
+The paired guest-mode image is
+`~/elden-ptn3222/elden-4k-recovery-guest-hfi-bin-ram.img`, SHA-256
+`6199e1c8fff6f1c49671f0256c92cd8895147f927ffa305757b42f01cf80c807`.
 
 #### GPUCC handoff probe
 
