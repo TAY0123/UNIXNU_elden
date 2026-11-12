@@ -40,6 +40,11 @@ gcc_page = 0x177000
 smmu_base = 0x15000000
 stream_id = 0x60
 
+[board.hardware.ufs_install]
+# Saved LUN 0 userdata geometry in 4096-byte logical blocks.
+first_lba = 5972392
+last_lba = 62500000
+
 [board.hardware.usb_repeater]
 # Lenovo Linux DT and the Qualcomm TOP_QUP table from this board's xbl_config.
 geni_base = 0xa94000

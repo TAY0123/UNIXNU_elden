@@ -12,7 +12,7 @@ index ea9283a..452ea8b 100644
  import uuid
  
  from native_macho import macho
-@@ -18,10 +20,52 @@ PROTOCOL_CHARACTERISTICS = {
+@@ -18,10 +20,60 @@ PROTOCOL_CHARACTERISTICS = {
  }
  
  
@@ -20,6 +20,10 @@ index ea9283a..452ea8b 100644
 +    board = tomllib.loads((device / 'board.toml').read_text())['board']
 +    hardware = board['hardware']
 +    handoff = hardware['ufs_handoff']
++    install = hardware['ufs_install']
++    first, last = (install[name] for name in ('first_lba', 'last_lba'))
++    if type(first) is not int or type(last) is not int or not 1 < first <= last < (1 << 32) - 1:
++        raise ValueError('invalid Elden install extent')
 +    host = int(hardware['ufs_host'], 0)
 +    gcc, smmu, stream = (handoff[name] for name in ('gcc_page', 'smmu_base', 'stream_id'))
 +    if (board['name'] != 'elden' or board['soc'] != 'SM8750P'
@@ -46,12 +50,16 @@ index ea9283a..452ea8b 100644
 +    profile.write_text(f'#define ELDEN_UFS_HOST {host:#x}ULL\n'
 +                       f'#define ELDEN_UFS_GCC_PAGE {gcc:#x}ULL\n'
 +                       f'#define ELDEN_UFS_SMMU {smmu:#x}ULL\n'
-+                       f'#define ELDEN_UFS_STREAM {stream:#x}U\n')
++                       f'#define ELDEN_UFS_STREAM {stream:#x}U\n'
++                       f'#define ELDEN_UFS_INSTALL_FIRST {first}ULL\n'
++                       f'#define ELDEN_UFS_INSTALL_LAST {last}ULL\n')
 +    files = {name: hashlib.sha256((destination / name).read_bytes()).hexdigest()
-+             for name in (*resources, profile.name)}
++             for name in (*resources, profile.name, 'EldenUfsExtent.h')}
 +    return destination / upstream.name, dict(
 +        board='elden', boot_argument='native-ufs-elden=1', read_only=True, inherited_dma=True,
-+        legacy_queue=True, patch_sha256=hashlib.sha256(patch.read_bytes()).hexdigest(), files=files)
++        legacy_queue=True, patch_sha256=hashlib.sha256(patch.read_bytes()).hexdigest(), files=files,
++        install_extent=dict(boot_argument='elden-ufs-install', read_only_mode=1, write_mode=2,
++                            first_lba=first, last_lba=last, block_bytes=4096))
 +
 +
  def build(root, out, compile_record, source, run, record, env, *, transport='virtio', gop_display=False,
@@ -66,7 +74,7 @@ index ea9283a..452ea8b 100644
      if recovery_input and not gop_display:
          raise ValueError('the QEMU input experiment requires the GOP companion')
      component = 'NativeVirtioBlock' if transport == 'virtio' else 'NativeUfs'
-@@ -42,12 +86,27 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -42,12 +94,27 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
      include.mkdir(parents=True, exist_ok=True)
      for header in (root / 'sources/macos26/IOStorageFamily').glob('*.h'):
          (include / header.name).write_bytes(header.read_bytes())
@@ -94,7 +102,7 @@ index ea9283a..452ea8b 100644
          digest = bytes.fromhex(recovery_root['sha256'])
          identity = str(uuid.UUID(recovery_root['volume_uuid'])).upper()
          if (recovery_root['build'] != '25F71' or recovery_root['variant'] != 'recoveryos'
-@@ -70,19 +129,22 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -70,19 +137,22 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
                  '#define NATIVE_UFS_ISC_DIGEST {' + ','.join(str(b) for b in isc_digest) + '}\n'
                  f'#define NATIVE_UFS_ISC_UUID "{isc_uuid}"\n')
          recovery_prefix += f'#include "{root / "platform/sheng/macos26/storage/recovery_root.h"}"\n'
@@ -126,7 +134,7 @@ index ea9283a..452ea8b 100644
          (f'#include "{display["source"]}"\n' if display else '') +
          '#include <mach/kmod.h>\n'
          f'extern "C" kern_return_t {entry_prefix}_start(kmod_info_t *, void *) {{ return KERN_SUCCESS; }}\n'
-@@ -111,6 +173,8 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -111,6 +181,8 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
          command[1:1] = ['-DNATIVE_QEMU_SCRATCH_BLOCK=1']
      else:
          command[1:1] = ['-DNATIVE_UFS_ROOT_PARTITION_NAME="macosroot"']
@@ -135,7 +143,7 @@ index ea9283a..452ea8b 100644
      sdk = Path(subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip())
      command += ['-I', str(source / 'osfmk'), '-I', str(sdk / 'usr/include'),
                  '-Wall', '-Wextra', '-Werror', '-Wno-unused-parameter',
-@@ -189,11 +253,14 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
+@@ -189,11 +261,14 @@ def build(root, out, compile_record, source, run, record, env, *, transport='vir
      if input_driver:
          evidence['native_recovery_input'] = input_driver
      if transport == 'ufs':
@@ -196,7 +204,7 @@ diff --git a/scripts/native_storage_module.py b/scripts/native_storage_module.py
 index 58c742a..9a46774 100644
 --- a/scripts/native_storage_module.py
 +++ b/scripts/native_storage_module.py
-@@ -110,6 +110,21 @@ def prepare(directory: Path, base: int, native: dict, original: bytes,
+@@ -110,6 +110,29 @@ def prepare(directory: Path, base: int, native: dict, original: bytes,
                  or evidence.get('read_only_transport') is not True
                  or evidence.get('hardware_enable_required') is not True):
              raise ValueError('UFS transport must restrict its read-only root to macosroot on LUN0')
@@ -206,6 +214,14 @@ index 58c742a..9a46774 100644
 +                     'EldenUfsHandoff.h', 'EldenUfsProfile.h'}
 +            if 'RootLayout.h' in profile.get('files', {}):
 +                names.add('RootLayout.h')
++            if 'EldenUfsExtent.h' in profile.get('files', {}):
++                names.add('EldenUfsExtent.h')
++                install = profile.get('install_extent', {})
++                first, last = (install.get(name) for name in ('first_lba', 'last_lba'))
++                if (install.get('boot_argument') != 'elden-ufs-install' or install.get('read_only_mode') != 1
++                        or install.get('write_mode') != 2 or install.get('block_bytes') != 4096
++                        or type(first) is not int or type(last) is not int or not 1 < first <= last < (1 << 32) - 1):
++                    raise ValueError('invalid Elden UFS install extent record')
 +            if (profile.get('board') != 'elden' or profile.get('boot_argument') != 'native-ufs-elden=1'
 +                    or profile.get('read_only') is not True or profile.get('inherited_dma') is not True
 +                    or profile.get('legacy_queue') is not True or 'macoslog' in evidence

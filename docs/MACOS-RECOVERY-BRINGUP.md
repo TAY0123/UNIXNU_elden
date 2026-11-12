@@ -3212,6 +3212,51 @@ has room for these source images. A bootable target still needs its APFS
 volume group and auxiliary volumes, writable storage, and an installed
 boot test.
 
+#### Install target publication
+
+`elden-ufs-install=1` publishes **Elden macOS Install** as a read-only
+4096-byte block device after APFS publishes the expected Recovery volumes.
+NativeUfs checks the live LUN capacity, both GPT header checksums and
+the matching partition arrays. It requires a unique `userdata` entry
+matching the extent in `board.toml`. Ordinary Recovery omits this device.
+
+Mode `2` enables writes on the same device. The driver verifies the
+LUN, opcode, transfer length and inclusive LBA bounds before touching
+outbound DMA. It splits writes into at most 128 KiB per command and
+honors Force Unit Access. A filesystem flush issues SCSI
+`SYNCHRONIZE CACHE(10)` under the same request locks. The paired Recovery
+root still uses the existing read-only transport.
+
+The sanitizer test uses the exact patched GPT parser and command path.
+It checks both saved GPT copies, corruption of the backup array,
+out-of-range requests, the final two-block write, FUA and readback after
+flushing and restarting the simulated controller. The MacBook compiled
+and linked the companion as an ARM64e kext.
+
+The RAM image is `~/elden-ptn3222/elden-4k-recovery-install-inspect-ram.img`
+on the MacBook. Select **Inspect macOS Install Target** to request the
+read-only mode. The ordinary Recovery entry is still the default.
+The 31-module prelink reported zero instruction blockers. DarwinBoot
+preflight, packed verification and MacBook readback passed with SHA-256
+`53fa64a14c7161b07032f2f0216e69e133e0e726c2a9978d5d71d3547cdff6d2`.
+The tablet test should show `published Elden install extent 5972392-62500000 mode=1`
+over USB. Device publication, APFS persistence and installed boot remain
+to be verified.
+
+To repeat the host test, set `transport` to the output of `stage_elden_ufs`
+in the paired build. Set `upstream` to its pinned `NativeUfs` source and
+`capture` to the private directory with the saved GPT and Recovery layout.
+
+```sh
+mkdir -p "$transport/tests"
+cp "$upstream"/{RootDiagnostics.h,RootQueue.h,RootTransportLayout.h,TransferPoll.h} "$transport/"
+cp "$upstream/tests/RootCommandsBridge.cpp" "$transport/tests/"
+clang++ -std=c++17 -fsanitize=address,undefined -I "$transport" -I "$transport/tests" \
+  drivers/EldenUfsStage2/Tests/InstallExtent.cpp -lcrypto -o "$transport/test-install-extent"
+"$transport/test-install-extent" "$capture/live-gpt-primary.bin" \
+  "$capture/live-gpt-secondary.bin" "$capture/root-layout/manifest.bin"
+```
+
 The installed Linux image's device tree identifies the Novatek NT36536 on
 GENI SPI4 at up to 10 MHz. It specifies GPIO 162 with falling-edge interrupts,
 `novatek_ts_csot_3k_fw.bin`, and panel-linked coordinates. The Elden report
