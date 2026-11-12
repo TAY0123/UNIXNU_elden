@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
-#include <machine/memory_types.h>
+#include <vm/memory_types.h>
 #include "AdrenoFirmware.c"
 #include "EldenAdreno830.c"
 #include "EldenAdreno830GmuImage.h"

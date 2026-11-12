@@ -1,9 +1,10 @@
 # UniXNU-elden
 
-2026-11-12 实机进度：macOS 26.5 Recovery 已挂载 BaseSystem 并运行原版
-`launchd`，目前停在临时 Data 卷的受保护元数据复制。八核测试已验证所有
-CPU 的计时器和核间中断，USB 日志与自动返回 fastboot 已实机验证。Adreno 830
-固件校验已在 XNU 运行，触控 SPI 报文读取已通过主机测试。完整进度见
+2026-11-13 实机进度：macOS 26.5 Recovery 已完成临时 Data 初始化，启动
+WindowServer，并通过 CPU 复制向 1904×3040 面板提交首帧。八核计时器和
+核间中断均已验证，USB 日志与自动返回 fastboot 已实机验证。
+Language Chooser 尚未启动，完整 Recovery 窗口仍待验收。Adreno 830 固件
+校验已在 XNU 运行，GPU 加速尚未实现；触控 SPI 报文读取已通过主机测试。完整进度见
 [macOS Recovery 实机记录](docs/MACOS-RECOVERY-BRINGUP.md)。下文保留原阶段交接背景。
 
 Lenovo Legion Y700 四代（TB322FC / `elden`，SM8750P）的设备仓。目录布局

@@ -2593,10 +2593,34 @@ breadcrumb before reading the registers.
 [GDSC status](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/gdsc.c) ·
 [Clock branch status](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/clk-branch.c)
 
-The new probe and transfer await tablet verification. A power and clock
-owner and a verified GMU SMMU context are required before calling the
-transfer. Boot configuration, firmware ready, HFI, command submission,
-fences and Metal presentation remain open.
+The full 4 KiB XNU build requires the probe to include `vm/memory_types.h`,
+which supplies the machine-independent constants used by `VM_WIMG_IO`.
+The paired kernel, five software display pages, prelink, packed RAM image
+and MacBook copy passed verification after correcting that include.
+
+The physical tablet streamed the following readback through XNU USB.
+
+```text
+ELDEN-A830: GPUCC CX=0222f801 HW=2a00010a AHB=08000000 GMU=88002001 CXO=88000001 HUB=88000001
+ELDEN-A830: GMU image result=0 blocks=4 bytes=88656
+```
+
+The CX hardware status has `PWR_ON` clear. The GMU, CXO and hub branch
+registers have `CLK_OFF` set. This qualifies the inherited register
+readback at this boot stage, and identifies power and clock setup as
+prerequisites for accessing the GMU. The diagnostic did not write GPUCC,
+load firmware into the controller or alter SMMU routing. All eight cores
+started, the software display reached `First frame`, and the managed
+120-second run returned to fastboot without a host reset command.
+
+The kernel UUID is `76B9E3DF-4722-31C0-ABE7-48ED3589F68D`. The MacBook
+RAM image is `~/elden-ptn3222/elden-4k-software-gop-format-gpucc-ram.img`,
+with SHA-256
+`82e175da4c9323779268771fc1cafc9c3bc1b099db15eceefd2c17c70f21d8cb`.
+A power and clock owner and a verified GMU SMMU context are required
+before calling the reset-held firmware transfer. Boot configuration,
+firmware ready, HFI, command submission, fences and Metal presentation
+remain open.
 
 ### Installation target and hardware inventory
 
