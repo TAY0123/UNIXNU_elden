@@ -4,7 +4,7 @@
 WindowServer，并通过 CPU 复制向 1904×3040 面板提交首帧。八核计时器和
 核间中断均已验证，USB 日志与自动返回 fastboot 已实机验证。
 Language Chooser 已启动，面板上的语言选择界面仍待验收。XNU 已校验 Adreno 830
-固件、生成 HFI 表并读取 RPMh 状态；GPU 上电和加速仍待验证。触控 SPI 报文读取已通过主机测试。完整进度见
+固件、生成 HFI 表并读取 RPMh 状态；GPU 上电和加速仍待验证。触控 SPI 到 HID 的转换已通过主机测试，ARM64e HID 子设备已编译链接，仍待实机验证。完整进度见
 [macOS Recovery 实机记录](docs/MACOS-RECOVERY-BRINGUP.md)。下文保留原阶段交接背景。
 
 Lenovo Legion Y700 四代（TB322FC / `elden`，SM8750P）的设备仓。目录布局

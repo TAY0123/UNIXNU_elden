@@ -641,6 +641,15 @@ back in the pairing-agent wait. The final screenshot showed the Apple
 logo and progress bar. This run leaves both startup dependencies open.
 [DroidVM Bluetooth initialization](https://github.com/Droid-VM/macOS-DroidVM/blob/9db2f6f263173b660536530c2d102f480280cdb3/scripts/run-macos-vm.py)
 
+The expanded 540-second QEMU capture included the original `bluetoothd`,
+`authd`, `secd` and `securityd`. The launchd log recorded an early
+`bluetoothd` lookup for `com.apple.securityd.xpc` before `secd` started.
+The final snapshot showed `secd` and `bluetoothd` in their run loops, with
+the chooser main thread again waiting for a reply from
+`CBPairingAgent`. The final screenshot still contained the Apple logo
+and progress bar. The startup lookup failure alone cannot establish
+why the later pairing-agent request waits.
+
 The closest Recovery display comparison is the paired 25F71 SHENG build
 40305570169. It showed the language list and accepted a selection in QEMU.
 The separate physical SHENG capture showed the Language window with an
@@ -3125,10 +3134,28 @@ payload. It checks the report checksum and decodes ten contact slots with
 inclusive limits of 19040 × 30400. Transfer or checksum failures preserve
 the previous frame, and an empty valid frame releases all contacts. Host
 tests exercised the SPI transaction, bounds, releases and failure handling
-with AddressSanitizer and UndefinedBehaviorSanitizer. XNU still needs
-controller clocks and pins, firmware upload on hardware, IRQs and HID
-delivery.
+with AddressSanitizer and UndefinedBehaviorSanitizer.
 [NT36536 Linux driver at the board reference revision](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/input/touchscreen/novatek-nvt36xxx-spi.c)
+
+The Elden digitizer bridge publishes a Touch Screen application
+collection through the original `IOHIDDevice` API. Its 62-byte input
+report carries up to ten controller contact IDs and native panel
+coordinates. It delivers a vanished contact's lift with its last
+coordinates, and updates delivered state after the HID sink accepts
+the report. The input buffer is allocated once per device. The board
+worker must serialize SPI access and release active contacts before suspend.
+
+The SPI model tested a finger lifting while another lands, delivery
+failure and retry, a bad checksum, ten simultaneous contacts and
+release of all ten. An independent HID parser verified the report size,
+application usage, axes and contact fields. The MacBook compiled and
+linked the bridge as ARM64e kernel code, including the SPI transport.
+The 334 authenticated digitizer vtable slots matched the inherited
+layout in the paired Recovery HID reference. The bridge is outside the
+boot image until the Elden SPI4 clock, pin and interrupt provider is
+connected and the firmware upload is qualified on hardware.
+[USB HID usage tables](https://www.usb.org/sites/default/files/hut1_5.pdf) ·
+[Apple IOHIDDevice](https://github.com/apple-oss-distributions/IOHIDFamily/blob/main/IOHIDFamily/IOHIDDevice.cpp)
 
 The verified Linux boot input with kernel SHA-256
 `6aed9425e69c1e07ba65d3467738a6009874fe75d1fd50215483d333ba0634c3`

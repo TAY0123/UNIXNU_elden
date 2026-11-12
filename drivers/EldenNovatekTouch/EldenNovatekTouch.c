@@ -283,7 +283,7 @@ elden_touch_upload_firmware(struct geni_spi *spi, const uint8_t *image, size_t i
     if (firmware_info[0] + firmware_info[1] != 255) {
         return GENI_ERR_PROTO;
     }
-    uint16_t product = firmware_info[34] | ((uint16_t)firmware_info[35] << 8);
+    uint16_t product = (uint16_t)(firmware_info[34] | ((unsigned)firmware_info[35] << 8));
     if (product != 0x6097 || firmware_info[12] != 0xf1) {
         return GENI_ERR_NODEV;
     }
