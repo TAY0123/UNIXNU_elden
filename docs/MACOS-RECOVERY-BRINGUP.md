@@ -482,9 +482,11 @@ The tablet RAM boot with these edits authenticated all five private
 cache pages, established the Aqua session, and reached `First swap` and
 `First frame`. The GOP driver received a 1904 × 3040 `BGRA` surface with a
 7680-byte source stride and copied it to the inherited panel scanout.
-All eight cores recorded timer interrupts and IPIs. At 211 seconds after
-the last milestone, WindowServer, recoveryosd and RecoveryOS Agent were
-still running. The Language Chooser start count was zero.
+All eight cores recorded timer interrupts and IPIs. A reopened USB capture
+found WindowServer, recoveryosd and RecoveryOS Agent still running
+1,112 seconds after the last milestone. The Language Chooser start count
+was zero. The MacBook then enumerated the tablet in bootloader fastboot
+without sending a reset command.
 
 The tested kernel UUID is `F61C6AC4-5C9B-3A69-9ABE-EED72FEAAFD2`.
 The MacBook RAM image is `~/elden-ptn3222/elden-4k-software-gop-format-linear-ram.img`
@@ -492,6 +494,14 @@ with SHA-256 `517d4fb74add2565b5ba76fcee9c2a31e9ee35c9242a675c64927c443ffd70b6`.
 The eight-vCPU QEMU run with the same kernel and the QEMU storage driver
 also reached `First frame`. The QMP capture showed a pointer on a black
 background.
+
+A second eight-vCPU QEMU boot used the same kernel and volumes with
+`recovery-boot-mode=guest` in the device tree's volatile CHRP system
+partition. XNU loaded the 2 KiB system region and the boot reached
+`First frame`. At the 380-second stop, WindowServer, recoveryosd and
+RecoveryOS Agent were present and the Language Chooser start count was
+zero. The capture did not trace the framework's property read or boot-mode
+decision.
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
