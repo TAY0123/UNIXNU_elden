@@ -2658,7 +2658,8 @@ which supplies the machine-independent constants used by `VM_WIMG_IO`.
 The paired kernel, five software display pages, prelink, packed RAM image
 and MacBook copy passed verification after correcting that include.
 
-The physical tablet streamed the following readback through XNU USB.
+Two RAM boots of the same image streamed identical readbacks through XNU
+USB on the physical tablet.
 
 ```text
 ELDEN-A830: GPUCC CX=0222f801 HW=2a00010a AHB=08000000 GMU=88002001 CXO=88000001 HUB=88000001
@@ -2669,9 +2670,10 @@ The CX hardware status has `PWR_ON` clear. The GMU, CXO and hub branch
 registers have `CLK_OFF` set. This qualifies the inherited register
 readback at this boot stage, and identifies power and clock setup as
 prerequisites for accessing the GMU. The diagnostic did not write GPUCC,
-load firmware into the controller or alter SMMU routing. All eight cores
-started, the software display reached `First frame`, and the managed
-120-second run returned to fastboot without a host reset command.
+load firmware into the controller or alter SMMU routing. In both runs,
+all eight cores started, the software display reached `First frame`, and
+the managed 120-second deadline returned the tablet to fastboot without
+a host reset command.
 
 The kernel UUID is `76B9E3DF-4722-31C0-ABE7-48ED3589F68D`. The MacBook
 RAM image is `~/elden-ptn3222/elden-4k-software-gop-format-gpucc-ram.img`,
