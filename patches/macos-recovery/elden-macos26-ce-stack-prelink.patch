@@ -1,0 +1,167 @@
+--- a/scripts/emit_macos26_security.py
++++ b/scripts/emit_macos26_security.py
+@@ -114,7 +114,45 @@
+     return struct.pack('<7I', 0, 28, 0, 0, 0, 0, 0) + starts, writes
+ 
+ 
+-def emit(native_data, original, native_names, identity, slide, roots=ROOTS, storage_driver=None):
++def fix_elden_ce_stack(output, at, report, modules, slide, native_names, native_image):
++    # 25F71 AMFI's DER walker uses the VM granule as the stack granule.
++    # Preserve its comparison and error path, and ask XNU for actual stack bounds.
++    bundle = 'com.apple.driver.AppleMobileFileIntegrity'
++    module = modules[bundle]
++    if (report['bootkc_sha256'] != '19ae26f46899eb893052436482ac7a7cbf3bbb2b7b0c46b964a849c14442d137'
++            or module['uuid'] != '015B9910-F0CE-3FA6-B068-2826DDD2F2AE'):
++        raise ValueError('CoreEntitlements stack patch requires the paired 25F71 AMFI')
++    target = native_names.get('_sheng_ce_stack_remaining')
++    executable = [s for s in native_image['segments'] if s['initprot'] & 4]
++    if target is None:
++        raise ValueError('rebuild Elden XNU with the CoreEntitlements stack helper')
++    backed_offset(executable, target, 4, len(output))
++
++    text = next(s for s in module['segments'] if s['name'] == '__TEXT_EXEC')
++    offset = 0x262ec
++    expected = (0xd0ff5228, 0xf940f508, 0xb9400108, 0x12800009, 0x1ac82128,
++                0x2a2803e8, 0x910003e9, 0x8a090108, 0xf102011f, 0x54000c43)
++    extent = 4 * len(expected)
++    if offset + extent > text['filesize']:
++        raise ValueError('CoreEntitlements stack probe exceeds AMFI text')
++    site = text['va'] + slide + offset
++    pos = at(site, extent)
++    if struct.unpack_from('<10I', output, pos) != expected:
++        raise ValueError('CoreEntitlements stack probe instructions changed')
++    displacement = target - site
++    if displacement % 4 or not -(1 << 27) <= displacement < (1 << 27):
++        raise ValueError('CoreEntitlements stack helper is outside BL range')
++
++    # The DER walker has saved its signed LR. The helper returns in x8 and
++    # preserves the query arguments. Keep the original CMP and B.LO.
++    call = 0x94000000 | ((displacement >> 2) & 0x3ffffff)
++    struct.pack_into('<8I', output, pos, call, *([0xd503201f] * 7))
++    report['ce_stack_bounds'] = dict(bundle=bundle, module_uuid=module['uuid'],
++                                     site=hex(site), target=hex(target), minimum_bytes=128)
++
++
++def emit(native_data, original, native_names, identity, slide, roots=ROOTS, storage_driver=None,
++         elden_ce_stack=False):
+     image = macho(native_data, 'arm64e')
+     base = min(s['va'] for s in image['segments'] if s['size'])
+     marker = native_names.get('_sheng_security_prelink_version')
+@@ -366,6 +404,9 @@
+             raise ValueError('branch source word changed during emission')
+         struct.pack_into('<I', output, pos, patch['replacement'])
+ 
++    if elden_ce_stack:
++        fix_elden_ce_stack(output, at, report, modules, slide, native_names, image)
++
+     crypto = modules['com.apple.kec.corecrypto']
+     text = next(sec for s in crypto['segments'] for sec in s['sections'] if sec['name'] == '__text')
+     integrity = next(sec for s in crypto['segments'] for sec in s['sections'] if sec['name'] == '__fips_hmacs')
+@@ -498,7 +539,8 @@
+             modules += hid_contract['original_modules']
+         slide = args.slide + expected_base - REFERENCE_LINK_BASE
+         candidate, report = emit(kernel.read_bytes(), args.bootkc.read_bytes(), names, identity,
+-                                 slide, (*ROOTS, *modules), args.storage_driver)
++                                 slide, (*ROOTS, *modules), args.storage_driver,
++                                 elden_ce_stack=args.elden_bootstrap and args.recovery_components)
+         report.update(qemu_only=args.qemu_only, elden_bootstrap=args.elden_bootstrap,
+                       kernel_link_base=hex(expected_base))
+         if recovery_contract:
+--- a/scripts/observe_macos26_kernel.py
++++ b/scripts/observe_macos26_kernel.py
+@@ -74,6 +74,8 @@
+ def main() -> None:
+     parser = argparse.ArgumentParser(description=__doc__)
+     parser.add_argument('--kernel-build', type=Path, required=True)
++    parser.add_argument('--elden-bootstrap', action='store_true',
++                        help='observe the Elden 4 KiB ARM64e layout with QEMU VirtIO storage')
+     parser.add_argument('--firmware', type=Path, required=True)
+     parser.add_argument('--loader-build', type=Path, default=ROOT / 'out/native-loader/build.json')
+     parser.add_argument('--output', type=Path, required=True)
+@@ -154,14 +156,21 @@
+         parser.error('--capture-threads requires --process-layout')
+     if args.read_saved_user_register and args.checkpoint != 'handle_pac_fail':
+         parser.error('--read-saved-user-register requires the handle_pac_fail checkpoint')
+-    if not 15 <= args.timeout <= 180:
+-        parser.error('--timeout must be between 15 and 180 seconds')
++    limit = 300 if args.elden_bootstrap else 180
++    if not 15 <= args.timeout <= limit:
++        parser.error(f'--timeout must be between 15 and {limit} seconds')
+     if args.kext_log is not None and not 0 <= args.kext_log <= 0xffffffff:
+         parser.error('--kext-log must be a 32-bit unsigned filter')
+-    kernel, addresses, record = identify(args.kernel_build.resolve())
++    build = json.loads((args.kernel_build / 'build.json').read_text())
++    expected_base = REFERENCE_LINK_BASE
++    if args.elden_bootstrap:
++        expected_base = 0xfffffff007004000
++        profile = build.get('elden_bootstrap', {})
++        if profile.get('page_bytes') != 4096 or profile.get('link_address') != hex(expected_base):
++            parser.error('--elden-bootstrap requires an Elden 4 KiB build')
++    kernel, addresses, record = identify(args.kernel_build.resolve(), expected_base)
+     from native_smp import configure as configure_smp
+-    smp = configure_smp(json.loads((args.kernel_build / 'build.json').read_text()),
+-                        args.smp, args.native_gop_display, NATIVE_BOOT_ARGS)
++    smp = configure_smp(build, args.smp, args.native_gop_display, NATIVE_BOOT_ARGS)
+     record['smp_observation'] = smp
+     if args.qemu_smp_timeouts and args.smp == 1:
+         parser.error('--qemu-smp-timeouts requires multiple QEMU CPUs')
+@@ -316,7 +325,11 @@
+         if args.boot_progress:
+             from package_macos26_ufs import qualify_boot_progress
+             record['boot_progress'] = qualify_boot_progress(args.kernel_build)
+-            boot_args += ' sheng-boot-progress=1 sheng-stderr-log=2 sheng-stderr-name=WindowServer'
++            boot_args += ' sheng-boot-progress=1 sheng-stderr-log=2'
++            if args.elden_bootstrap:
++                boot_args += ' sheng-stderr-name=launchd sheng-pid1-trace=1'
++            else:
++                boot_args += ' sheng-stderr-name=WindowServer'
+         if args.qemu_no_ignition:
+             if '_sheng_qemu_no_ignition_enabled' not in addresses:
+                 raise ValueError('kernel lacks the guarded QEMU skipIgnition path')
+@@ -347,7 +360,9 @@
+                         '--owned-memory-size', hex(args.owned_memory_mib << 20), '--panic-log', '--armvirt', '--armcpu',
+                         '--platform-compatible', 'xiaomi,sheng', '--qemu-vmm-present',
+                         '--nvram-proxy', '--crypto-hash-method', 'sha2-384',
+-                        '--amfi-platform-only', '--random-seed-bytes', str(args.seed_bytes)]
++                        '--random-seed-bytes', str(args.seed_bytes)]
++        if not args.elden_bootstrap:
++            dt_command += ['--amfi-platform-only']
+         dt_command += ['--smp', str(args.smp)]
+         if args.virtio_block_image:
+             disk = args.virtio_block_image.resolve()
+@@ -701,14 +716,19 @@
+     instruction_match = snapshot['memory'][instruction_request] == kernel_data[instruction_at:instruction_at + 16].hex()
+     record['checkpoint_instructions_match'] = instruction_match
+     record['bootloader_entropy_bytes'] = args.seed_bytes
+-    passed = (instruction_match and not snapshot['bounded_timeout_interrupted'] and int(snapshot['pc'], 16) == checkpoint
+-              and tcr >> 14 & 3 == 2 and tcr >> 30 & 3 == 1
+-              and tcr & 63 == 17 and tcr >> 16 & 63 == 17 and regs['SCTLR_EL1'] & 1)
++    translation = (tcr >> 14 & 3, tcr >> 30 & 3, tcr & 63, tcr >> 16 & 63)
++    expected_translation = (0, 2, 17, 26) if args.elden_bootstrap else (2, 1, 17, 17)
++    translation_matches = translation == expected_translation and bool(regs['SCTLR_EL1'] & 1)
++    record['translation_matches'] = translation_matches
++    passed = (instruction_match and not snapshot['bounded_timeout_interrupted']
++              and int(snapshot['pc'], 16) == checkpoint and translation_matches)
+     if args.follow_init_entry:
+         entry = snapshot.get('followed_user_entry', {})
+         record['followed_init_entry'] = entry
+         passed = (instruction_match and entry.get('observed') is True
+                   and int(entry.get('pstate', '0xf'), 16) & 15 == 0)
++        if args.elden_bootstrap:
++            passed = passed and translation_matches
+         record['userland_started'] = bool(passed)
+         record['el0_steps_observed'] = sum(int(step['pstate'], 16) & 15 == 0
+                                             for step in entry.get('steps', []))
+@@ -724,9 +744,10 @@
+     record.update(checkpoint=args.checkpoint, checkpoint_va=hex(checkpoint),
+                   reached=bool(passed), snapshot='gdb-stop.json')
+     (args.output / 'result.json').write_text(json.dumps(record, indent=2) + '\n')
++    layout = '4 KiB / 47-bit TTBR0 / 38-bit TTBR1' if args.elden_bootstrap else '16 KiB / 47-bit'
+     if not passed:
+-        raise RuntimeError('kernel did not reach the requested checkpoint with 16K / 47-bit translation; inspect saved registers')
+-    print(f'PASS {args.checkpoint}: actual native kernel, 16K / 47-bit translation; QEMU only')
++        raise RuntimeError(f'kernel did not reach the requested checkpoint with {layout} translation; inspect saved registers')
++    print(f'PASS {args.checkpoint}: actual native kernel, {layout} translation; QEMU only')
+ 
+ 
+ if __name__ == '__main__':

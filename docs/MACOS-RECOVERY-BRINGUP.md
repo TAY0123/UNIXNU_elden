@@ -145,6 +145,70 @@ and exited three times. `recoveryosd` reported that `mountrecursive`
 exited with status 255. The language chooser had zero starts at the final
 sample.
 
+### Elden 4 KiB Recovery Data restore in QEMU
+
+The Elden kernel reproduced the tablet's `restore-datapartition` panic on
+QEMU. The guest used the same 25F71 BaseSystem and paired BootKC components,
+with a read-only VirtIO root disk and a disposable overlay on the separate
+ISC fixture. The guest reached the original `launchd` and ran
+`restore-datapartition`. All 18 protected `com.apple.rootless` metadata
+copies returned `EPERM`. The older 16 KiB reference passed the copy.
+
+AMFI's CoreEntitlements DER walker used `PAGE_SHIFT_CONST` to estimate
+the usable stack below SP. On Elden, a 4 KiB boundary can fall inside a
+kernel stack. The estimate returned the stack-protection error (2) for the
+original signed wrapper's `com.apple.rootless.install.heritable` query.
+Increasing the stack from 16 KiB to 32 or 64 KiB left the error unchanged.
+
+The Elden Recovery prelink now calls a stackless XNU helper that measures
+SP against the active thread or interrupt stack. The emitter checks the
+paired AMFI module and exact instruction sequence before replacing the
+page-based calculation. AMFI retains its original 128-byte threshold,
+error branch, signature validation, and entitlement policy.
+
+Build the Elden kernel with `scripts/build-elden-macos26-bootstrap.py`.
+On the reference checkout, apply the overlays in order and use the
+reference VirtIO companion produced by that build:
+
+```sh
+git apply "$ELDEN_REPO/patches/macos-recovery/elden-macos26-prelink-base.patch" \
+  "$ELDEN_REPO/patches/macos-recovery/elden-macos26-ce-stack-prelink.patch"
+media=private/apple/macos26
+.venv/bin/python scripts/emit_macos26_security.py --elden-bootstrap \
+  --recovery-components --hid-components \
+  --include-module com.apple.iokit.IOMobileGraphicsFamily \
+  --include-module com.apple.iokit.IOSurface \
+  --include-module com.apple.iokit.IOAVFamily \
+  --kernel-build "$KERNEL_BUILD" --storage-driver "$KERNEL_BUILD/storage-driver" \
+  --output "$PRELINK"
+.venv/bin/python scripts/observe_macos26_kernel.py --elden-bootstrap \
+  --kernel-build "$PRELINK" --firmware "$QEMU_EFI" \
+  --output out/elden-4k-recovery-data --checkpoint thread_setentrypoint \
+  --follow-init-entry --follow-launchd-main --continue-after-launchd-main \
+  --virtio-block-image "$media/recovery-raw" --root-volume-uuid "$ROOT_VOLUME_UUID" \
+  --root-hash-payload "$media/BaseSystem.root-hash" --qemu-development-root --qemu-no-ignition \
+  --isc-block-image "$ISC_DISK" --isc-write-overlay \
+  --qemu-memory-mib 4096 --owned-memory-mib 2048 --timeout 240 \
+  --early-console --boot-progress --let-vector-log --stream-retained-log
+```
+
+Check `stream-console.bin` for the `restore-datapartition` task and a
+subsequent `WindowServer` start. `result.json` records the verified 4 KiB
+translation regime and the first completed instruction at `launchd` main.
+The guest uses the reference's development-root and skip-Ignition settings
+with CSR `0x882`. The corresponding tablet run used CSR `0x82`.
+
+The paired QEMU run used the same native kernel, BootKC, VirtIO and media
+for both cases. The output images differed only in the eight instructions
+that calculate remaining stack space. The original emitted 18 MAC denials
+and panicked at `restore-datapartition`. The fixed image
+`d050d2f8d1e9b3e6d474cc393cd1217aa8226c529bcf143c256d354a4910dd9d`
+returned success for the signed wrapper's entitlement, copied Data with
+zero denials, and started `recoveryosd` and WindowServer.
+`mountrecursive` later reported missing `imgsrc` device information.
+The QEMU run used no display companion. A visible Recovery session and
+verification on the tablet remain open.
+
 ## Stage 4 · Elden hardware
 
 Qualify EL1 PAC and the available translation granule on the tablet
@@ -397,7 +461,10 @@ macOS-ForSheng and emit the paired Recovery module set.
 ```
 
 Set `KERNEL_BUILD` to the isolated Elden output with its matching dSYM.
-The emitter uses the linked image base for authenticated pointer
+Current Elden Recovery builds also apply
+`patches/macos-recovery/elden-macos26-ce-stack-prelink.patch` and require the
+stack helper from the current Elden bootstrap builder. The emitter uses
+the linked image base for authenticated pointer
 targets and slides the BootKC components into the same aperture.
 It emitted 15 paired modules with no unresolved instruction relocation.
 DarwinBoot preflight accepted the 109,101,056-byte kernel and its

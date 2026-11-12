@@ -121,6 +121,7 @@ def main() -> None:
         shared_region_overlay = patches / "native-4k-shared-region-slide.patch"
         cache_progress_overlay = patches / "elden-macos26-cache-progress.patch"
         buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
+        ce_stack_overlay = patches / "elden-macos26-ce-stack.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
         if args.trace_recovery_copy:
@@ -130,6 +131,7 @@ def main() -> None:
         subprocess.run(["git", "-C", source, "apply", shared_region_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", cache_progress_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", buffered_reads_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", ce_stack_overlay], check=True)
         ubc = source / "bsd/kern/ubc_subr.c"
         code = ubc.read_text()
         marker = "#include <sys/ubc_internal.h>\n"
@@ -184,6 +186,7 @@ def main() -> None:
             "native_shared_region_slide_sha256": build.sha(shared_region_overlay),
             "cache_progress_overlay_sha256": build.sha(cache_progress_overlay),
             "cache_buffered_reads_overlay_sha256": build.sha(buffered_reads_overlay),
+            "ce_stack_overlay_sha256": build.sha(ce_stack_overlay),
             "hardware_verified": False,
         }
         build.save(record)
@@ -211,7 +214,8 @@ def main() -> None:
     build.main()
     symbols = set(build.capture("xcrun", "nm", "-j", str(output / "kernel.development.sheng")).splitlines())
     for required in ("_cs_native4k_hash_cache_version", "_vm_shared_region_slide_part_v5",
-                     "_sheng_bootstrap_user_l0", "_sheng_kernel_pt_attr"):
+                     "_sheng_bootstrap_user_l0", "_sheng_kernel_pt_attr",
+                     "_sheng_ce_stack_remaining"):
         if required not in symbols:
             raise ValueError(f"the linked kernel is missing {required}")
 

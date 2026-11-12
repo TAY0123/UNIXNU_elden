@@ -1,0 +1,41 @@
+--- a/osfmk/arm64/locore.s
++++ b/osfmk/arm64/locore.s
+@@ -1407,6 +1407,38 @@
+ UNWIND_EPILOGUE
+ 
+ /*
++ * Prelinked CoreEntitlements stack probe. The caller has saved its return
++ * address. Return usable bytes below SP in x8, clobbering only x8, x9, x16
++ * and x17. Avoid a stack frame since the caller may be at its guard page.
++ */
++	.text
++	.align 2
++	.globl EXT(sheng_ce_stack_remaining)
++LEXT(sheng_ce_stack_remaining)
++	mrs		x16, TPIDR_EL1
++	cbz		x16, 2f
++	mov		x17, sp
++	ldr		x9, [x16, TH_KERNEL_STACK]
++	cbz		x9, 1f
++	sub		x8, x17, x9
++	adrp		x9, EXT(kernel_stack_size)@page
++	ldr		x9, [x9, EXT(kernel_stack_size)@pageoff]
++	cmp		x8, x9
++	b.lo		3f
++1:
++	ldr		x9, [x16, ACT_CPUDATAP]
++	cbz		x9, 2f
++	ldr		x9, [x9, CPU_INTSTACK_TOP]
++	sub		x9, x9, INTSTACK_SIZE_NUM
++	sub		x8, x17, x9
++	cmp		x8, INTSTACK_SIZE_NUM
++	b.lo		3f
++2:
++	mov		x8, xzr
++3:
++	ret
++
++/*
+  * Register state saved before we get here.
+  */
+ 	.text
