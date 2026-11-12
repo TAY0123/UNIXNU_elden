@@ -1,0 +1,27 @@
+diff --git a/iokit/Kernel/IOStartIOKit.cpp b/iokit/Kernel/IOStartIOKit.cpp
+--- a/iokit/Kernel/IOStartIOKit.cpp
++++ b/iokit/Kernel/IOStartIOKit.cpp
+@@ -51,6 +51,7 @@
+ #include <IOKit/IOKitKeysPrivate.h>
+ #include <IOKit/IOInterruptAccountingPrivate.h>
+ #include <IOKit/assert.h>
++#include <pexpert/pexpert.h>
+ #include <sys/conf.h>
+ 
+ #include "IOKitKernelInternal.h"
+@@ -74,7 +75,15 @@ IOKitInitializeTime( void )
+ {
+ 	mach_timespec_t         t;
+ 
+ 	t.tv_sec = 30;
++#if SHENG
++	// The Elden Recovery kernel has no IORTC provider. Let its boot
++	// profile bound this wait while using the standard calendar path.
++	uint32_t iortcWait = t.tv_sec;
++	if (PE_parse_boot_argn("elden-iortc-wait", &iortcWait, sizeof(iortcWait)) && iortcWait <= 30) {
++		t.tv_sec = iortcWait;
++	}
++#endif
+ 	t.tv_nsec = 0;
+ 
+ 	IOService::waitForService(

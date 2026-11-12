@@ -667,10 +667,26 @@ A separate eight-CPU QEMU observation on kernel `0FA14065` reached
 `IOKitInitializeTime` at 10.324 seconds and `clock_initialize_calendar`
 at 40.358 seconds. The matching XNU source waits up to 30 seconds for
 `IORTC` between those calls. The 25F71 SHENG Link Lab port measured a
-similar saving on its tablet after adding a clock provider. Elden can
-measure this interval separately from the much later chooser wait.
+similar saving on its tablet after adding a clock provider.
 [Paired XNU time initialization](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/iokit/Kernel/IOStartIOKit.cpp) ·
 [SHENG RTC result](https://github.com/mataht/sheng-macos-link-lab/blob/be7c6c4b8684492870a95d316e8fac86db4cb0a1/docs/technical-route.md#L133-L137)
+
+The Elden 4 KiB profile accepts `elden-iortc-wait` in seconds from 0 to
+30. With 0, IOKit checks for an existing resource and proceeds directly
+to standard calendar initialization. A paired eight-CPU QEMU test of
+kernel `A9F958A7-4FEE-39B3-A00F-558319B00609` measured 30.036 seconds
+without the argument and 0.181 seconds with `elden-iortc-wait=0`.
+The same immediate variant mounted BaseSystem and executed
+`/sbin/launchd` as PID 1 in a follow-up run. The setting controls
+startup latency. Valid tablet UTC still requires a clock source.
+
+The checked tablet image is
+`~/elden-ptn3222/elden-4k-recovery-iortc-ram.img`. Use the existing
+**Capture Recovery GUI Failure (8 cores)** entry to exercise the
+shortened wait. DarwinBoot preflight, packed image verification and
+MacBook readback passed with image SHA-256
+`ede555b69d94ef90070c6458fd89e90ea85da6b2db6dfc9ae2b9ec2f36ba7942`.
+Tablet timing and the visible chooser remain unverified with this image.
 
 The closest Recovery display comparison is the paired 25F71 SHENG build
 40305570169. It showed the language list and accepted a selection in QEMU.
@@ -679,6 +695,16 @@ empty list. Compare the QEMU service sequence and presented pixels against
 that build. On Elden, require visible language controls and a working
 selection as the checkpoint after the first software frame.
 [SHENG 25F71 test record](https://github.com/CrossDarwin/macOS-ForSheng/blob/ca57db73c066162323e77156a9f0f1d72b1de4ff/docs/status.md)
+
+The SHENG Link Lab history records two calls to
+`IOBluetoothHostController defaultController` inside the same 25F71
+chooser capability check. An experiment selecting the no-controller
+path at the first call still waited at the second. Its later QEMU
+capture passed both and advanced to AppKit and window presentation.
+This identifies a second controller query to account for in Elden's
+chooser trace. The virtual controller's successful IOKit lookups cover
+an earlier step than the pairing-agent reply.
+[SHENG controller comparison](https://github.com/mataht/sheng-macos-link-lab/blob/be7c6c4b8684492870a95d316e8fac86db4cb0a1/docs/history/status-before-panic-qr.md#L2164-L2194)
 
 The AYN Odin 3 port reports an iPadOS lock screen with eight active
 SM8750 cores using firmware GOP and software rotation. Its presentation
