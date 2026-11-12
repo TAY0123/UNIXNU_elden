@@ -289,18 +289,19 @@ evidence = [
 id = "gpu"
 status = "host-verified"
 components = []
-paths = ["drivers/Adreno830/**", "scripts/build-elden-macos26-bootstrap.py", "package/elden-macos26-adreno830-unixnu.toml", "docs/**"]
+paths = ["drivers/Adreno830/**", "soc/sm8750/include/Sm8750AdrenoResources.h", "scripts/build-elden-macos26-bootstrap.py", "package/elden-macos26-adreno830-unixnu.toml", "docs/**"]
 inputs = ["SM8750 Adreno 830 chip ID 0x44050000.", "GPU, GMU and GPU SMMU resources measured from the tablet's Linux device tree.", "Matched gen80000 GMU, SQE, AQE and ZAP firmware identities."]
-configuration = ["The GMU loader reuses AdrenoFirmware and constrains destinations to SM8750 GMU address ranges.", "An optional ARM64e build embeds the pinned GMU image and enables validation via elden-adreno830-probe=1."]
-procedure = ["Validate the full firmware image before invoking the load transport.", "Use the RAM probe to confirm the same checks under XNU.", "Establish GMU power, clocks, SMMU ownership and HFI before enabling submission."]
-findings = ["The tablet's Linux DRM and Turnip stack identifies Adreno 830.", "The shared loader validated the four expected firmware blocks on the build host and on the tablet under Linux and XNU."]
+configuration = ["The GMU loader reuses AdrenoFirmware and constrains destinations to SM8750 GMU address ranges.", "The reset-held transfer checks 4 KiB IOVA backing, writes and reads back TCM, and synchronizes instruction-cache and scratch payloads for device access.", "An optional ARM64e build embeds the pinned GMU image. elden-adreno830-probe=1 validates it and elden-adreno830-gpucc=1 reads GPUCC handoff state."]
+procedure = ["Validate the full firmware image and check every destination before transfer.", "Read the GPUCC CX power and branch status on a dedicated RAM probe.", "Establish SM8750 power and clock control and ArmSmmu4K ownership of GMU SID 5 before calling the transfer.", "Bring up A8xx HFI before enabling submission."]
+findings = ["The tablet's Linux DRM and Turnip stack identifies Adreno 830.", "The shared loader validated the four expected firmware blocks on the build host and on the tablet under Linux and XNU.", "The tablet DT places the GMU at 0x03d37000 with a 0x68000-byte aperture. ITCM, DTCM and CM3 reset are at offsets 0x36000, 0x3a000 and 0x47000 within that aperture."]
 completion = ["GMU firmware starts and responds on HFI under XNU.", "GPU submissions, fences and mapping work.", "A known image renders and Metal presentation is visible."]
-limits = ["The XNU probe only validates firmware and counts blocks.", "Native GMU power, firmware transfer, HFI, submission and Metal are pending."]
-next_action = ["Bring up the SM8750 GMU power, clock and SMMU paths before loading firmware into the controller."]
+limits = ["The new GPUCC probe and reset-held transfer await tablet verification.", "The transfer needs a powered, clocked and exclusively owned GMU and pinned IOVA backing. The XNU boot hook currently calls the diagnostics only.", "Native power and clock control, GMU SMMU routing, firmware startup, HFI, submission and Metal remain pending."]
+next_action = ["Record inherited GPUCC CX and clock state with the opt-in RAM probe.", "Implement RPMh and clock ownership and bind the GMU stream to an ArmSmmu4K context before calling the transfer on Elden."]
 evidence = [
   { kind = "device", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "RAM-boot elden-adreno830-usb-ram.img with elden-adreno830-probe=1 and read XNU USB", revision = "34ab2d1d134c589d16f9a56a03e2fc902db84b23", result = "XNU on the physical tablet validated four GMU firmware blocks containing 88,656 payload bytes. The timed run returned to bootloader fastboot on slot A." },
   { kind = "device", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "vulkaninfo --summary and run test-gmu against the installed firmware over Linux SSH", revision = "a6190077af83a6e02645a6b02a70f86c43696e3e", result = "The physical tablet reports Adreno 830 via Turnip. The loader test passed against the installed 88896-byte GMU image. These results are from Linux." },
   { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "compile the GMU loader with sanitizers and build the opt-in 4 KiB ARM64e probe", revision = "a6190077af83a6e02645a6b02a70f86c43696e3e", result = "Firmware validation and refusal cases passed. The linked kernel, prelink, RAM image and MacBook copy passed host checks. XNU runtime remains unverified." },
+  { kind = "host", reference = "drivers/Adreno830/test-transfer.c", command = "Run test_gmu and test-transfer with ASan and UBSan against the pinned gen80000_gmu.bin, compile EldenAdreno830.c for arm64e-apple-macos26.5 and run the XNU wrapper with --prepare-only", revision = "3f9b3fb51b0c6917d3b668dc7ed8977b112ebec7", result = "Base revision plus reset-held transfer. The model verified 139 TCM writes and readbacks, 88100 instruction-cache bytes, scratch and failure cases. The ARM64e object exposes the transfer and 4 KiB XNU preparation stages the optional GPUCC hook." },
 ]
 
 [[area]]

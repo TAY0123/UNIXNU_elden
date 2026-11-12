@@ -85,7 +85,7 @@ def main() -> None:
     parser.add_argument("--build-gop-display", action="store_true",
                         help="include the Elden framebuffer in the UFS companion")
     parser.add_argument("--adreno830-gmu-firmware", type=Path,
-                        help="include the opt-in Elden GMU image validation probe")
+                        help="include the Elden GMU validation and GPUCC probes")
     parser.add_argument("--recovery-usb-core", type=Path,
                         help="directory containing the pinned DWC3 core for the Recovery USB console")
     parser.add_argument("--recovery-graphics-cache", type=Path,
@@ -213,6 +213,7 @@ def main() -> None:
             inputs = [kit / name for name in ("AdrenoFirmware.c", "AdrenoFirmware.h")]
             inputs.extend(driver / name for name in
                           ("EldenAdreno830.c", "EldenAdreno830.h", "EldenAdreno830Boot.inc"))
+            inputs.append(DEVICE / "soc/sm8750/include/Sm8750AdrenoResources.h")
             for item in inputs:
                 write_if_changed(pexpert / item.name, item.read_bytes())
             rows = (", ".join(f"0x{byte:02x}" for byte in image[i:i + 16])

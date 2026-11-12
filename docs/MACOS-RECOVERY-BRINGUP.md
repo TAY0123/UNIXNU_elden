@@ -2514,9 +2514,89 @@ bytes. The 60-second Recovery deadline then returned the tablet to
 bootloader fastboot on slot A. The r60 RAM image SHA-256 is
 `bdafa44799b71e6d94114f18d992dfd59d830fd818a6e53d31d56a717baf02ab`.
 
-Hardware bring-up requires GMU power and clock control, an owned GPU
-SMMU context, and a bounded GMU boot and HFI handshake. A command ring,
-fences, rendering, and the macOS Metal interface follow those milestones.
+#### Reset-held firmware transfer
+
+`EldenAdreno830TransferGmu` validates the complete image and checks its
+backing before any register access. With CM3 reset asserted, it writes and
+reads back little-endian ITCM and DTCM words and copies the other payloads
+into CPU mappings at the fixed GMU IOVAs. The caller supplies device cache
+synchronization and ordered MMIO. Reset is checked again after readback.
+
+The saved tablet DT puts the GMU at `0x03d37000` with size `0x68000`.
+The Linux register definitions use dword indices relative to the GPU base
+`0x03d00000`, which gives physical addresses `0x03d6d000` for ITCM,
+`0x03d71000` for DTCM, and `0x03d7e000` for CM3 reset. The upstream SM8750
+DTS starts its narrower GMU resource at `0x03d6c000`. The driver uses the
+offsets within the tablet's saved aperture.
+[Linux GMU transfer](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/gpu/drm/msm/adreno/a6xx_gmu.c) ·
+[GMU registers](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/gpu/drm/msm/registers/adreno/a6xx_gmu.xml) ·
+[SM8750 DTS](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/arch/arm64/boot/dts/qcom/sm8750.dtsi)
+
+The transfer's owned backing interface matches the instruction-cache and
+dummy allocation ranges used by `NativeAdrenoGmuContext`. A future Elden
+GMU owner can adapt that `ArmSmmu4K` path for the GPU SMMU at `0x03da0000`
+and GMU stream 5. The SM8550 cold start binds its own firmware, register
+windows and A740 startup sequence. Elden needs the A8xx sequence and
+target-specific power votes before it can use the shared HFI helpers.
+Turnip's Darwin backend connects through `NativeAdrenoABI` after the
+Elden kernel service can expose A830 device info, BO mapping, submission
+and fences. That service is the integration point for the AdrenoMetal
+frontend.
+[SM8550 cold start](https://github.com/UniXNU/UniXNU-sm8550-common/blob/a9f45dc60c035084b95463781538380f4c3606c9/kits/Sm8550Platform/ShengGmu.c) ·
+[Adreno740 GMU context](https://github.com/UniXNU/Adreno740/blob/6fa7bae2a5b3b523e790eb3e0348af4d98969e4d/NativeAdrenoGmuContext.cpp) ·
+[Turnip Darwin backend](https://github.com/UniXNU/UniXNU/blob/95ad78129203442c3c14c02336303adbddf8d0a3/patches/mesa/turnip-darwin-kmd.patch)
+
+Host tests used the pinned firmware and checked 139 TCM writes and
+readbacks, 88,100 instruction-cache bytes, scratch with a synthetic image,
+and refusal on invalid backing, reset, I/O failure and readback mismatch.
+The transfer compiled to an ARM64e Mach-O object and the 4 KiB XNU wrapper
+staged the opt-in probe. Run the host checks with the local firmware path
+in `GMU_IMAGE`.
+
+```sh
+kit=../macOS-ForSheng/UniXNU/kits/AdrenoFirmware
+mkdir -p out/gmu-tests
+for test in test_gmu test-transfer; do
+  clang -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined \
+    -I "$kit" -I soc/sm8750/include "$kit/AdrenoFirmware.c" \
+    drivers/Adreno830/EldenAdreno830.c "drivers/Adreno830/$test.c" \
+    -o "out/gmu-tests/$test"
+  "out/gmu-tests/$test" "$GMU_IMAGE"
+done
+```
+
+#### GPUCC handoff probe
+
+Use the paired Recovery build inputs on the Mac build host and a fresh
+output name. `GMU_IMAGE` points to the pinned local `gen80000_gmu.bin`.
+
+```sh
+python3 scripts/build-elden-macos26-bootstrap.py \
+  --sheng-root "$SHENG_ROOT" --kdk-root "$KDK_ROOT" \
+  --output-name elden-macos26-adreno830-gpucc --elden-ufs-device "$PWD" \
+  --elden-recovery-contract "$RECOVERY_CONTRACT" --build-gop-display \
+  --recovery-usb-core "$USB_CORE" --adreno830-gmu-firmware "$GMU_IMAGE"
+```
+
+Use that kernel in the paired Recovery prelink and RAM image recipe.
+Append `elden-adreno830-gpucc=1` to the selected USB Recovery entry's
+arguments to read the GPUCC CX page. Include `elden-adreno830-probe=1`
+to log the firmware validation in the same run. The expected new line
+starts with `ELDEN-A830: GPUCC CX=` and gives the raw CX GDSCR, hardware
+status and AHB, CX GMU, CXO and hub clock branch registers. Bit 31 of
+`HW` is `PWR_ON`, and bit 31 of a clock branch is `CLK_OFF`. These values
+describe the handoff at the time of the read. Qualification of the RPMh
+votes, GMU clock rate, GMU MMIO and SMMU ownership requires further work.
+A read of an inaccessible GPUCC page can fault. The probe logs a
+breadcrumb before reading the registers.
+[SM8750 GPUCC](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/gpucc-sm8750.c) ·
+[GDSC status](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/gdsc.c) ·
+[Clock branch status](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/clk-branch.c)
+
+The new probe and transfer await tablet verification. A power and clock
+owner and a verified GMU SMMU context are required before calling the
+transfer. Boot configuration, firmware ready, HFI, command submission,
+fences and Metal presentation remain open.
 
 ### Installation target and hardware inventory
 
