@@ -573,6 +573,16 @@ comparison does not prove which boot-mode source the framework selected;
 its original implementation checks the ASP sysctl before the NVRAM key
 and the guest-mode environment fallback. No branch edits were applied.
 
+A read-only QEMU trace then observed the original
+`+[ROSEnvironment recoveryBootMode]` return. The observer took the cache
+slide from the live shared region, checked the original instruction at
+the return checkpoint, and recorded `nil` twice in `recoveryosd` PID 72.
+The same boot parsed both CHRP regions and started Boot Picker PID 168;
+the Language Chooser remained unobserved. Thus the supplied NVRAM value
+has not been demonstrated to reach this consumer. The next check is the
+original NVRAM lookup and conversion path, without forcing a return value
+or changing the Recovery executable.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its
