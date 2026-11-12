@@ -1,0 +1,64 @@
+[kernel]
+architecture = "arm64e"
+page_bytes = 4096
+arm64_large_memory = false
+link_address = "0xfffffff007004000"
+
+# Applied by the reference builder to the original XNU source.
+platform_patches = [
+  "elden-macos26-4k-platform.patch",
+  "elden-macos26-4k-user-va.patch",
+  "elden-macos26-small-kmem.patch",
+  "elden-macos26-cpu-affinity.patch",
+]
+
+# Applied in order after the reference builder has staged its source headers.
+# The cache pipeline builds on the signature, progress and read-path patches.
+[[overlay]]
+patch = "elden-macos26-bootstrap-trace.patch"
+record = "bootstrap_trace_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-pid1-trace.patch"
+record = "pid1_trace_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-recovery-copy-trace.patch"
+record = "recovery_copy_trace_overlay_sha256"
+optional = "trace_recovery_copy"
+
+[[overlay]]
+patch = "elden-macos26-47bit-user-va.patch"
+record = "user_va_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-recovery-ignition.patch"
+record = "recovery_ignition_overlay_sha256"
+
+[[overlay]]
+patch = "native-4k-signature-hash-cache.patch"
+record = "native_signature_hash_cache_sha256"
+
+[[overlay]]
+patch = "native-4k-shared-region-slide.patch"
+record = "native_shared_region_slide_sha256"
+
+[[overlay]]
+patch = "elden-macos26-cache-progress.patch"
+record = "cache_progress_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-cache-buffered-reads.patch"
+record = "cache_buffered_reads_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-cache-pipeline.patch"
+record = "cache_pipeline_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-ce-stack.patch"
+record = "ce_stack_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-progress-panel.patch"
+record = "progress_panel_overlay_sha256"

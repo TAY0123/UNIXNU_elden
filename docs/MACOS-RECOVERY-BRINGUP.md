@@ -167,6 +167,35 @@ page-based calculation. AMFI retains its original 128-byte threshold,
 error branch, signature validation, and entitlement policy.
 
 Build the Elden kernel with `scripts/build-elden-macos26-bootstrap.py`.
+The [Elden 4 KiB profile](../configs/elden-macos26-4k.toml) declares
+the ARM64e build settings and ordered overlays. The shared SHENG
+builder stages XNU and its headers. The Elden profile then supplies
+its native page layout, macOS signature and shared-cache handling,
+cache verification pipeline, and Recovery diagnostics. Board wiring
+comes from the Elden and SM8750 descriptions.
+
+To check the staged sources on Linux or macOS without a KDK:
+
+```sh
+python3 scripts/build-elden-macos26-bootstrap.py \
+  --sheng-root ../macOS-ForSheng --output-name elden-4k-profile --prepare-only
+```
+
+Run the same command again to check an existing source tree without
+rewriting unchanged files. The normal kernel build uses the same
+profile and adds `--kdk-root` in place of `--prepare-only`. Use a
+fresh output name when moving from a legacy build tree or changing
+the profile's applied patches.
+
+The first profile build reproduced 6,142 prepared files byte for byte.
+Repeated preparation preserved every source timestamp, including with
+the USB console and optional Adreno firmware probe. The MacBook linked
+the ARM64e kernel with the USB console and the read-only UFS/GOP
+companion. The paired 30-module prelink, DarwinBoot preflight, and raw
+Android v4 payload readback passed. The MacBook RAM test image is
+`~/elden-ptn3222/elden-macos26-4k-profile-ram.img` with SHA-256
+`a8e9933b9ba7d156b37b68b83631886439eab535afffd6a326de6e1c8324dfdb`.
+
 On the reference checkout, apply the overlays in order and use the
 reference VirtIO companion produced by that build:
 

@@ -3,13 +3,31 @@
 
 import argparse
 import hashlib
+import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
+import tomllib
 
 
-def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
+DEVICE = Path(__file__).resolve().parents[1]
+PROFILE = DEVICE / "configs/elden-macos26-4k.toml"
+PATCHES = DEVICE / "patches/macos-recovery"
+
+# These reference headers are staged before the Elden overlays modify them.
+OVERLAID_HEADERS = {
+    "osfmk/arm64/sheng_bootstrap_trace.h",
+    "osfmk/arm64/sheng_early_exception.h",
+    "pexpert/arm/pe_sheng_log.h",
+}
+
+
+def write_if_changed(path: Path, content: bytes) -> None:
+    if not path.is_file() or path.read_bytes() != content:
+        path.write_bytes(content)
+
+
+def stage_recovery_usb(source: Path, core: Path, apply_overlay: bool) -> dict:
     core_files = {
         "Dwc3.c": "16681b8e405b0d3862cb3289005f210b80b5bea2cc33adc26b2258d18ab9cea6",
         "Dwc3.h": "7731dddfcecb5bf2b7fe44054bae4db786924d20f767ece43d84f82e8c84d690",
@@ -19,7 +37,7 @@ def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
     for name, expected in core_files.items():
         if hashlib.sha256((core / name).read_bytes()).hexdigest() != expected:
             raise ValueError(f"Recovery USB core differs from the pinned input: {name}")
-    adapter = device / "scripts/driver-patches"
+    adapter = DEVICE / "scripts/driver-patches"
     iokit = source / "iokit/Kernel"
     files = {iokit / name: adapter / name for name in (
         "EldenRecoveryUsb.cpp", "EldenUsbDebugXnu.inc", "EldenUfsIdentity.h",
@@ -27,23 +45,25 @@ def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
     files.update({iokit / name: core / name for name in ("Dwc3.h", "Dwc3Regs.h", "LICENSE.m1n1")})
     files[iokit / "EldenUsbDwc3.c"] = core / "Dwc3.c"
     files[source / "pexpert/arm/pe_elden_usb_log.h"] = adapter / "EldenRecoveryUsbLog.h"
-    files[iokit / "EldenUsbResources.h"] = device / "soc/sm8750/include/EldenUsbResources.h"
-    files[iokit / "EldenPonResources.h"] = device / "soc/sm8750/include/EldenPonResources.h"
+    files[iokit / "EldenUsbResources.h"] = DEVICE / "soc/sm8750/include/EldenUsbResources.h"
+    files[iokit / "EldenPonResources.h"] = DEVICE / "soc/sm8750/include/EldenPonResources.h"
     for destination, path in files.items():
-        shutil.copyfile(path, destination)
-    overlay = device / "patches/macos-recovery/elden-macos26-usb-console.patch"
-    subprocess.run(["git", "-C", source, "apply", overlay], check=True)
+        write_if_changed(destination, path.read_bytes())
     log = source / "pexpert/arm/pe_sheng_log.h"
-    code = log.read_text()
-    marker = '#include "pe_sheng_boot_progress_kernel.h"\n'
-    if code.count(marker) != 1:
-        raise ValueError("expected one SHENG boot-progress header")
-    panic_end = '    sheng_log_clean(r, sizeof(*r));\n}\n#endif\n'
-    if code.count(panic_end) != 1:
-        raise ValueError("expected one end of the SHENG panic recorder")
-    code = code.replace(marker, marker + '#include "pe_elden_usb_log.h"\n')
-    log.write_text(code.replace(panic_end, '    sheng_log_clean(r, sizeof(*r));\n'
-                                '    elden_usb_capture_panic(message);\n}\n#endif\n'))
+    if apply_overlay:
+        subprocess.run(["git", "-C", source, "apply", PATCHES / "elden-macos26-usb-console.patch"],
+                       check=True)
+        code = log.read_text()
+        marker = '#include "pe_sheng_boot_progress_kernel.h"\n'
+        if code.count(marker) != 1:
+            raise ValueError("expected one SHENG boot-progress header")
+        panic_end = '    sheng_log_clean(r, sizeof(*r));\n}\n#endif\n'
+        if code.count(panic_end) != 1:
+            raise ValueError("expected one end of the SHENG panic recorder")
+        code = code.replace(marker, marker + '#include "pe_elden_usb_log.h"\n')
+        log.write_text(code.replace(panic_end, '    sheng_log_clean(r, sizeof(*r));\n'
+                                    '    elden_usb_capture_panic(message);\n}\n#endif\n'))
+    subprocess.run(["git", "-C", source, "add", "-N", "--", *files], check=True)
     return {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in (*files, log)}
 
@@ -51,7 +71,9 @@ def stage_recovery_usb(source: Path, device: Path, core: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sheng-root", type=Path, required=True)
-    parser.add_argument("--kdk-root", type=Path, required=True)
+    parser.add_argument("--kdk-root", type=Path)
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="stage and verify the patched XNU source without a KDK or compiler")
     parser.add_argument("--output-name", default="elden-macos26-4k-bootstrap",
                         help="build directory name under the reference checkout's out directory")
     parser.add_argument("--elden-ufs-device", type=Path,
@@ -68,6 +90,8 @@ def main() -> None:
                         help="trace permission failures in the Recovery Data template copy")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
     args = parser.parse_args()
+    if not args.prepare_only and args.kdk_root is None:
+        parser.error("--kdk-root is required for compilation")
     if args.build_gop_display and args.elden_ufs_device is None:
         parser.error("--build-gop-display requires --elden-ufs-device")
     if args.elden_recovery_contract is not None and args.elden_ufs_device is None:
@@ -81,118 +105,120 @@ def main() -> None:
         parser.error("--output-name must be a single directory name")
     output = root / "out" / args.output_name
     output.mkdir(parents=True, exist_ok=True)
-    patches = Path(__file__).resolve().parents[1] / "patches/macos-recovery"
-    staged_patches = []
-    for name in ("elden-macos26-4k-user-va.patch", "elden-macos26-small-kmem.patch",
-                 "elden-macos26-cpu-affinity.patch"):
-        staged_patch = output / name
-        shutil.copyfile(patches / name, staged_patch)
-        staged_patches.append(staged_patch)
+    source = output / "source"
+    profile = tomllib.loads(PROFILE.read_text())
+    kernel = profile["kernel"]
+    platform_patches = [PATCHES / name for name in kernel["platform_patches"]]
+    overlays = {
+        entry["record"]: PATCHES / entry["patch"]
+        if "optional" not in entry or getattr(args, entry["optional"]) else None
+        for entry in profile["overlay"]
+    }
+    overlay_hashes = {key: build.sha(path) if path else None for key, path in overlays.items()}
+    profile_inputs = {
+        "profile_sha256": build.sha(PROFILE),
+        "wrapper_sha256": build.sha(Path(__file__)),
+        "platform_patches": {path.name: build.sha(path) for path in platform_patches},
+        "overlays": overlay_hashes,
+        "usb_overlay_sha256": build.sha(PATCHES / "elden-macos26-usb-console.patch")
+        if args.recovery_usb_core else None,
+        "adreno830_firmware_sha256": build.sha(args.adreno830_gmu_firmware)
+        if args.adreno830_gmu_firmware else None,
+    }
+    previous_path = output / "build.json"
+    previous = json.loads(previous_path.read_text()) if previous_path.is_file() else None
+    if previous is not None and previous.get("elden_profile_inputs") != profile_inputs:
+        raise ValueError("output contains a different Elden source profile; choose a fresh --output-name")
+    if previous is None and source.exists():
+        raise ValueError("output has an incomplete source tree; choose a fresh --output-name")
+
     prepare = build.prepare
     run = build.run
+    stage_file = build.stage_file
     armcpu_patch = output / "elden-armcpu-inline-asm-and-affinity.patch"
-    armcpu_patch.write_bytes(build.CPU_ASM_PATCH.read_bytes() + b"\n" +
-                            (patches / "elden-macos26-armcpu-affinity.patch").read_bytes())
+    write_if_changed(armcpu_patch, build.CPU_ASM_PATCH.read_bytes() + b"\n" +
+                     (PATCHES / "elden-macos26-armcpu-affinity.patch").read_bytes())
     build.CPU_ASM_PATCH = armcpu_patch
+    staged_platform_patches = []
+    for patch in platform_patches:
+        destination = output / patch.name
+        write_if_changed(destination, patch.read_bytes())
+        staged_platform_patches.append(destination)
+
+    staged_headers = {}
+
+    def stage_elden_file(origin, destination):
+        path = Path(destination)
+        if path.is_relative_to(source):
+            name = path.relative_to(source).as_posix()
+            if name in OVERLAID_HEADERS:
+                digest = build.sha(Path(origin))
+                staged_headers[name] = digest
+                if previous is not None:
+                    if previous["elden_staged_header_inputs"].get(name) != digest:
+                        raise ValueError(f"reference header changed: {name}; choose a fresh --output-name")
+                    return
+        stage_file(origin, destination)
 
     def prepare_elden():
         build.OUT = output
-        patch = root / "platform/sheng/macos26/patches/0007-native-macos-page-layout.patch"
-        original = patch.read_text()
-        start = original.index("--- a/pexpert/pexpert/arm64/SHENG.h\n")
-        end = original.index("--- a/", start + 1)
-        if "+#define __ARM_16K_PG__" not in original[start:end]:
-            raise ValueError("reference SHENG page layout has changed")
-        filtered = output / "0007-elden-4k-page-layout.patch"
-        filtered.write_text(original[:start] + original[end:])
-        build.PATCHES[build.PATCHES.index(patch)] = filtered
-        build.PATCHES.extend(staged_patches)
-
+        build.PATCHES.extend(staged_platform_patches)
         record = prepare()
-        header = output / "source/pexpert/pexpert/arm64/SHENG.h"
+        if staged_headers.keys() != OVERLAID_HEADERS:
+            raise ValueError("reference builder did not stage the expected headers")
+        header = source / "pexpert/pexpert/arm64/SHENG.h"
         if "__ARM_16K_PG__" in header.read_text():
             raise ValueError("staged SHENG source still requests the 16 KiB granule")
-        trace_overlay = patches / "elden-macos26-bootstrap-trace.patch"
-        pid1_overlay = patches / "elden-macos26-pid1-trace.patch"
-        copy_trace_overlay = patches / "elden-macos26-recovery-copy-trace.patch"
-        user_va_overlay = patches / "elden-macos26-47bit-user-va.patch"
-        ignition_overlay = patches / "elden-macos26-recovery-ignition.patch"
-        signature_overlay = patches / "native-4k-signature-hash-cache.patch"
-        shared_region_overlay = patches / "native-4k-shared-region-slide.patch"
-        cache_progress_overlay = patches / "elden-macos26-cache-progress.patch"
-        buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
-        cache_pipeline_overlay = patches / "elden-macos26-cache-pipeline.patch"
-        progress_panel_overlay = patches / "elden-macos26-progress-panel.patch"
-        ce_stack_overlay = patches / "elden-macos26-ce-stack.patch"
-        source = output / "source"
-        subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
-        if args.trace_recovery_copy:
-            subprocess.run(["git", "-C", source, "apply", copy_trace_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", user_va_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", ignition_overlay, signature_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", shared_region_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", cache_progress_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", buffered_reads_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", cache_pipeline_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", ce_stack_overlay], check=True)
-        subprocess.run(["git", "-C", source, "apply", progress_panel_overlay], check=True)
-        ubc = source / "bsd/kern/ubc_subr.c"
-        code = ubc.read_text()
-        marker = "#include <sys/ubc_internal.h>\n"
-        if code.count(marker) != 1:
-            raise ValueError("expected one UBC internal header include")
-        ubc.write_text(code.replace(marker, "#define XNU_NATIVE_CS_HASH_CACHE 1\n" + marker))
+        if previous is None:
+            for patch in filter(None, overlays.values()):
+                subprocess.run(["git", "-C", source, "apply", patch], check=True)
         if args.recovery_usb_core is not None:
             record["elden_recovery_usb_sources"] = stage_recovery_usb(
-                source, patches.parents[1], args.recovery_usb_core.resolve(strict=True))
+                source, args.recovery_usb_core.resolve(strict=True), previous is None)
         if args.adreno830_gmu_firmware is not None:
             image = args.adreno830_gmu_firmware.read_bytes()
             digest = hashlib.sha256(image).hexdigest()
             if digest != "1ad8175e6cd01ea76c64d20b83600038c52dd29844b48d57b11b769b038863a5":
                 raise ValueError("expected the pinned Elden gen80000_gmu.bin")
-            driver = patches.parents[1] / "drivers/Adreno830"
+            driver = DEVICE / "drivers/Adreno830"
             kit = root / "UniXNU/kits/AdrenoFirmware"
             pexpert = source / "pexpert/arm"
             inputs = [kit / name for name in ("AdrenoFirmware.c", "AdrenoFirmware.h")]
             inputs.extend(driver / name for name in
                           ("EldenAdreno830.c", "EldenAdreno830.h", "EldenAdreno830Boot.inc"))
             for item in inputs:
-                shutil.copyfile(item, pexpert / item.name)
+                write_if_changed(pexpert / item.name, item.read_bytes())
             rows = (", ".join(f"0x{byte:02x}" for byte in image[i:i + 16])
                     for i in range(0, len(image), 16))
-            (pexpert / "EldenAdreno830GmuImage.h").write_text(
-                "static const uint8_t elden_gmu_image[] = {\n    " + ",\n    ".join(rows) + "\n};\n")
-            pe_init = pexpert / "pe_init.c"
-            code = pe_init.read_text()
-            marker = "void\nPE_lockdown_iokit(void)\n{\n"
-            if code.count(marker) != 1:
-                raise ValueError("expected one PE_lockdown_iokit definition")
-            pe_init.write_text(code.replace(marker, '#include "EldenAdreno830Boot.inc"\n\n'
-                                               + marker + "\telden_adreno830_probe();\n"))
+            image_header = pexpert / "EldenAdreno830GmuImage.h"
+            write_if_changed(image_header, ("static const uint8_t elden_gmu_image[] = {\n    " +
+                                            ",\n    ".join(rows) + "\n};\n").encode())
+            if previous is None:
+                pe_init = pexpert / "pe_init.c"
+                code = pe_init.read_text()
+                marker = "void\nPE_lockdown_iokit(void)\n{\n"
+                if code.count(marker) != 1:
+                    raise ValueError("expected one PE_lockdown_iokit definition")
+                pe_init.write_text(code.replace(marker, '#include "EldenAdreno830Boot.inc"\n\n'
+                                                   + marker + "\telden_adreno830_probe();\n"))
+            subprocess.run(["git", "-C", source, "add", "-N", "--", image_header,
+                            *(pexpert / item.name for item in inputs)], check=True)
             record["elden_adreno830_probe"] = {
                 "firmware_sha256": digest,
                 "sources_sha256": {item.name: build.sha(item) for item in inputs},
             }
         source_diff = subprocess.check_output(["git", "-C", source, "diff", "HEAD", "--binary"])
         record["source_diff_sha256"] = hashlib.sha256(source_diff).hexdigest()
+        record["kernel_page_bytes"] = kernel["page_bytes"]
+        record["elden_profile_inputs"] = profile_inputs
+        record["elden_staged_header_inputs"] = staged_headers
         record["elden_bootstrap"] = {
-            "page_bytes": 4096,
-            "arm64_large_memory": False,
-            "link_address": "0xfffffff007004000",
-            "bootstrap_trace_overlay_sha256": build.sha(trace_overlay),
+            "page_bytes": kernel["page_bytes"],
+            "arm64_large_memory": kernel["arm64_large_memory"],
+            "link_address": kernel["link_address"],
+            **overlay_hashes,
             "bootstrap_trace_header_sha256": build.sha(
                 source / "osfmk/arm64/sheng_bootstrap_trace.h"),
-            "pid1_trace_overlay_sha256": build.sha(pid1_overlay),
-            "recovery_copy_trace_overlay_sha256": build.sha(copy_trace_overlay) if args.trace_recovery_copy else None,
-            "user_va_overlay_sha256": build.sha(user_va_overlay),
-            "recovery_ignition_overlay_sha256": build.sha(ignition_overlay),
-            "native_signature_hash_cache_sha256": build.sha(signature_overlay),
-            "native_shared_region_slide_sha256": build.sha(shared_region_overlay),
-            "cache_progress_overlay_sha256": build.sha(cache_progress_overlay),
-            "cache_buffered_reads_overlay_sha256": build.sha(buffered_reads_overlay),
-            "cache_pipeline_overlay_sha256": build.sha(cache_pipeline_overlay),
-            "progress_panel_overlay_sha256": build.sha(progress_panel_overlay),
-            "ce_stack_overlay_sha256": build.sha(ce_stack_overlay),
             "hardware_verified": False,
         }
         build.save(record)
@@ -201,15 +227,21 @@ def main() -> None:
     def run_elden(command, *run_args, **kwargs):
         # Change only the make configuration for this isolated build.
         flags = {
-            "ARM64_LARGE_MEMORY=1": "ARM64_LARGE_MEMORY=0",
-            "ARM64_LINK_ADDR=0xfffffe0007004000": "ARM64_LINK_ADDR=0xfffffff007004000",
+            "ARM64_LARGE_MEMORY=1": f"ARM64_LARGE_MEMORY={int(kernel['arm64_large_memory'])}",
+            "ARM64_LINK_ADDR=0xfffffe0007004000": f"ARM64_LINK_ADDR={kernel['link_address']}",
         }
         return run([flags.get(item, item) for item in command], *run_args, **kwargs)
 
     build.prepare = prepare_elden
     build.run = run_elden
-    sys.argv = [sys.argv[0], "--arch", "arm64e", "--link-kernel",
-                "--kdk-root", str(args.kdk_root.resolve(strict=True)), "-j", str(args.jobs)]
+    build.stage_file = stage_elden_file
+    sys.argv = [sys.argv[0], "--arch", kernel["architecture"]]
+    if args.prepare_only:
+        sys.argv.append("--prepare-only")
+        build.main()
+        return
+    sys.argv.extend(["--link-kernel", "--kdk-root", str(args.kdk_root.resolve(strict=True)),
+                     "-j", str(args.jobs)])
     if args.elden_ufs_device is not None:
         device = args.elden_ufs_device.resolve(strict=True)
         sys.argv.extend(["--build-ufs-driver", "--elden-ufs-device", str(device)])

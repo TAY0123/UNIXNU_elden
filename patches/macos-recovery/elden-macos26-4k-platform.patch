@@ -1,0 +1,20 @@
+--- a/pexpert/pexpert/arm64/SHENG.h
++++ b/pexpert/pexpert/arm64/SHENG.h
+@@ -7,7 +7,6 @@
+ #define NO_MONITOR                       1
+ #define NO_ECORE                         1
+ #define ARM_ARCH_TIMER
+-#define __ARM_16K_PG__                   1
+ #define __ARM_ARCH__                     8
+ #define __ARM_VMSA__                     8
+ #define __ARM_VFP__                      4
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -43,6 +43,7 @@
+ #include <sys/mman.h>
+ #include <sys/mount_internal.h>
+ #include <sys/vnode_internal.h>
++#define XNU_NATIVE_CS_HASH_CACHE 1
+ #include <sys/ubc_internal.h>
+ #include <sys/ucred.h>
+ #include <sys/proc_internal.h>
