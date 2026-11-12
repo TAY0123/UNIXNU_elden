@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Derive Elden's 4 KiB display rules from the paired SHENG 25F71 policy."""
+"""Derive Elden's 4 KiB display rules from the paired 25F71 policies."""
 
 import hashlib
 import json
@@ -10,7 +10,11 @@ POLICIES = {
     "native-no-metal-scaled-plan-40270321747",
     "native-bgra-framebuffer",
     "software-pool-bgra",
+    "software-no-display-compression",
+    "software-vsync-off-uncompressed",
 }
+
+ELDEN_POLICY = Path(__file__).resolve().parents[1] / "configs/elden-macos26-display-pages.json"
 
 
 def render(manifest: Path, cache: Path, page_bytes: int) -> str:
@@ -25,8 +29,10 @@ def render(manifest: Path, cache: Path, page_bytes: int) -> str:
     def digest(data: bytes) -> str:
         return initializer(hashlib.sha256(data).digest())
 
-    rules = validate(json.loads(manifest.read_text()))
-    rows = ["// Generated from the verified SHENG 25F71 graphics rules.",
+    document = json.loads(manifest.read_text())
+    document["pages"].extend(json.loads(ELDEN_POLICY.read_text())["pages"])
+    rules = validate(document)
+    rows = ["// Generated from the verified 25F71 graphics rules.",
             "#pragma once", "static const struct sheng_ui_page sheng_ui_pages[] = {"]
     seen = set()
     offsets = set()
@@ -65,5 +71,5 @@ def render(manifest: Path, cache: Path, page_bytes: int) -> str:
             seen.add(policy)
             offsets.add(file_offset)
     if seen != POLICIES:
-        raise ValueError("the SHENG manifest is missing an Elden graphics rule")
+        raise ValueError("the manifests are missing an Elden graphics rule")
     return "\n".join((*rows, "};", ""))

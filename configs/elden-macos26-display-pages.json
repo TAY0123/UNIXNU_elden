@@ -1,0 +1,32 @@
+{
+  "pages": [
+    {
+      "file": "dyld_shared_cache_arm64e.01",
+      "file_offset": 169312256,
+      "before_sha256": "ac56b9c6ccef09b82c702f1e314e08c737d98bc037c4efc97288dae265839399",
+      "after_sha256": "a23866f813579eba5c182e376feea40a5f46171eae93775555b284313540a261",
+      "edits": [
+        {
+          "offset": 7516,
+          "before": "88951290085545f9",
+          "after": "00008052c0035fd6",
+          "policy": "software-no-display-compression"
+        }
+      ]
+    },
+    {
+      "file": "dyld_shared_cache_arm64e.01",
+      "file_offset": 170016768,
+      "before_sha256": "d50625132d89d3857dd23cad700cc0aeccdb0076f0a65f78d5512a87a584e8ee",
+      "after_sha256": "3e8d9e55b237cafa7b30d91143e3c36d734f0ee20aa2e91180ff15be9c0d293f",
+      "edits": [
+        {
+          "offset": 824,
+          "before": "00020034",
+          "after": "10000014",
+          "policy": "software-vsync-off-uncompressed"
+        }
+      ]
+    }
+  ]
+}

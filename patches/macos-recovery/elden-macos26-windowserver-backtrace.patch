@@ -10,7 +10,7 @@
  #include <mach/arm/exception.h>
  #include <vm/vm_shared_region_xnu.h>
  
-@@ -191,6 +193,22 @@
+@@ -191,6 +193,38 @@
  		    (unsigned long long)get_saved_state_sp(state), (unsigned)get_saved_state_esr(state),
  		    (unsigned long long)far, (unsigned long long)sctlr, (unsigned long long)par,
  		    instruction, read_error, slide);
@@ -29,6 +29,22 @@
 +		    proc_selfpid(), slide, count, info.btui_error, (unsigned int)info.btui_info);
 +		for (unsigned int i = 0; i < count; i++) {
 +			printf("ELDEN-WS-BT: %u %llx\n", i, (unsigned long long)frames[i]);
++		}
++		/* 25F71 SkyLight stores the format diagnostic immediately before this abort. */
++		if (slide != ~0u && count > 2 && frames[2] == 0x186a5e220ULL + slide) {
++			user_addr_t annotation = 0;
++			char message[128];
++			size_t copied = 0;
++			static const char prefix[] = "Unimplemented pixel format of ";
++			int error = copyin(0x1ae74a558ULL + slide, &annotation, sizeof(annotation));
++			if (!error) {
++				error = copyinstr(annotation, message, sizeof(message), &copied);
++			}
++			if (!error && !strncmp(message, prefix, sizeof(prefix) - 1)) {
++				printf("ELDEN-WS-FORMAT: %s\n", message);
++			} else {
++				printf("ELDEN-WS-FORMAT: crash annotation unavailable (%d)\n", error);
++			}
 +		}
  	}
  	/* Stop before exception delivery; the first exception may still be recoverable. */

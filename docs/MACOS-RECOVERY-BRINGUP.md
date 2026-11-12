@@ -393,9 +393,9 @@ Their original 16 KiB page digests and instruction bytes match the
 25F71 cache used on Elden. Each rule's edit fits within one 4 KiB page.
 
 Pass `--recovery-graphics-cache /path/to/dyld_shared_cache_arm64e.01` to
-`build-elden-macos26-bootstrap.py` to compile those three rules. The
-builder checks the original and resulting 16 KiB page digests against
-the reference policy before deriving the 4 KiB digests. Enable the
+`build-elden-macos26-bootstrap.py` to compile the software display rules.
+The builder checks the original and resulting 16 KiB page digests against
+the pinned policies before deriving the 4 KiB digests. Enable the
 software display with `elden-recovery-software-display=1`. On the
 tablet, the option requires the authenticated Elden UFS boot used by
 the Recovery Ignition configuration. QEMU uses the reference
@@ -441,9 +441,8 @@ retains the same prelinked kernel, paired storage layout and
 On Elden, the updated tree reached `NativeGOPDisplay: display on`.
 All three graphics rules applied and RecoveryOS Agent started.
 WindowServer PID 81 then raised `SIGABRT` before the first swap. The
-tablet returned to bootloader fastboot on its own. The USB capture has
-the pthread abort PC and LR. The caller above the pthread abort remains
-unresolved. The image is
+tablet returned to bootloader fastboot on its own. The initial USB capture
+recorded the pthread abort PC and LR. The image is
 `~/elden-ptn3222/elden-4k-software-gop-recovery-ram.img` on the MacBook
 with SHA-256
 `12b63eb5a85e27e68d34ec57344e044274fd48225ec1a3918a79f4addf02a112`.
@@ -455,8 +454,29 @@ and the actual cache slide `0x0ebf4000`. The paired 25F71 cache resolves
 the abort to `WSCompositeDestinationCreateWithIOSurface + 0x1cc`,
 called from `WS::Displays::SLCADisplay::render_update`. The matched
 instructions report an unsupported pixel format before calling
-`abort`. The capture identifies the branch. It did not record the
-runtime format value.
+`abort`.
+
+The same exception probe now reads the bounded SkyLight crash annotation
+on that call chain. The first format probe faulted in `copyinstr` because
+it passed a null byte-count pointer. After supplying the byte count, an
+eight-core tablet RAM boot captured WindowServer PID 81 rejecting
+`641877825` (`0x26424741`, `&BGA`), Apple's losslessly compressed BGRA
+format. The panel powered on, all three original rules applied, and the
+tablet returned to fastboot before the first swap. [Apple pixel format
+definitions](https://developer.apple.com/documentation/technotes/tn3121-selecting-a-pixel-format-for-an-avcapturevideodataoutput)
+
+The capture uses kernel UUID `73AC8449-34A8-319A-B28B-A5A7540D3137`.
+The MacBook image is `~/elden-ptn3222/elden-4k-software-gop-format-v2-ram.img`
+with SHA-256 `8a6dcc3c6904c22c934dd74033634799a208e93a63e81af8743cdf1102ccd8cf`.
+
+The software display profile adds two verified QuartzCore page edits.
+It reports framebuffer compression as unavailable through
+`CADeviceUseCompression` and routes `IOMFBDisplay::vsync_off_pixel_format`
+through its existing uncompressed format conversion. Both changes act
+before surface allocation. The CPU compositor and scanout receive the
+format of the allocated surface. The five matching pages passed host
+checks for guarded application, repeat application, and corruption
+rejection.
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
