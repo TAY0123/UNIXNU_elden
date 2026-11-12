@@ -503,6 +503,73 @@ RecoveryOS Agent were present and the Language Chooser start count was
 zero. The capture did not trace the framework's property read or boot-mode
 decision.
 
+#### Recovery filesystem service dependency
+
+The eight-vCPU QEMU comparison used the same native kernel, read-only
+25F71 BaseSystem and disposable ISC overlay. Its development device tree
+now publishes a consistent VM platform UUID through the original platform
+expert and disables unavailable VM sleep. This synthetic VM identity is
+not used on the tablet, which supplies its actual chip identity.
+
+Repeated read-only task snapshots found the RecoveryOS Agent waiting for
+`AuthorizationCopyPreloginUserDatabase`. The original `authd` was waiting
+in `-[PreloginUserDb mountPrebootVolume:]`, and two DiskArbitration threads
+were waiting for FSKit's installed-extension list. `fskitd` repeatedly
+exited with status 1. Its paired original executable fails startup when
+it cannot establish the LiveFS user client. The 30-module prelink omitted
+`com.apple.filesystems.lifs`, which is present in the matching Apple
+kernel collection.
+
+Adding that original module kept `fskitd` alive and cleared the observed
+Preboot and DiskArbitration waits. The 600-second QEMU run started Boot
+Picker and rendered its Options label, spinner, keyboard indicator,
+Shut Down and Restart controls. The Language Chooser still had no start
+recorded. This verifies graphical output from an original Recovery app;
+it does not qualify completion of the Recovery tools or installation.
+The bounded capture retained 375,591 log bytes without a stream gap,
+with one byte reported dropped by the guest writer.
+
+The Elden Recovery prelink profile now selects `lifs` and records it in
+the module contract. It uses the paired 25F71 module, UUID
+`C3104FA3-D37A-3B64-845C-960BA2D3D964`, from the matching kernel collection.
+The default selection reproduced the tested 31-module QEMU candidate
+byte-for-byte, SHA-256
+`fbbcd5f97f27ecee9028592b72925d77b85365381f142a27802d8457de1395ac`.
+The reference SHENG module selection is unchanged. No userspace service
+was bypassed or patched for this dependency fix.
+
+The matching eight-core tablet RAM image retained the tested GPUCC kernel
+and five software-display pages. USB captured Boot Picker PID 161,
+WindowServer PID 81, a 1904 × 3040 BGRA first swap and `First frame`.
+The retained stream contains no repeated `fskitd` exits. All eight cores
+handled timers and IPIs. The 600-second managed test returned to
+bootloader fastboot without a host reset command. Physical app pixels
+were not independently captured; the rendered picker controls above are
+QEMU evidence.
+
+The final tablet progress report recorded 246 dropped log bytes and 87
+missed progress events. Some zero service counters conflict with the
+original launchd process records; they mean unobserved events, not proof
+that those services never ran. The stream is therefore qualified with
+these losses. The default module contract also reproduced this hardware
+prelink byte-for-byte. The RAM image is
+`~/elden-ptn3222/elden-4k-software-gop-format-lifs-gpucc-ram.img`, SHA-256
+`9897ed2a75ab0a119f5ac0bd18065b4273433a4515ecd0d04b5c65687337dd8f`.
+The kernel UUID remains `76B9E3DF-4722-31C0-ABE7-48ED3589F68D`.
+
+![Original Recovery Boot Picker rendered in QEMU](../assets/elden-recovery-lifs-qemu.png)
+
+A second 600-second QEMU run added `recovery-boot-mode=guest` to the
+volatile CHRP system region, preserving the VM identity and common
+region. It used the byte-identical default `lifs` prelink. Boot Picker
+and `recoveryos_lockout` still started; the screenshot retained the
+keyboard indicator, spinners, Shut Down and Restart controls, without
+the first run's Options label. The Language Chooser remained unobserved.
+The final Boot Picker main thread was in the AppKit event loop. This
+comparison does not prove which boot-mode source the framework selected;
+its original implementation checks the ASP sysctl before the NVRAM key
+and the guest-mode environment fallback. No branch edits were applied.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its
@@ -2624,6 +2691,27 @@ clang -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined \
   -o out/gmu-tests/test-context
 out/gmu-tests/test-context
 ```
+
+#### A8xx HFI table exchange
+
+The shared AdrenoFirmware branch
+[`adreno-hfi-a8xx-performance`](https://github.com/TAY0123/AdrenoFirmware/tree/deaaae24d7fe1a8fdd10a0fe8bfb3fbc4c9a3c87)
+adds the A8xx version-zero performance encoder and the two-table startup
+prefix. It validates both tables before touching a queue and sends the
+bandwidth table only after the matching performance-table acknowledgment.
+It reuses the shared HFI ring transport, deadline and health handling.
+An attempted failed exchange poisons that session; success records only
+the two acknowledgments, not a running GMU or GPU.
+
+The host encoder matched the pinned Linux implementation byte-for-byte
+for all 155 permitted GX/CX count combinations under ASan and UBSan.
+An AArch64 QEMU peer exercised the real ring transport, ordering and
+failure cases. The existing startup regression and ARM64e object builds
+also passed. These checks do not establish firmware communication on the
+tablet. Elden's enabled OPPs and command-database votes must be measured
+before preparing its tables. In particular, the device chip ID
+`0x44050000` must not inherit policy from the adjacent upstream
+`0x44050001` catalog entry.
 
 #### GPUCC handoff probe
 
