@@ -1521,6 +1521,43 @@ single-core comparison. DarwinBoot preflight, packed verification and
 MacBook readback matched SHA-256
 `dd5868ff1f4aa3af7fa6c97b392b497d4e2bdbcc6dcef4595c522359576c947c`.
 
+### Linux and UniXNU device tree comparison
+
+The saved Elden Linux handoff DTS compiles to the exact `linux.dtb`
+embedded in both the Recovery GUI and eight-core RAM images. Both copies
+have 1,280 nodes and SHA-256
+`5044c3ad032ff61874791b6abed788f61ace9ee82627f41972170755965c94cf`.
+The saved tree has no boot-time EFI properties in `/chosen`. A fresh
+Linux runtime FDT was unavailable during this comparison because the
+tablet was in XNU Recovery. The Linux DTB, the firmware device tree
+used by Qualcomm I2CDxe, and the XNU ADT have separate boot roles.
+[Linux board DTS](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/arch/arm64/boot/dts/qcom/sm8750-lenovo-elden.dts)
+
+`dts/elden.dts` and the included SM8750 source compile to 26 nodes.
+Both packed XNU ADTs have 22 nodes. Decoding the ADTs and translating
+the `/arm-io` offsets confirms the same eight MPIDRs, GIC distributor
+`0x16000000`, redistributors `0x16080000` with stride `0x40000`,
+and UFS host and PHY `0x1d84000` and `0x1d80000`. The ADT carries a
+19.2 MHz timebase and the PSCI SMC method. The eight-core candidate
+moves `cpu6` immediately after `cpu0`; node names and property values
+are identical. The candidate's capture entry requests `cpus=8` and
+`sheng-smp=1`.
+
+| Area | Linux handoff DTB | Packed Recovery ADT and current driver path |
+| --- | --- | --- |
+| Memory and suspend | Fourteen nonempty RAM ranges totalling about 15.16 GiB in the saved tree, plus 45 reserved-memory children. CPU idle, SCMI performance, RPMh and thermal dependencies are described. | The source describes a 256 MiB bootstrap window. The packed Recovery ADT requests a 4 GiB DarwinBoot allocation and sets `sleep-disabled=1`. Firmware memory-map allocation determines the actual handoff range. |
+| UFS | GCC, PHY, power-domain and regulator links, GPIO 215 reset, ICE and SMMU stream `0x60`. | The ADT carries the host and PHY addresses and host interrupt. NativeUfs validates the inherited controller and DMA state using SM8750 resources in code. |
+| USB | DWC3 `0xa600000`, SMMU stream `0x40`, M31 PHY `0x88e3000`, PTN3222 on GENI `0xa94000` at `0x4f`, active-low PM8550VE GPIO 6 reset and TLMM GPIO 29 port mux. | USB and its providers are absent from the ADT. The EFI and XNU adapters use board resources and inherited firmware setup. Linux also assigns TLMM GPIO 98 to the panel reset, which differs from the WCD reset path seen in the firmware replug log. |
+| Display and GPU | DPU, two DSI controllers, panel reset and supplies, Adreno 830, GMU, GPU SMMU and their power and clock links. | Recovery inherits GOP scanout. The GMU firmware probe validates the image. DPU/DSI modesetting, GMU boot, GPU rendering and the Metal interface require driver work. |
+| Touch | NT36536 on GENI SPI `0xa90000`, 10 MHz, GPIO 162 interrupt and matching firmware name. | The source has matching touch wiring. GCC, QUP, SPI, TLMM and the touch node are disabled, so the generated ADT has no touch path. |
+| Wi-Fi and Bluetooth | PCIe Wi-Fi `17cb:110e` and UART Bluetooth at `0x898000` share the WCN7861 PMU. | The ADT has no PCIe, UART radio or PMU provider nodes. |
+
+Linux is a reference for register ranges, topology and initialization
+dependencies. UniXNU needs to translate the resources each XNU driver
+consumes, including providers for clocks, resets, DMA and power. The
+missing Recovery `imgsrc` device information and the WindowServer
+first-frame checkpoint require their own runtime evidence.
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded
