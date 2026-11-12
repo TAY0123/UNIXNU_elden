@@ -305,6 +305,35 @@ call chain through `WSInitialize`, `WSCompositorActivateDefault`,
 The GOP companion provides CPU scanout. The default compositor's
 Metal-device check aborts before it submits a surface to that driver.
 
+### Bounded shared-cache verification
+
+The Elden 4 KiB build overlaps buffered vnode reads with verification of
+independent 16 KiB CodeDirectory blocks. The caller reads into alternating
+512 KiB halves of a single scratch allocation while up to four short-lived
+kernel workers hash the previous half. Concurrent registrations, small
+files, and single-CPU boots use the serial path. Files smaller than 1 MiB
+request scratch sized to the signed byte count.
+
+Each 4 KiB digest comes from the same bytes that passed the original
+16 KiB check. XNU makes the digest table read-only before attaching it
+to the vnode's signature blob. Later page validations can reuse those
+digests. The four QEMU cache files retain 8.47 MiB of such tables in total.
+The 1 MiB scratch figure excludes worker stacks and the filesystem page
+cache. Scratch and workers are released when each registration ends.
+
+On the same eight-vCPU, 4 GiB QEMU fixture, the four successful
+registrations took 51.2 s versus 75.4 s for the serial baseline, a 32%
+reduction. The new run spent 50.5 s inside vnode reads. Its reported 28.9 s
+of hash work is summed across workers and overlaps the read time. The
+single-copy scratch budget covers both halves even with four workers.
+
+A host test of the verifier routines produced byte-identical digests
+with zero through four workers, including a partial final page. It
+rejected byte changes at the beginning, middle and end of the input,
+a short read during an active batch, and a failure to protect the
+digest table. The tablet's UFS timing and memory pressure require
+hardware measurements.
+
 ## Stage 4 · Elden hardware
 
 Qualify EL1 PAC and the available translation granule on the tablet
