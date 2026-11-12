@@ -2565,6 +2565,66 @@ for test in test_gmu test-transfer; do
 done
 ```
 
+#### GMU memory and SID 5
+
+`EldenAdreno830PrepareGmuContext` wraps `ArmSmmu4KBuild` with the A830
+memory layout. The caller supplies real pinned CPU and physical extents
+and a disjoint contiguous table pool. The function prepares an inactive
+32-bit TTBR0 translation, with the 4 KiB leaves below 2 GiB.
+
+| Buffer | GMU IOVA | Bytes |
+| --- | ---: | ---: |
+| Instruction cache | `0x00004000` | `0xffc000` |
+| Dummy/scratch | `0x60000000` | `0x4000` |
+| Firmware log | `0x60004000` | `0x4000` |
+| HFI queues | `0x60008000` | `0x4000` |
+| Debug | `0x60400000` | `0x7000` |
+
+The fixed IOVAs and sizes come from the Linux A8xx allocator. Elden
+uses the same lowest-free log and HFI placement as `NativeAdrenoGmuAllocator`.
+The stage-1 mappings use the Linux fixed-buffer privilege assignments and
+outer-shareable normal noncacheable memory. Only the instruction cache
+is executable.
+[A8xx GMU memory allocation](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/gpu/drm/msm/adreno/a6xx_gmu.c) ·
+[GEM mapping permissions](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/gpu/drm/msm/msm_gem.c) ·
+[A740 GMU allocator](https://github.com/UniXNU/Adreno740/blob/6fa7bae2a5b3b523e790eb3e0348af4d98969e4d/NativeAdrenoGmuMemory.cpp)
+
+The future platform owner can attach the exact SID 5 route with
+`ArmSmmu4K` and pass the resulting state to `EldenAdreno830ObserveGmuContext`.
+The observer checks the active TTBR and its complete physical descriptor
+graph, with a full stream conflict scan before and after. Its scope is
+one lower context on the GPU SMMU at `0x03da0000`, separate from the
+GPU's command streams. The observation requires an already powered SMMU,
+an exclusive slot/bank/ASID lease, pinned and published native tables, a
+quiesced GMU and active fault handling. The platform remains responsible
+for the physical CPU mappings, their visibility, and recovery on failure.
+The adapter has no XNU boot caller.
+
+The HFI allocation fits `AdrenoHfiInitializeStopped` after the platform
+qualifies shared-memory visibility and stops GMU access. Linux A8xx uses
+the same modern command, response and debug queue layout. Its startup
+performance-table command carries GX, dependency and CX votes with a
+distinct variable-length encoding. A8xx startup must use an A8xx encoder
+with votes derived from the Elden command database and OPPs.
+[Linux HFI initialization and startup](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/gpu/drm/msm/adreno/a6xx_hfi.c)
+
+The ASan/UBSan model checked all 4,111 leaves across 13 table pages. It
+refused aliased backing, short pools, foreign SIDs, a shared context bank,
+changed TTBR and PTE values, and a route change after the audit. The
+adapter also compiled to an ARM64e Mach-O object.
+
+```sh
+smmu=../UniXNU/kits/ArmSmmu4K
+firmware=../UniXNU/kits/AdrenoFirmware
+mkdir -p out/gmu-tests
+clang -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined \
+  -I "$smmu" -I "$firmware" -I soc/sm8750/include \
+  "$smmu"/ArmSmmu4K{,Audit,Context,Program,Streams,TableMemory}.c \
+  drivers/Adreno830/EldenAdreno830GmuContext.c drivers/Adreno830/test-context.c \
+  -o out/gmu-tests/test-context
+out/gmu-tests/test-context
+```
+
 #### GPUCC handoff probe
 
 Use the paired Recovery build inputs on the Mac build host and a fresh

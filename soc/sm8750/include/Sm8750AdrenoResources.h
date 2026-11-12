@@ -22,7 +22,14 @@
 #define SM8750_GMU_ICACHE_BYTES         0x00ffc000U
 #define SM8750_GMU_SCRATCH_IOVA         0x60000000U
 #define SM8750_GMU_SCRATCH_BYTES        0x00004000U
+#define SM8750_GMU_DEBUG_IOVA           0x60400000U
+#define SM8750_GMU_DEBUG_BYTES          0x00007000U
+#define SM8750_GMU_LOG_BYTES            0x00004000U
+#define SM8750_GMU_HFI_BYTES            0x00004000U
 #define SM8750_GMU_PAGE_BYTES           0x00001000U
+#define SM8750_GPU_SMMU_BASE            0x03da0000U
+#define SM8750_GPU_SMMU_BYTES           0x00040000U
+#define SM8750_GMU_STREAM_ID            5U
 
 /* GPUCC CX register page. Offsets are relative to this page. */
 #define SM8750_GPUCC_CX_PAGE            0x03d99000U
