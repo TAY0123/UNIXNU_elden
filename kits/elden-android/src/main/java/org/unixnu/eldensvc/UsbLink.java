@@ -13,6 +13,9 @@ import android.os.Build;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Collection;
+import java.util.Locale;
+import java.util.TreeSet;
 
 final class UsbLink implements Closeable, Fastboot.Transport {
     static final String PERMISSION = "org.unixnu.eldensvc.USB_PERMISSION";
@@ -68,15 +71,43 @@ final class UsbLink implements Closeable, Fastboot.Transport {
     }
 
     static UsbDevice find(UsbManager manager, boolean forFastboot) throws IOException {
+        return find(manager.getDeviceList().values(), forFastboot);
+    }
+
+    static UsbDevice find(Collection<UsbDevice> devices, boolean forFastboot) throws IOException {
         UsbDevice match = null;
-        for (UsbDevice device : manager.getDeviceList().values()) {
+        UsbDevice elden = null;
+        int matches = 0;
+        for (UsbDevice device : devices) {
             boolean suitable = forFastboot ? fastboot(device) != null
                     : serialControl(device) != null && serialData(device) != null;
             if (!suitable) continue;
-            if (match != null) throw new IOException("More than one matching USB device is connected");
             match = device;
+            matches++;
+            if (!forFastboot && eldenConsole(device)) {
+                if (elden != null) throw new IOException("More than one Elden USB console is connected");
+                elden = device;
+            }
         }
+        if (elden != null) return elden;
+        if (matches > 1) throw new IOException("More than one matching USB device is connected");
         return match;
+    }
+
+    private static boolean eldenConsole(UsbDevice device) {
+        return device.getVendorId() == 0x1209 && device.getProductId() == 0x7004;
+    }
+
+    static String describe(Collection<UsbDevice> devices) {
+        TreeSet<String> descriptors = new TreeSet<>();
+        for (UsbDevice device : devices) {
+            String mode = fastboot(device) != null ? "fastboot"
+                    : serialControl(device) != null && serialData(device) != null ? "CDC ACM"
+                    : eldenConsole(device) ? "Elden device without a usable CDC interface" : "other";
+            descriptors.add(String.format(Locale.ROOT, "%04x:%04x (%s)",
+                    device.getVendorId(), device.getProductId(), mode));
+        }
+        return descriptors.isEmpty() ? "no devices visible" : String.join(", ", descriptors);
     }
 
     static void requestPermission(Context context, UsbManager manager, UsbDevice device, int request) {
@@ -106,11 +137,15 @@ final class UsbLink implements Closeable, Fastboot.Transport {
             }
             if (control != null) {
                 byte[] lineCoding = {0, (byte) 0xc2, 1, 0, 0, 0, 8};
-                if (connection.controlTransfer(0x21, 0x20, 0, control.getId(),
-                        lineCoding, lineCoding.length, 1000) != lineCoding.length
-                        || connection.controlTransfer(0x21, 0x22, 3, control.getId(),
-                        null, 0, 1000) != 0) {
-                    throw new IOException("The tablet did not accept CDC serial setup");
+                int result = connection.controlTransfer(0x21, 0x20, 0, control.getId(),
+                        lineCoding, lineCoding.length, 1000);
+                if (result != lineCoding.length) {
+                    throw new IOException("CDC SET_LINE_CODING returned " + result);
+                }
+                result = connection.controlTransfer(0x21, 0x22, 3, control.getId(),
+                        null, 0, 1000);
+                if (result != 0) {
+                    throw new IOException("CDC SET_CONTROL_LINE_STATE returned " + result);
                 }
             }
             return link;

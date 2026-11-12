@@ -12,6 +12,7 @@ import android.os.IBinder;
 import android.os.PowerManager;
 
 import java.io.IOException;
+import java.util.Collection;
 
 public final class CaptureService extends Service {
     static volatile String status = "USB capture stopped";
@@ -44,31 +45,47 @@ public final class CaptureService extends Service {
     private void capture() {
         UsbManager manager = getSystemService(UsbManager.class);
         String requested = "";
+        String lastDevices = "";
         try {
-            BootLog.marker(this, "Waiting for a USB CDC console");
+            report("Waiting for the tablet’s USB console");
             while (running) {
-                UsbDevice device = UsbLink.find(manager, false);
+                Collection<UsbDevice> devices = manager.getDeviceList().values();
+                String description = UsbLink.describe(devices);
+                if (!description.equals(lastDevices)) {
+                    BootLog.marker(this, "Android USB host: " + description);
+                    lastDevices = description;
+                }
+                UsbDevice device;
+                try {
+                    device = UsbLink.find(devices, false);
+                } catch (IOException error) {
+                    report(error.getMessage());
+                    Thread.sleep(500);
+                    continue;
+                }
                 if (device == null) {
-                    status = "Waiting for the tablet’s USB console";
+                    report("Waiting for the tablet’s USB console");
                     requested = "";
                 } else if (!manager.hasPermission(device)) {
-                    status = "Grant Android USB permission to capture";
+                    report("Grant Android USB permission to capture");
                     if (!requested.equals(device.getDeviceName())) {
                         requested = device.getDeviceName();
                         UsbLink.requestPermission(this, manager, device, 2);
                     }
                 } else {
                     try (UsbLink link = UsbLink.open(manager, device, false)) {
-                        BootLog.marker(this, "USB CDC console connected");
-                        status = "Recording the tablet USB console";
+                        report("USB CDC console connected, waiting for bytes");
                         byte[] buffer = new byte[8192];
                         while (running && device.equals(manager.getDeviceList().get(device.getDeviceName()))) {
                             int count = link.receive(buffer, 750);
-                            if (count > 0) BootLog.append(this, buffer, count);
+                            if (count > 0) {
+                                report("Recording the tablet USB console");
+                                BootLog.append(this, buffer, count);
+                            }
                         }
-                        BootLog.marker(this, "USB CDC console disconnected");
+                        report("USB CDC console disconnected");
                     } catch (IOException | RuntimeException error) {
-                        status = "USB console unavailable. " + error.getMessage();
+                        report("USB console unavailable. " + error.getMessage());
                     }
                 }
                 Thread.sleep(500);
@@ -78,6 +95,13 @@ public final class CaptureService extends Service {
         } catch (IOException | RuntimeException error) {
             status = "USB capture failed. " + error.getMessage();
             stopSelf();
+        }
+    }
+
+    private void report(String next) throws IOException {
+        if (!next.equals(status)) {
+            BootLog.marker(this, next);
+            status = next;
         }
     }
 

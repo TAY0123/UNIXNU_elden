@@ -12,6 +12,12 @@ reconnections. Activate **WireGuard → Connect** to serve the log to the
 `10.8.0.1` LAN peer at `http://10.8.0.8:8734/latest`. The previous log is
 served at `/previous` after rotation.
 
+Leave capture running when moving from fastboot to the UniXNU menu and
+then into **Elden macOS 26.5 - Recovery**. Android may ask for USB access
+as the tablet re-enumerates. The log records the USB vendor and product
+IDs Android sees, whether a CDC session opened, and when its first bytes
+arrived.
+
 The app uses the Kindle profile's identity and endpoint, with a route for
 `10.8.0.0/24` and a 25-second keepalive for inbound log access. Stop the
 Kindle tunnel before activating this same peer on Android.
@@ -24,7 +30,7 @@ Run from this directory with a new private staging directory.
 ```sh
 python3 seal-profile.py ~/wg-kindle.conf /path/to/private/assets /path/to/private/wireguard.key
 gradle -PeldenPrivateAssets=/path/to/private/assets assembleDebug
-adb install -r build/outputs/apk/debug/elden-android-debug.apk
+adb install -r build/outputs/apk/debug/EldenService-debug.apk
 adb shell -T "run-as org.unixnu.eldensvc sh -c 'umask 077; mkdir -p files; cat > files/wireguard.key'" \
     < /path/to/private/wireguard.key
 ```
