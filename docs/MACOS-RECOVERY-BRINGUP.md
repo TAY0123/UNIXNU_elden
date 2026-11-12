@@ -1558,6 +1558,20 @@ consumes, including providers for clocks, resets, DMA and power. The
 missing Recovery `imgsrc` device information and the WindowServer
 first-frame checkpoint require their own runtime evidence.
 
+The Elden iPadOS 17.7.11 port is the Apple-side baseline. A fresh
+host regeneration of its phase 2.1 ADT has the same eight MPIDRs and
+the same PSCI and UFS properties as the packed macOS Recovery ADT.
+The GIC node differs only in `AAPL,phandle`. The iPadOS diagnostic ADT
+identifies as `iPad7,1` and requests 256 MiB. The tested Recovery ADT
+identifies as Elden and requests 4 GiB.
+
+Recovery shares the board DTS, DarwinBoot and the ArmDTPlatform and
+ArmCpu bring-up code. Its XNU build, prelinked modules, BaseSystem and
+userspace come from the macOS 26.5 build. The iPadOS port has
+device evidence for kernel entry and a read-only root manifest probe.
+Its documented GPU, touch, persistent Data and power paths remain in
+bring-up. [iPadOS root probe](IPADOS-ROOT-TARGET-20261107.md)
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded
