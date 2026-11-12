@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tomllib
 
+import elden_recovery_graphics
+
 
 DEVICE = Path(__file__).resolve().parents[1]
 PROFILE = DEVICE / "configs/elden-macos26-4k.toml"
@@ -86,6 +88,8 @@ def main() -> None:
                         help="include the opt-in Elden GMU image validation probe")
     parser.add_argument("--recovery-usb-core", type=Path,
                         help="directory containing the pinned DWC3 core for the Recovery USB console")
+    parser.add_argument("--recovery-graphics-cache", type=Path,
+                        help="paired 25F71 .01 dyld cache for the opt-in software display")
     parser.add_argument("--trace-recovery-copy", action="store_true",
                         help="trace permission failures in the Recovery Data template copy")
     parser.add_argument("-j", "--jobs", type=int, default=8, choices=range(1, 33))
@@ -115,6 +119,14 @@ def main() -> None:
         for entry in profile["overlay"]
     }
     overlay_hashes = {key: build.sha(path) if path else None for key, path in overlays.items()}
+    graphics_header = None
+    graphics_name = "osfmk/vm/sheng_recovery_ui_pages.h"
+    overlaid_headers = OVERLAID_HEADERS.copy()
+    if args.recovery_graphics_cache is not None:
+        graphics_header = elden_recovery_graphics.render(
+            root / "config/macos26-recovery-ui-pages.json",
+            args.recovery_graphics_cache, kernel["page_bytes"]).encode()
+        overlaid_headers.add("osfmk/vm/sheng_recovery_ui.h")
     profile_inputs = {
         "profile_sha256": build.sha(PROFILE),
         "wrapper_sha256": build.sha(Path(__file__)),
@@ -124,6 +136,8 @@ def main() -> None:
         if args.recovery_usb_core else None,
         "adreno830_firmware_sha256": build.sha(args.adreno830_gmu_firmware)
         if args.adreno830_gmu_firmware else None,
+        "recovery_graphics_header_sha256": hashlib.sha256(graphics_header).hexdigest()
+        if graphics_header is not None else None,
     }
     previous_path = output / "build.json"
     previous = json.loads(previous_path.read_text()) if previous_path.is_file() else None
@@ -151,7 +165,10 @@ def main() -> None:
         path = Path(destination)
         if path.is_relative_to(source):
             name = path.relative_to(source).as_posix()
-            if name in OVERLAID_HEADERS:
+            if name == graphics_name and graphics_header is not None:
+                write_if_changed(path, graphics_header)
+                return
+            if name in overlaid_headers:
                 digest = build.sha(Path(origin))
                 staged_headers[name] = digest
                 if previous is not None:
@@ -164,7 +181,7 @@ def main() -> None:
         build.OUT = output
         build.PATCHES.extend(staged_platform_patches)
         record = prepare()
-        if staged_headers.keys() != OVERLAID_HEADERS:
+        if staged_headers.keys() != overlaid_headers:
             raise ValueError("reference builder did not stage the expected headers")
         header = source / "pexpert/pexpert/arm64/SHENG.h"
         if "__ARM_16K_PG__" in header.read_text():
@@ -172,6 +189,16 @@ def main() -> None:
         if previous is None:
             for patch in filter(None, overlays.values()):
                 subprocess.run(["git", "-C", source, "apply", patch], check=True)
+        if graphics_header is not None:
+            record["recovery_ui_policy"].update(
+                boot_argument="elden-recovery-software-display=1",
+                page_count=len(elden_recovery_graphics.POLICIES),
+                page_bytes=kernel["page_bytes"],
+                generated_sha256=build.sha(source / graphics_name),
+                engine_sha256=build.sha(source / "osfmk/vm/sheng_recovery_ui.h"),
+                kernel_hook_sha256=build.sha(source / "osfmk/vm/vm_shared_region_pager.c"),
+            )
+            record["language_trace"]["available"] = False
         if args.recovery_usb_core is not None:
             record["elden_recovery_usb_sources"] = stage_recovery_usb(
                 source, args.recovery_usb_core.resolve(strict=True), previous is None)

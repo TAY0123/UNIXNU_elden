@@ -1,0 +1,337 @@
+--- a/osfmk/vm/sheng_recovery_ui.h
++++ b/osfmk/vm/sheng_recovery_ui.h
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
+ 
+-#define SHENG_UI_PAGE_BYTES 16384u
++#define SHENG_UI_PAGE_BYTES 4096u
+ #define SHENG_UI_MAX_EDITS 4u
+ #define SHENG_UI_MAX_EDIT_BYTES 16u
+ 
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -225,24 +225,31 @@
+ extern void commpage_update_dyld_flags(uint64_t value);
+ static bool elden_recovery_root_authenticated;
+ 
+-static void
+-elden_recovery_configure_ignition(void)
++bool elden_recovery_is_authenticated_ufs(void);
++
++bool
++elden_recovery_is_authenticated_ufs(void)
+ {
+-	if (!PE_parse_boot_argn("-elden-recovery-skip-ignition", NULL, 0)) {
+-		return;
+-	}
+-
+ 	DTEntry root;
+ 	const void *compatible;
+ 	unsigned int size;
+ 	unsigned int elden_ufs = 0, ufs_root = 0;
+ 	PE_parse_boot_argn("native-ufs-elden", &elden_ufs, sizeof(elden_ufs));
+ 	PE_parse_boot_argn("native-ufs-root", &ufs_root, sizeof(ufs_root));
+-	if (!elden_recovery_root_authenticated || elden_ufs != 1 || ufs_root != 1 ||
+-	    SecureDTLookupEntry(NULL, "/", &root) != kSuccess ||
+-	    SecureDTGetProperty(root, "compatible", &compatible, &size) != kSuccess ||
+-	    size < sizeof("lenovo,elden") ||
+-	    memcmp(compatible, "lenovo,elden", sizeof("lenovo,elden")) != 0) {
++	return elden_recovery_root_authenticated && elden_ufs == 1 && ufs_root == 1 &&
++	       SecureDTLookupEntry(NULL, "/", &root) == kSuccess &&
++	       SecureDTGetProperty(root, "compatible", &compatible, &size) == kSuccess &&
++	       size >= sizeof("lenovo,elden") &&
++	       memcmp(compatible, "lenovo,elden", sizeof("lenovo,elden")) == 0;
++}
++
++static void
++elden_recovery_configure_ignition(void)
++{
++	if (!PE_parse_boot_argn("-elden-recovery-skip-ignition", NULL, 0)) {
++		return;
++	}
++	if (!elden_recovery_is_authenticated_ufs()) {
+ 		printf("SHENG: Elden Recovery skipIgnition request refused\n");
+ 		return;
+ 	}
+--- a/osfmk/vm/vm_fault.c
++++ b/osfmk/vm/vm_fault.c
+@@ -8905,10 +8905,6 @@
+ 	return FALSE;
+ }
+ 
+-#if SHENG && (DEVELOPMENT || DEBUG)
+-#include <vm/sheng_recovery_ui_kernel.h>
+-#endif
+-
+ void
+ vm_page_validate_cs_mapped_slow(
+ 	vm_page_t       page,
+@@ -8956,11 +8952,6 @@
+ 	page->vmp_cs_validated |= validated;
+ 	page->vmp_cs_tainted |= tainted;
+ 	page->vmp_cs_nx |= nx;
+-
+-#if SHENG && (DEVELOPMENT || DEBUG)
+-	sheng_recovery_ui_page(page, vnode, mo_offset,
+-	    validated == VMP_CS_ALL_TRUE && tainted == VMP_CS_ALL_FALSE && nx == VMP_CS_ALL_FALSE);
+-#endif
+ 
+ #if CHECK_CS_VALIDATION_BITMAP
+ 	if (page->vmp_cs_validated == VMP_CS_ALL_TRUE &&
+--- a/osfmk/vm/vm_shared_region.c
++++ b/osfmk/vm/vm_shared_region.c
+@@ -68,6 +68,16 @@
+ #include <vm/memory_object_internal.h>
+ #include <vm/vm_protos_internal.h>
+ #include <vm/vm_object_internal.h>
++
++#include <pexpert/pexpert.h>
++#include <sys/csr.h>
++#include <vm/sheng_recovery_ui.h>
++#include <vm/sheng_recovery_ui_pages.h>
++
++extern bool elden_recovery_is_authenticated_ufs(void);
++extern const char *vnode_getname(struct vnode *);
++extern void vnode_putname(const char *);
++TUNABLE(uint32_t, elden_recovery_software_display, "elden-recovery-software-display", 0);
+ 
+ #include <machine/commpage.h>
+ #include <machine/cpu_capabilities.h>
+@@ -1928,6 +1938,98 @@
+ 	return KERN_SUCCESS;
+ }
+ 
++/*
++ * Install only the affected map granules over the original executable
++ * mapping. The shared-region pager validates the untouched source pages
++ * and applies the rules to its own pages after copying them.
++ */
++static kern_return_t
++elden_map_recovery_graphics(
++	vm_shared_region_t shared_region,
++	vm_map_t map,
++	int file_count,
++	struct _sr_file_mappings *files)
++{
++	if (elden_recovery_software_display != 1 || PAGE_SIZE != SHENG_UI_PAGE_BYTES) {
++		return KERN_SUCCESS;
++	}
++	bool allowed = PE_vmm_present == 1 ? csr_check(CSR_ALLOW_UNAUTHENTICATED_ROOT) == 0 :
++	    elden_recovery_is_authenticated_ufs();
++	if (!allowed) {
++		return KERN_PROTECTION_FAILURE;
++	}
++
++	vm_map_size_t size = VM_MAP_PAGE_SIZE(map);
++	if (size != PAGE_SIZE && size != 16384) {
++		return KERN_INVALID_ARGUMENT;
++	}
++	size_t installed = 0;
++	for (int i = 0; i < file_count; i++) {
++		struct _sr_file_mappings *file = &files[i];
++		if (file->vp == NULL || file->file_control == NULL) {
++			continue;
++		}
++		const char *name = vnode_getname(file->vp);
++		if (name == NULL) {
++			continue;
++		}
++		bool match = strcmp(name, sheng_ui_pages[0].file) == 0;
++		vnode_putname(name);
++		if (!match) {
++			continue;
++		}
++		vm_object_t backing = memory_object_control_to_vm_object(file->file_control);
++		if (backing == VM_OBJECT_NULL || !backing->code_signed) {
++			return KERN_PROTECTION_FAILURE;
++		}
++		for (size_t r = 0; r < sizeof(sheng_ui_pages) / sizeof(sheng_ui_pages[0]); r++) {
++			uint64_t offset = sheng_ui_pages[r].file_offset & ~(size - 1);
++			for (uint32_t m = 0; m < file->mappings_count; m++) {
++				const struct shared_file_mapping_slide_np *mapping = &file->mappings[m];
++				if (!(mapping->sms_init_prot & VM_PROT_EXECUTE) ||
++				    (mapping->sms_max_prot & (VM_PROT_WRITE | VM_PROT_SLIDE | VM_PROT_ZF)) ||
++				    offset < mapping->sms_file_offset || size > mapping->sms_size ||
++				    offset - mapping->sms_file_offset > mapping->sms_size - size) {
++					continue;
++				}
++				vm_map_offset_t address = mapping->sms_address - shared_region->sr_base_address +
++				    offset - mapping->sms_file_offset;
++				if (address & (size - 1)) {
++					return KERN_INVALID_ARGUMENT;
++				}
++				/* A null slide record selects copying with Elden's graphics rules. */
++				memory_object_t pager = shared_region_pager_setup(backing, offset, NULL, 0);
++				if (pager == MEMORY_OBJECT_NULL) {
++					return KERN_RESOURCE_SHORTAGE;
++				}
++				vm_map_kernel_flags_t flags = VM_MAP_KERNEL_FLAGS_FIXED(.vmf_overwrite = true);
++				flags.vmkf_overwrite_immutable = true;
++				flags.vmkf_no_copy_on_read = true;
++				flags.vmf_permanent = shared_region_make_permanent(shared_region, mapping->sms_max_prot);
++				kern_return_t kr = mach_vm_map_kernel(map, vm_sanitize_wrap_addr_ref(&address),
++				    size, 0, flags, (ipc_port_t)(uintptr_t)pager, 0, TRUE,
++				    mapping->sms_init_prot & VM_PROT_ALL, mapping->sms_max_prot & VM_PROT_ALL,
++				    VM_INHERIT_DEFAULT);
++				memory_object_deallocate(pager);
++				if (kr != KERN_SUCCESS) {
++					return kr;
++				}
++				installed++;
++				break;
++			}
++		}
++		if (installed != sizeof(sheng_ui_pages) / sizeof(sheng_ui_pages[0])) {
++			return KERN_INVALID_ARGUMENT;
++		}
++		break;
++	}
++	if (installed) {
++		printf("ELDEN-GRAPHICS: installed %zu private cache mappings (%llu bytes each)\n",
++		    installed, (unsigned long long)size);
++	}
++	return KERN_SUCCESS;
++}
++
+ /* forwared declaration */
+ __attribute__((noinline))
+ static void
+@@ -2071,6 +2173,14 @@
+ 			    sr_file_mappings_count);
+ 			goto done;
+ 		}
++	}
++
++	kr = elden_map_recovery_graphics(shared_region, sr_map, sr_file_mappings_count, sr_file_mappings);
++	if (kr != KERN_SUCCESS) {
++		struct _sr_file_mappings *last = &sr_file_mappings[sr_file_mappings_count - 1];
++		vm_shared_region_undo_mappings(shared_region, sr_map, shared_region->sr_base_address,
++		    sr_file_mappings, last, last->mappings_count);
++		goto done;
+ 	}
+ 
+ 	assert(kr == KERN_SUCCESS);
+--- a/osfmk/vm/vm_shared_region_pager.c
++++ b/osfmk/vm/vm_shared_region_pager.c
+@@ -57,6 +57,11 @@
+ #include <vm/vm_page_internal.h>
+ #include <vm/vm_object_internal.h>
+ 
++#include <arm/caches_internal.h>
++#include <libkern/crypto/sha2.h>
++#include <vm/sheng_recovery_ui.h>
++#include <vm/sheng_recovery_ui_pages.h>
++
+ #include <sys/kdebug_triage.h>
+ #include <sys/random.h>
+ 
+@@ -66,6 +71,44 @@
+ #endif /* __has_feature(ptrauth_calls) */
+ 
+ extern int panic_on_dyld_issue;
++
++/* The reference Language Chooser probe is disabled in this display build. */
++uint32_t sheng_recovery_ui_enabled;
++volatile uint32_t sheng_recovery_ui_pages_applied;
++volatile uint32_t sheng_recovery_ui_page_mask;
++
++static void
++elden_graphics_digest(const void *bytes, size_t size, uint8_t digest[32])
++{
++	SHA256_CTX context;
++	SHA256_Init(&context);
++	SHA256_Update(&context, bytes, size);
++	SHA256_Final(digest, &context);
++}
++
++static kern_return_t
++elden_graphics_page(vm_offset_t source_va, ppnum_t target, vm_offset_t target_va,
++    vm_object_offset_t offset)
++{
++	memcpy((void *)target_va, (const void *)source_va, PAGE_SIZE);
++	for (size_t i = 0; i < sizeof(sheng_ui_pages) / sizeof(sheng_ui_pages[0]); i++) {
++		const struct sheng_ui_page *rule = &sheng_ui_pages[i];
++		if (rule->file_offset != offset) {
++			continue;
++		}
++		if (sheng_ui_apply_page((uint8_t *)target_va, PAGE_SIZE, rule, elden_graphics_digest) != 1) {
++			return KERN_PROTECTION_FAILURE;
++		}
++		cache_sync_page(target);
++		uint32_t bit = 1u << i;
++		if (!(__atomic_fetch_or(&sheng_recovery_ui_page_mask, bit, __ATOMIC_RELAXED) & bit)) {
++			__atomic_add_fetch(&sheng_recovery_ui_pages_applied, 1, __ATOMIC_RELAXED);
++			printf("ELDEN-GRAPHICS: authenticated private cache page %zu\n", i);
++		}
++		break;
++	}
++	return KERN_SUCCESS;
++}
+ 
+ /*
+  * SHARED REGION MEMORY PAGER
+@@ -756,8 +799,14 @@
+ 	assert(src_top_object != VM_OBJECT_NULL);
+ 	vm_object_reference(src_top_object); /* keep the source object alive */
+ 
+-	slide_start_address = pager->srp_slide_info->si_slid_address;
+-	slide_info_page_size = pager->srp_slide_info->si_slide_info_entry->version == 1 ? PAGE_SIZE_FOR_SR_SLIDE : pager->srp_slide_info->si_slide_info_entry->page_size;
++	vm_shared_region_slide_info_t si = pager->srp_slide_info;
++	slide_start_address = 0;
++	slide_info_page_size = PAGE_SIZE;
++	if (si != NULL) {
++		slide_start_address = si->si_slid_address;
++		slide_info_page_size = si->si_slide_info_entry->version == 1 ? PAGE_SIZE_FOR_SR_SLIDE :
++		    si->si_slide_info_entry->page_size;
++	}
+ 
+ 	fault_info.lo_offset += pager->srp_backing_offset;
+ 	fault_info.hi_offset += pager->srp_backing_offset;
+@@ -887,6 +936,16 @@
+ 		 */
+ 		assert(src_page->vmp_busy);
+ 		assert(src_page_object->paging_in_progress > 0);
++		if (si == NULL) {
++			bool authenticated = src_page->vmp_cs_validated == VMP_CS_ALL_TRUE &&
++			    src_page->vmp_cs_tainted == VMP_CS_ALL_FALSE &&
++			    src_page->vmp_cs_nx == VMP_CS_ALL_FALSE && !src_page->vmp_dirty &&
++			    !src_page->vmp_wpmapped;
++			vm_object_unlock(src_page_object);
++			retval = authenticated ? elden_graphics_page(src_vaddr, dst_pnum, dst_vaddr,
++			    offset + cur_offset + pager->srp_backing_offset) : KERN_PROTECTION_FAILURE;
++			goto part_done;
++		}
+ 		vm_object_unlock(src_page_object);
+ 
+ 		/*
+@@ -997,9 +1056,7 @@
+ 			shared_region_pager_slid++;
+ 		}
+ 
+-#if !defined(APPLE_ARM64_ARCH_FAMILY) && !__ARM_16K_PG__
+ part_done:
+-#endif
+ 		assert(VM_PAGE_OBJECT(src_page) == src_page_object);
+ 		assert(src_page->vmp_busy);
+ 		assert(src_page_object->paging_in_progress > 0);
+@@ -1414,7 +1471,7 @@
+ 	 * If we're getting slide_info from the shared_region,
+ 	 * take a reference, so it can't disappear from under us.
+ 	 */
+-	if (slide_info->si_shared_region) {
++	if (slide_info != NULL && slide_info->si_shared_region) {
+ 		assert(slide_info->si_ptrauth);
+ 		vm_shared_region_reference(slide_info->si_shared_region);
+ 	}
+@@ -1522,8 +1579,8 @@
+ 		}
+ 		si = pager->srp_slide_info;
+ 
+-		/* If there's no AUTH section then it can't match (slide_info is always !NULL) */
+-		if (!si->si_ptrauth) {
++		/* The display copy pager has no slide record. */
++		if (si == NULL || !si->si_ptrauth) {
+ 			continue;
+ 		}
+ 		if (pager->srp_jop_key != jop_key) {

@@ -66,3 +66,8 @@ record = "ce_stack_overlay_sha256"
 [[overlay]]
 patch = "elden-macos26-progress-panel.patch"
 record = "progress_panel_overlay_sha256"
+
+[[overlay]]
+patch = "elden-macos26-software-display.patch"
+record = "software_display_overlay_sha256"
+optional = "recovery_graphics_cache"

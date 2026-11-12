@@ -391,8 +391,62 @@ The reference SHENG software compositor configuration has three
 graphics rules for the Metal availability check and BGRA surfaces.
 Their original 16 KiB page digests and instruction bytes match the
 25F71 cache used on Elden. Each rule's edit fits within one 4 KiB page.
-Elden still needs a runtime implementation and test of that graphics
-configuration.
+
+Pass `--recovery-graphics-cache /path/to/dyld_shared_cache_arm64e.01` to
+`build-elden-macos26-bootstrap.py` to compile those three rules. The
+builder checks the original and resulting 16 KiB page digests against
+the reference policy before deriving the 4 KiB digests. Enable the
+software display with `elden-recovery-software-display=1`. On the
+tablet, the option requires the authenticated Elden UFS boot used by
+the Recovery Ignition configuration. QEMU uses the reference
+development-root check.
+
+The first QEMU test applied all three rules to resident file pages.
+When APFS fetched a neighboring 4 KiB page, its sealed 16 KiB
+verification rejected the changed resident bytes. The revised kernel
+maps only the affected granules through the existing shared-region
+pager. It validates each original page, copies it into the pager's
+own memory, and applies the rule there. APFS keeps the original file
+pages available for verification.
+
+The host checks applied each actual 4 KiB rule, reapplied it, and
+verified that corrupted data was rejected without writes. Preparing
+the same build twice preserved the timestamps of the engine and
+generated table. With the software display omitted, the prepared XNU
+source matched the previous build byte for byte.
+
+The revised kernel's eight-vCPU QEMU run installed three 16 KiB
+shared-region mappings at 97.8 seconds and first presented a frame at
+245.2 seconds. The framebuffer capture showed a pointer on a black
+screen. The debugger read three applied rules and a bitmap of
+`0x7`. At the 540-second stop, the original `configd`, WindowServer
+and `recoveryosd` were running and RecoveryOS Agent had started. The
+capture recorded no APFS hash mismatch.
+
+The tablet control used the same graphics kernel with the older
+Elden device tree. Recovery established an Aqua session and started
+RecoveryOS Agent. WindowServer stayed running with no display power-on
+or frame submission in the observed period. The tablet tree lacked
+`/arm-io/native-gop`, which the QEMU tree uses to announce its inherited
+display pipeline to macOS.
+
+Run `scripts/prepare-elden-recovery-adt.py --unixnu-root ../UniXNU`
+with `--input` pointing to the existing Elden Recovery ADT and
+`--output` pointing to the updated ADT. This adds the GOP descriptor
+while preserving the CPU, storage, security and other tree properties.
+Use the updated file as `Payloads/kernel.macho.adt`. The repacked image
+retains the same prelinked kernel, paired storage layout and
+`Capture Recovery GUI Failure (8 cores)` entry.
+
+On Elden, the updated tree reached `NativeGOPDisplay: display on`.
+All three graphics rules applied and RecoveryOS Agent started.
+WindowServer PID 81 then raised `SIGABRT` before the first swap. The
+tablet returned to bootloader fastboot on its own. The USB capture has
+the pthread abort PC and LR. The caller above the pthread abort remains
+unresolved. The image is
+`~/elden-ptn3222/elden-4k-software-gop-recovery-ram.img` on the MacBook
+with SHA-256
+`12b63eb5a85e27e68d34ec57344e044274fd48225ec1a3918a79f4addf02a112`.
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
