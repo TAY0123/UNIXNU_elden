@@ -2,7 +2,7 @@ version = 1
 
 [boot]
 timeout = -1
-default = "native26"
+default = "recovery-usb"
 serial_commands = true
 
 [kits]
@@ -12,32 +12,11 @@ autoload = false
 scale = 4
 
 [[entry]]
-id = "native26"
-title = "Elden macOS 26.5 - Recovery Framebuffer Test"
-type = "xnu"
-path = "Payloads/kernel.macho"
-args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=launchd sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1"
-
-[[entry]]
-id = "recovery-no-ignition"
-title = "Elden macOS 26.5 - Recovery without Ignition"
-type = "xnu"
-path = "Payloads/kernel.macho"
-args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=launchd sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1 -elden-recovery-skip-ignition"
-
-[[entry]]
 id = "recovery-usb"
-title = "Elden macOS 26.5 - Recovery USB Console"
+title = "Elden macOS 26.5 - Recovery"
 type = "xnu"
 path = "Payloads/kernel.macho"
-args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=launchd sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1 -elden-recovery-skip-ignition elden-usb-debug=1 elden-usb-management=1 elden-usb-timeout=90"
-
-[[entry]]
-id = "recovery-usb-timed"
-title = "Elden macOS 26.5 - Timed Recovery USB Test"
-type = "xnu"
-path = "Payloads/kernel.macho"
-args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=launchd sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1 -elden-recovery-skip-ignition elden-usb-debug=1 elden-usb-management=1 elden-usb-timeout=90 elden-usb-run-timeout=900"
+args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=launchd sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1 -elden-recovery-skip-ignition elden-usb-debug=1 elden-usb-management=1 elden-ufs-isc-sidecar=1 native-ufs-isc-overlay=1 elden-usb-run-timeout=900"
 
 [[entry]]
 id = "linux"

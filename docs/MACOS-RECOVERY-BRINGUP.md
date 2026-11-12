@@ -225,6 +225,24 @@ Slot B remained active on UFS boot LUN 2, and `boot_b` and both
 returned to read-only. The next hardware checkpoint is starting
 `recoveryosd` from the installed slot A image.
 
+### Consolidated Recovery menu
+
+The combined Linux and Recovery payload now presents one Recovery test,
+**Elden macOS 26.5 - Recovery**. It requests the authenticated Elden
+skip-Ignition path, enables the ISC sidecar and volatile overlay, and
+shows framebuffer progress. USB logs remain available through entry ID
+`recovery-usb`. The entry omits the USB host timeout and retains the
+900-second test deadline. Linux and the boot controls remain available
+in the same menu, which waits for manual selection.
+
+The updated signed slot A image passed packed payload and AVB verification
+at SHA-256 `b820415ecd56e74648e7a2abc0dd809995bf441d8c18f2ec30cdf72145eb7537`.
+The extracted kernel, ADT, Linux payload, and slot and USB EFI binaries
+matched the previous image byte for byte.
+The tablet wrote it to inactive `boot_a` over SSH and matched the full
+partition digest. Slot B Linux remained active. The consolidated entry
+awaits its first hardware boot.
+
 ## Stage 4 · Elden hardware
 
 Qualify EL1 PAC and the available translation granule on the tablet
