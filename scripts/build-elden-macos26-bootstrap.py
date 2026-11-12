@@ -257,7 +257,8 @@ def main() -> None:
                 inputs.append(driver / "EldenAdreno830PowerProbe.inc")
                 inputs.extend(soc / name for name in (
                     "Sm8750RpmhRead.c", "include/Sm8750RpmhRead.h", "Sm8750GpuPower.c",
-                    "include/Sm8750GpuPower.h", "include/Sm8750Qup1Resources.h"))
+                    "include/Sm8750GpuPower.h", "include/Sm8750Qup1Resources.h",
+                    "Sm8750GpuSmmuSurvey.c", "include/Sm8750GpuSmmuSurvey.h"))
             if hfi_sources:
                 inputs.extend(hfi_sources)
                 inputs.extend(driver / name for name in (

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
 #include "Sm8750GpuPower.c"
+#include "Sm8750GpuSmmuSurvey.c"
 #include "Sm8750Qup1Resources.h"
 
 typedef struct {
@@ -120,6 +121,44 @@ elden_gpu_probe_gmu(void)
         reset, (unsigned long long)start, (unsigned long long)end, (unsigned)(valid && end > start));
 }
 
+static void
+elden_gpu_probe_smmu(void)
+{
+    Sm8750GpuSmmuSurvey *survey = kalloc_data(sizeof(*survey), Z_WAITOK);
+    if (!survey) {
+        printf("ELDEN-A830: GPU SMMU survey allocation failed\n");
+        return;
+    }
+    printf("ELDEN-A830: GPUCC clocks ready, reading GPU SMMU\n");
+    vm_offset_t address = io_map(SM8750_GPU_SMMU_BASE, SM8750_GPU_SMMU_BYTES,
+        VM_WIMG_IO, VM_PROT_READ, true);
+    if (!address) {
+        printf("ELDEN-A830: GPU SMMU read-only map failed\n");
+        kfree_data(survey, sizeof(*survey));
+        return;
+    }
+    int decoded = Sm8750GpuSmmuObserve(elden_adreno830_rpmh_read32, (void *)address, survey);
+    ml_io_unmap(address, SM8750_GPU_SMMU_BYTES);
+    printf("ELDEN-A830: GPU SMMU decoded=%d ID0=%08x ID1=%08x ID2=%08x SCR0=%08x ACR=%08x GFSR=%08x\n",
+        decoded, survey->id0, survey->id1, survey->id2, survey->scr0, survey->sacr, survey->global_fault);
+    if (decoded) {
+        printf("ELDEN-A830: GPU SMMU slots=%u invalid=%u invalid-fault=%u banks=%u stage2=%u SID5-matches=%u\n",
+            survey->slots, survey->invalid_slots, survey->invalid_fault_slots,
+            survey->banks, survey->stage2_banks, survey->gmu_matches);
+        for (unsigned slot = 0; slot < survey->slots; ++slot) {
+            const Sm8750GpuSmmuRoute *route = &survey->routes[slot];
+            printf("ELDEN-A830: GPU SMMU slot=%u valid=%u SMR=%08x S2CR=%08x\n",
+                slot, route->valid, route->smr, route->s2cr);
+        }
+        if (survey->gmu_bank_offset) {
+            printf("ELDEN-A830: GPU SMMU CB%u off=%05x routes=%u SCTLR=%08x ACTLR=%08x FSR=%08x\n",
+                SM8750_GPU_GMU_SURVEY_BANK, survey->gmu_bank_offset, survey->gmu_bank_routes,
+                survey->gmu_sctlr, survey->gmu_actlr, survey->gmu_fsr);
+        }
+    }
+    kfree_data(survey, sizeof(*survey));
+}
+
 /* The RAM probe is the sole GPUCC owner in this kernel. Other active Elden
  * drivers use different GCC registers. The managed reset ends the lease. */
 static void
@@ -140,7 +179,10 @@ elden_adreno830_probe_power(const Sm8750RpmhGpuRailResult *rails)
         printf("ELDEN-A830: GPUCC power result=%u step=%u block=%u reg=%05x value=%08x\n",
             (unsigned)status, (unsigned)probe.power.step, (unsigned)probe.power.block,
             probe.power.reg, probe.power.value);
-        if (status == Sm8750GpuPowerOk) elden_gpu_probe_gmu();
+        if (status == Sm8750GpuPowerOk) {
+            elden_gpu_probe_gmu();
+            elden_gpu_probe_smmu();
+        }
         ml_io_unmap(probe.gpucc, SM8750_GPUCC_MAP_BYTES);
     } else {
         printf("ELDEN-A830: GPUCC map failed GCC=%u\n", (unsigned)(probe.gcc != 0));

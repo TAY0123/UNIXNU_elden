@@ -62,6 +62,9 @@
 #define SM8750_GPU_SMMU_BASE            0x03da0000U
 #define SM8750_GPU_SMMU_BYTES           0x00040000U
 #define SM8750_GMU_STREAM_ID            5U
+/* Inspect the candidate used by the PKX110 port. Ownership depends on
+ * Elden's live routing and context state. */
+#define SM8750_GPU_GMU_SURVEY_BANK      2U
 
 /* GPUCC CX register page. Offsets are relative to this page. */
 #define SM8750_GPUCC_BASE               0x03d90000U

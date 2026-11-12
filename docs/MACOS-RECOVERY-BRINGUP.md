@@ -3327,6 +3327,39 @@ any reported result. Physical GPUCC writes and GMU register access on
 this path still need a tablet result. The live SID 5 route is the next
 prerequisite for firmware handoff.
 
+#### GPU SMMU handoff survey
+
+The **GPU Clock and SMMU Survey (8 cores)** entry adds a read-only
+survey after the powered GMU register check. XNU reports the SMMU
+identification, global control and fault registers, the raw SMR/S2CR
+pair for every reported stream slot, and the number of valid matches
+covering GMU SID 5. If context bank 2 is in the advertised stage-1
+range, it also reports that bank's control, auxiliary and fault
+registers and the number of valid translation routes pointing to it.
+This is the candidate bank used by the PKX110 port. Elden's live
+state determines which resources a future driver can acquire.
+[Elden Linux GMU stream](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/arch/arm64/boot/dts/qcom/sm8750.dtsi#L3678-L3706) ·
+[PKX110 handoff and register layout](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/docs/ARCHITECTURE.md#L478-L497)
+
+The sanitizer model checks the same-SoC handoff shape with all SMRs
+invalid and inherited non-fault S2CR values. It also checks a masked
+route covering SID 5, a valid fault route, both stream-validity formats
+and refusal of out-of-aperture bank layouts. The read-only probe reports
+state without clearing faults or claiming a bank. The power test still
+holds the earlier CX and clock configuration until the managed reset.
+
+The 31-module prelink, packed image and MacBook readback passed. The
+MacBook recompiled the platform expert and USB units and relinked kernel
+`48888ED0-AEE0-340A-9C21-EFF6BFFA17A1`. Its RAM image is
+`~/elden-ptn3222/elden-4k-recovery-gpu-smmu-ram.img`, SHA-256
+`82f242d9a9263521054239730e9b8f8af0ba836ccb41abb8c3314dc420a835c7`.
+Source preparation also passed with the pinned USB and firmware inputs.
+The eight-vCPU QEMU control reached `launchd` with the probe arguments
+present and skipped the worker on its non-Elden device tree.
+Collect the USB log through `GPU SMMU decoded=1` and the final
+slot and context lines before choosing an attach sequence for SID 5.
+This survey awaits its first Elden RAM boot.
+
 ### Installation target and hardware inventory
 
 The opt-in UFS scratch probe confines `WRITE(10)` with Force Unit Access
