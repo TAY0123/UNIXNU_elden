@@ -35,5 +35,8 @@ sh host-mode.sh stop
 ```
 
 On the tested firmware this sequence registered the USB 2 and USB 3 root
-hubs. The stock device tree supplies no host VBUS regulator. External
-peripheral enumeration and boot-log capture need separate hardware checks.
+hubs. With the owner's hub attached, the Kindle enumerated its USB 2 hub
+(`1a40:0101`) and built-in video adapter (`25a4:9311`). The xHCI driver
+remained bound even when the cable detector reported `USB-HOST=0`.
+The stock device tree supplies no host VBUS regulator. Tablet fastboot
+and boot-log capture still need a downstream data connection test.
