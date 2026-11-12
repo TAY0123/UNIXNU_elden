@@ -3311,19 +3311,60 @@ delivery and suspend/resume remain unverified.
 
 The same device tree describes the Wi-Fi PCIe function `17cb:110e` and the
 WCN7861 Bluetooth function on UART with `brhbtnv20.bin` and `brhbtfw20.tlv`.
-The radio functions depend on the WCN7861 PMU. The same Linux boot image
-supplies both Bluetooth files and seven ath12k `PEACH/hw2.0` files,
-including board data, AMSS and the regulatory database. These are local
-driver inputs. The XNU PCIe, UART and shared PMU paths still need bring-up.
+The radio functions depend on the WCN7861 PMU. The saved Linux boot image
+supplies seven ath12k `PEACH/hw2.0` files, including board data, AMSS and
+the regulatory database. Its embedded initramfs also supplies the five
+Bluetooth firmware inputs.
+
+| Bluetooth input | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `brhperifw20.tlv` | 19884 | `9a8de09a127a5943f8c23d4ee6005531b900f085740a292c9ab5a20e76db6cb5` |
+| `brhperinv20.bin` | 741 | `3c73215352ba6422a9f2639124d27f64ec83a4d2aa91b388439ca88ea31098d0` |
+| `tmel_peach_20.elf` | 56752 | `a175c8d9d0e6b38b5ae23ff0175da795b14b8268919463d2b6e1cb2bfeebc9f8` |
+| `brhbtfw20.tlv` | 219296 | `837aea39d33e95a4ba272ef2a2306e5ecf9848853332d2f7b8002901d6af771d` |
+| `brhbtnv20.bin` | 13319 | `f91354b0872f1f7680142df6852b2c8e67e3151ee2ad406b3d183a2fb539702e` |
+
+The Elden DTS describes QUP2 at `0x8c0000`, SE6 UART at `0x898000`,
+GIC SPI 461 and GPIOs 24–27. Compiled register ranges, clock IDs, interrupt,
+pin bias and maximum baud match the saved Linux FDT. The nodes stay disabled
+until XNU has the GENI transport and PMU providers. Linux associates the
+wrapper with IOMMU stream `0x423`. Its UART uses 16× oversampling on
+GENI 2.5 and later, and the SE6 clock table provides 128 MHz for 8 Mbaud.
+The board PMU uses AOSS/QMP, TLMM GPIO 16 for `WLAN_EN` and PM8550VE
+GPIO 3 for `BT_EN`.
+[Elden Linux board DTS](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/arch/arm64/boot/dts/qcom/sm8750-lenovo-elden.dts) ·
+[GENI UART rate selection](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/tty/serial/qcom_geni_serial.c) ·
+[SM8750 clock rates](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/clk/qcom/gcc-sm8750.c)
+
+`drivers/EldenWcn7861/PeachBoot.c` owns the peripheral startup exchange
+through the first HCI version reply. It validates the three peripheral
+inputs before UART I/O, switches from 115200 to 8 Mbaud after TX drains,
+downloads the patch, NVM and TME in bounded chunks, and waits for controller
+activation. The host peer verified all 320 chunks using the extracted
+files, including early notifications, already-patched replies and bounded
+failure paths. The same source compiled as a freestanding ARM64e Mach-O
+object.
+
+Set `firmware` to the private directory containing the three peripheral
+inputs and run the host check from the repository root.
+
+```sh
+clang -std=c11 -Wall -Wextra -Werror -Wconversion -fsanitize=address,undefined \
+  drivers/EldenWcn7861/{PeachBoot,test-peach-boot}.c -o /tmp/test-peach-boot
+/tmp/test-peach-boot "$firmware/brhperifw20.tlv" "$firmware/brhperinv20.bin" \
+  "$firmware/tmel_peach_20.elf"
+```
 
 QcaBluetooth provides a GENI DMA transport and H4/IBS framing. The
 WCN7850 iPadOS port uses UART.SK. The SHENG macOS 27.3 test opened
 `/dev/cu.BLTH` and loaded the capability library, then restarted during
 the vendor version query. Elden can test the TTY transport with its
 own WCN7861 startup sequence before integrating the paired 25F71
-daemon. The WCN7850 startup code uses a different firmware and baud
-sequence. The Elden Linux driver conditionally skips the vendor baud
-command for specific Peach revisions.
+daemon. The next runtime step is to bind the powered GENI transport to
+the peripheral startup exchange, then load the two HCI firmware inputs
+at the negotiated rate. The pinned WCN7850 boot entry starts at 115200
+and uses a separate HCI baud command. Peach ROM 2.0 already switches
+rate in the peripheral exchange. The new code has no XNU caller yet.
 [QcaBluetooth](https://github.com/UniXNU/QcaBluetooth/tree/986d6319d1d2819b27ed2c9786776f10bf63cc76) ·
 [SHENG Bluetooth test](https://unixnu.com/devices/sheng#bluetooth) ·
 [Elden Linux Bluetooth startup](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/bluetooth/hci_qca.c)

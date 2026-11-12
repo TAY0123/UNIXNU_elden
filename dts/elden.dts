@@ -65,7 +65,34 @@
 	};
 };
 
+// The Bluetooth transport needs the WCN7861 PMU and a GENI DMA provider.
+&uart14 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&bt_uart_data &bt_uart_flow>;
+
+	bluetooth {
+		compatible = "qcom,wcn7861-bt";
+		firmware-name = "brhbtnv20.bin", "brhbtfw20.tlv";
+		max-speed = <8000000>;
+		status = "disabled";
+	};
+};
+
 &tlmm {
+	bt_uart_data: bt-uart-data-state {
+		pins = "gpio26", "gpio27";
+		function = "qup2_se6";
+		drive-strength = <2>;
+		bias-pull-up;
+	};
+
+	bt_uart_flow: bt-uart-flow-state {
+		pins = "gpio24", "gpio25";
+		function = "qup2_se6";
+		drive-strength = <2>;
+		bias-pull-down;
+	};
+
 	touch_spi_data: touch-spi-data-state {
 		pins = "gpio48", "gpio49", "gpio50";
 		function = "qup1_se4";

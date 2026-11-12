@@ -115,6 +115,26 @@
 		};
 	};
 
+	qupv3_2: geniqup@8c0000 {
+		compatible = "qcom,geni-se-qup";
+		reg = <0x0 0x8c0000 0x0 0x2000>;
+		clocks = <&gcc 0x81>, <&gcc 0x82>;
+		clock-names = "m-ahb", "s-ahb";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+		status = "disabled";
+
+		uart14: serial@898000 {
+			compatible = "qcom,geni-uart";
+			reg = <0x0 0x898000 0x0 0x4000>;
+			interrupts = <0 0x1cd 4>;
+			clocks = <&gcc 0x79>;
+			clock-names = "se";
+			status = "disabled";
+		};
+	};
+
 	tlmm: pinctrl@f100000 {
 		compatible = "qcom,sm8750-tlmm";
 		reg = <0x0 0xf100000 0x0 0x102000>;

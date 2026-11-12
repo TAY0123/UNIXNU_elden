@@ -336,17 +336,19 @@ evidence = [
 
 [[area]]
 id = "network"
-status = "planned"
+status = "host-verified"
 components = []
-paths = ["proprietary-files.txt", "docs/MACOS-RECOVERY-BRINGUP.md"]
-inputs = ["Wi-Fi PCIe function 17cb:110e on the SM8750 root complex.", "WCN7861 Bluetooth over UART with brhbtnv20.bin and brhbtfw20.tlv.", "Shared WCN7861 PMU."]
-configuration = ["No Elden XNU radio transport is selected."]
-procedure = ["Inspect the live Linux radio bindings and firmware names.", "Verify PMU and PCIe state before Wi-Fi bring-up.", "Bring up Bluetooth over UART and check HCI initialization."]
-findings = ["The installed Linux device tree identifies both radio functions and the shared PMU.", "The saved Linux boot image supplies the two Bluetooth inputs and seven PEACH hw2.0 firmware and board files."]
+paths = ["dts/elden.dts", "soc/sm8750/dts/sm8750.dtsi", "drivers/EldenWcn7861/**", "proprietary-files.txt", "docs/MACOS-RECOVERY-BRINGUP.md"]
+inputs = ["Wi-Fi PCIe function 17cb:110e on the SM8750 root complex.", "WCN7861 Bluetooth over QUP2 SE6 UART and the three peripheral and two HCI firmware inputs from the saved Linux image.", "Shared WCN7861 PMU."]
+configuration = ["The DTS records the UART and board pin states with the controller disabled.", "PeachBoot runs the WCN7861 peripheral exchange through the HCI version reply on a powered UART with exclusive ownership."]
+procedure = ["Verify PMU rails and BT_EN on a cold boot.", "Bind GENI UART clock, DMA and IRQ resources and verify the 115200 to 8 Mbaud transition with HCI version readback.", "Complete HCI firmware load and connect the paired macOS daemon.", "Verify PMU and PCIe state before Wi-Fi bring-up."]
+findings = ["The compiled UART resources match the saved Linux device tree.", "The saved Linux boot image supplies all five Bluetooth inputs and seven PEACH hw2.0 firmware and board files.", "The host peer verifies exact firmware bytes and the expected HCI version tuple after the peripheral startup sequence."]
 completion = ["Wi-Fi associates and transfers traffic on the tablet.", "Bluetooth pairs and exchanges data with a peripheral."]
-limits = ["Radio operation under XNU remains unverified."]
-next_action = ["Map the shared PMU, PCIe and UART dependencies to XNU and verify the radio bring-up using the tablet's firmware inputs."]
+limits = ["The peripheral code compiles for ARM64e and has no XNU runtime caller yet.", "HCI firmware loading, macOS daemon integration and the Wi-Fi transport still need bring-up."]
+next_action = ["Qualify the shared PMU and QUP2 SE6 clocks, DMA and flow control, then run the peripheral exchange on the tablet."]
 evidence = [
+  { kind = "host", reference = "drivers/EldenWcn7861/test-peach-boot.c", command = "Run the ASan and UBSan peer with the three private peripheral files and compile PeachBoot.c for arm64e-apple-macos26.5", revision = "ef956e87097686fbecad20f23ef358161c99d347", result = "Base revision plus PeachBoot. Verified 82 patch, four NVM and 234 TME segments, async events, the first HCI version response, already-patched and absent-TME paths, timeout, baud failure and firmware refusal." },
+  { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "Compile the Elden DTS and compare UART register, clock, pin and speed properties to the saved Linux FDT with fdtget", revision = "ef956e87097686fbecad20f23ef358161c99d347", result = "Base revision plus disabled QUP2/SE6 and WCN7861 nodes. Properties matched the saved Linux handoff." },
   { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "dtc -I dtb -O dts and inspect the peripheral nodes", revision = "9ba3a222426de0702e669d7d69c879c81700e1a0", result = "Read-only inspection of the installed Linux image DTB identified the PCIe ID, Bluetooth UART firmware names and shared radio PMU." },
   { kind = "host", reference = "docs/MACOS-RECOVERY-BRINGUP.md", command = "Read the embedded initramfs in the saved tablet Linux boot input", revision = "34ab2d1d134c589d16f9a56a03e2fc902db84b23", result = "Recovered and hashed both WCN7861 Bluetooth files and seven ath12k PEACH hw2.0 files from the original boot image. The binaries remain private." },
 ]
