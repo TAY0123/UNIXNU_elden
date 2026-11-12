@@ -94,8 +94,14 @@ final class UsbLink implements Closeable, Fastboot.Transport {
         return match;
     }
 
-    private static boolean eldenConsole(UsbDevice device) {
+    static boolean eldenConsole(UsbDevice device) {
         return device.getVendorId() == 0x1209 && device.getProductId() == 0x7004;
+    }
+
+    static UsbDevice intentDevice(Intent intent) {
+        return Build.VERSION.SDK_INT >= 33
+                ? intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class)
+                : intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
     }
 
     static String describe(Collection<UsbDevice> devices) {

@@ -65,9 +65,7 @@ public final class MainActivity extends Activity {
     private final BroadcastReceiver permission = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (pendingUsb == null) return;
-            UsbDevice device = Build.VERSION.SDK_INT >= 33
-                    ? intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice.class)
-                    : intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            UsbDevice device = UsbLink.intentDevice(intent);
             if (!pendingUsb.equals(device)) return;
             String action = pendingAction;
             pendingUsb = null;
@@ -93,7 +91,24 @@ public final class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Intent intent = getIntent();
+        if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+            UsbDevice attached = UsbLink.intentDevice(intent);
+            setIntent(new Intent(Intent.ACTION_MAIN));
+            if (attached != null) {
+                UsbDevice live = usb.getDeviceList().get(attached.getDeviceName());
+                if (live != null && UsbLink.eldenConsole(live) && usb.hasPermission(live)) {
+                    startCapture();
+                }
+            }
+        }
         handler.post(refresh);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
     }
 
     @Override
@@ -190,8 +205,7 @@ public final class MainActivity extends Activity {
         LinearLayout logs = section(body, "USB boot log");
         capture = text(logs, "", 14, MUTED, false);
         LinearLayout captureActions = row(logs);
-        button(captureActions, "Start capture",
-                () -> startForegroundService(new Intent(this, CaptureService.class)));
+        button(captureActions, "Start capture", this::startCapture);
         button(captureActions, "Stop capture",
                 () -> stopService(new Intent(this, CaptureService.class)));
         button(logs, "Clear logs", () -> task(() -> {
@@ -214,6 +228,10 @@ public final class MainActivity extends Activity {
         log.setPadding(dp(10), dp(10), dp(10), dp(10));
         log.setBackground(rounded(0xff233743, 8));
         refresh();
+    }
+
+    private void startCapture() {
+        startForegroundService(new Intent(this, CaptureService.class));
     }
 
     private void refresh() {

@@ -5,24 +5,39 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 public final class CaptureService extends Service {
     static volatile String status = "USB capture stopped";
     private volatile boolean running;
     private Thread worker;
     private PowerManager.WakeLock wakeLock;
+    private final ArrayBlockingQueue<Boolean> usbChanges = new ArrayBlockingQueue<>(1);
+    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            usbChanges.offer(true);
+        }
+    };
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (worker != null) return START_NOT_STICKY;
+        if (worker != null) {
+            usbChanges.offer(true);
+            return START_NOT_STICKY;
+        }
         NotificationManager notifications = getSystemService(NotificationManager.class);
         notifications.createNotificationChannel(new NotificationChannel("capture", "Elden USB capture",
                 NotificationManager.IMPORTANCE_LOW));
@@ -36,6 +51,11 @@ public final class CaptureService extends Service {
         wakeLock = getSystemService(PowerManager.class).newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK, "eldensvc:usb-capture");
         wakeLock.acquire();
+        IntentFilter filter = new IntentFilter(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        filter.addAction(UsbLink.PERMISSION);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(usbReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(usbReceiver, filter);
         running = true;
         worker = new Thread(this::capture, "elden-usb");
         worker.start();
@@ -60,7 +80,7 @@ public final class CaptureService extends Service {
                     device = UsbLink.find(devices, false);
                 } catch (IOException error) {
                     report(error.getMessage());
-                    Thread.sleep(500);
+                    usbChanges.poll(500, TimeUnit.MILLISECONDS);
                     continue;
                 }
                 if (device == null) {
@@ -88,7 +108,7 @@ public final class CaptureService extends Service {
                         report("USB console unavailable. " + error.getMessage());
                     }
                 }
-                Thread.sleep(500);
+                usbChanges.poll(500, TimeUnit.MILLISECONDS);
             }
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
@@ -108,7 +128,10 @@ public final class CaptureService extends Service {
     @Override
     public void onDestroy() {
         running = false;
-        if (worker != null) worker.interrupt();
+        if (worker != null) {
+            unregisterReceiver(usbReceiver);
+            worker.interrupt();
+        }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (!status.startsWith("USB capture failed")) status = "USB capture stopped";
         super.onDestroy();

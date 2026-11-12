@@ -15,7 +15,8 @@ log and empties the current log while capture continues.
 
 Leave capture running when moving from fastboot to the UniXNU menu and
 then into **Elden macOS 26.5 - Recovery**. Android may ask for USB access
-as the tablet re-enumerates. The log records the USB vendor and product
+as the tablet re-enumerates. If Android opens Elden Service for the
+Elden console, capture starts automatically. The log records the USB vendor and product
 IDs Android sees, whether a CDC session opened, and when its first bytes
 arrived.
 
