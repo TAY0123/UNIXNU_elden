@@ -3422,9 +3422,51 @@ the sealed System and App cryptexes. All three use 4 KiB blocks.
 | AppOS | `AppCryptex` | 52428800 |
 
 The images total 20,220,739,584 bytes. The proposed `userdata` extent
-has room for these source images. A bootable target still needs its APFS
-volume group and auxiliary volumes, writable storage, and an installed
-boot test.
+has room for these source images. The SHA-384 of each raw image matches
+its entry in the 25F71 BuildManifest.
+
+#### APFS install image preparation
+
+A sparse copy of the 25F71 restore System container was grown to 32 GiB
+with `diskutil apfs resizeContainer`. macOS verified the source container
+before resizing it and created unencrypted Data, Preboot and VM volumes.
+Adding Data with `-groupWith` against the restore System returned `-69624`,
+the same result documented by the macOS-Uke port.
+[macOS-Uke volume creation](https://github.com/iOSNJBrepo/macOS-uke/blob/eaa695ace7e58308512126e25f4b256292a78c51/scripts/fullos-volumes.sh#L24-L44)
+
+The detached scratch copy was grouped by resolving the two active volume
+superblocks through the APFS object map. The System volume already used
+the unified inode range. The empty Data volume's next inode was `0x10`.
+Both superblocks now carry the System volume UUID as the group ID and
+the APFS volume-group inode-space feature flag. The two object checksums
+were recalculated. Checkpoints 701 through 703 reference the same two
+edited blocks. The original restore image and the ungrouped copy remain
+available for comparison.
+[Apple File System Reference, volume group field](https://developer.apple.com/support/downloads/Apple-File-System-Reference.pdf#page=59)
+
+An independent object-map inspection and macOS `diskutil apfs
+listVolumeGroups` found one group containing System and Data. The MacBook
+reattached the image read-only and `diskutil verifyVolume` verified the
+container and all four volumes at checkpoint 703 with exit code 0.
+The 34,359,738,368-byte image SHA-256 is
+`5544e3d5c6ca5fa190c7df7cb54b450989ffaca0ba4fddc2e88fb80c871f0a37`.
+The private image and verification logs are under the directory named
+by `out/device-private/elden-fullos-current`.
+
+The System volume mounts read-only with owners enabled and contains
+`launchd`, the Data template and the firmlink list. Its OS and App
+cryptex links point to Preboot. Separate read-only mounts of the paired
+cryptexes confirmed the arm64e dyld cache and its twelve numbered
+subcaches in SystemOS, and Safari in AppOS.
+
+The Data template includes root-owned directories and extended
+attributes that the MacBook SSH user could not read. The archive attempt
+stopped with a permission error at `private/var/agentx`. Populating Data
+requires a copy that preserves owners and extended attributes. The
+scratch System is unsealed and has no System snapshot. The cryptex
+mounts, boot policy and installed QEMU boot still need integration.
+Tablet install-target publication and persistent writes still need
+hardware verification.
 
 #### Install target publication
 
