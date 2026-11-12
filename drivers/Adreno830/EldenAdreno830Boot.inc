@@ -21,11 +21,68 @@ elden_adreno830_fnv1a(const void *data, size_t bytes)
 #include "EldenAdreno830HfiBoot.inc"
 #endif
 
+/* GPUCC requires LOW_SVS on the host MX and CX rails. */
+static void
+elden_adreno830_rpmh_probe(const void *snapshot)
+{
+    uint32_t mx_address, cx_address;
+    unsigned mx_index, cx_index;
+    if (Sm8750CmdDbArcLevel(snapshot, Sm8750CmdDbSize, "mx.lvl", 0x40,
+                            &mx_address, &mx_index) != Sm8750CmdDbOk ||
+        Sm8750CmdDbArcLevel(snapshot, Sm8750CmdDbSize, "cx.lvl", 0x40,
+                            &cx_address, &cx_index) != Sm8750CmdDbOk) {
+        printf("ELDEN-A830: RPMh LOW_SVS tables unavailable\n");
+        return;
+    }
+    printf("ELDEN-A830: RPMh LOW_SVS MX=%05x:%u CX=%05x:%u\n",
+           mx_address, mx_index, cx_address, cx_index);
+    vm_offset_t mapping = io_map(SM8750_APPS_RSC_DRV2_BASE, SM8750_APPS_RSC_DRV2_PROBE_SIZE,
+                                 VM_WIMG_IO, VM_PROT_READ, true);
+    if (!mapping) {
+        printf("ELDEN-A830: RPMh DRV-2 map failed\n");
+        return;
+    }
+
+    printf("ELDEN-A830: reading RPMh DRV-2 state\n");
+    const volatile uint32_t *regs = (const volatile uint32_t *)mapping;
+    uint32_t hardware = regs[0];
+    uint32_t config = regs[0x0c / 4];
+    unsigned major = (hardware >> 16) & 0xff;
+    unsigned tcs_count = (config >> 12) & 0x3f;
+    unsigned command_count = (config >> 27) & 0x1f;
+    printf("ELDEN-A830: RPMh DRV-2 id=%08x config=%08x tcs=%u commands=%u\n",
+           hardware, config, tcs_count, command_count);
+    if ((major == 2 || major == 3) && tcs_count >= SM8750_APPS_RSC_ACTIVE_TCS &&
+        tcs_count <= 16 && command_count >= 3 && command_count <= 16) {
+        /* RSC v3 moves the WAIT/CONTROL/STATUS/ENABLE group by 16 bytes. */
+        unsigned wait_offset = major == 2 ? 0x10 : 0x20;
+        uint32_t irq_enable = regs[SM8750_APPS_RSC_TCS_BASE / 4];
+        uint32_t irq_status = regs[(SM8750_APPS_RSC_TCS_BASE + 4) / 4];
+        unsigned idle = 0;
+        for (unsigned i = 0; i < SM8750_APPS_RSC_ACTIVE_TCS; ++i) {
+            unsigned offset = SM8750_APPS_RSC_TCS_BASE + i * SM8750_APPS_RSC_TCS_STRIDE;
+            const volatile uint32_t *tcs = regs + (offset + wait_offset) / 4;
+            uint32_t wait = tcs[0], control = tcs[1], status = tcs[2], enable = tcs[3];
+            if (!wait && !control && status == 1 && !enable && !(irq_status & (1u << i))) {
+                idle |= 1u << i;
+            }
+            printf("ELDEN-A830: RPMh TCS%u wait=%08x control=%08x status=%08x enable=%08x\n",
+                   i, wait, control, status, enable);
+        }
+        printf("ELDEN-A830: RPMh IRQ en=%08x status=%08x idle-snapshot=%x\n",
+               irq_enable, irq_status, idle);
+    }
+    ml_io_unmap(mapping, SM8750_APPS_RSC_DRV2_PROBE_SIZE);
+}
+
 static void
 elden_adreno830_cmd_db_probe(void)
 {
-    unsigned enabled = 0;
-    if (!PE_parse_boot_argn("elden-adreno830-cmd-db", &enabled, sizeof(enabled)) || enabled != 1) {
+    unsigned enabled = 0, rpmh = 0;
+    bool log_resources = PE_parse_boot_argn("elden-adreno830-cmd-db", &enabled, sizeof(enabled)) &&
+        enabled == 1;
+    bool read_rpmh = PE_parse_boot_argn("elden-adreno830-rpmh", &rpmh, sizeof(rpmh)) && rpmh == 1;
+    if (!log_resources && !read_rpmh) {
         return;
     }
     uint32_t *snapshot = kalloc_data(Sm8750CmdDbSize, Z_WAITOK);
@@ -61,7 +118,7 @@ elden_adreno830_cmd_db_probe(void)
         {"SH0", Sm8750CmdDbBcm}, {"MC0", Sm8750CmdDbBcm},
         {"ACV", Sm8750CmdDbBcm}, {"CN0", Sm8750CmdDbBcm},
     };
-    for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); ++i) {
+    for (size_t i = 0; log_resources && i < sizeof(required) / sizeof(required[0]); ++i) {
         Sm8750CmdDbResource resource;
         Sm8750CmdDbStatus status = Sm8750CmdDbRead(snapshot, Sm8750CmdDbSize,
             required[i].name, required[i].slave, &resource);
@@ -74,8 +131,13 @@ elden_adreno830_cmd_db_probe(void)
             resource.address, (unsigned long)resource.aux_bytes, digest);
     }
 #ifdef ELDEN_ADRENO830_HFI_PROBE
-    elden_adreno830_hfi_probe(snapshot);
+    if (log_resources) {
+        elden_adreno830_hfi_probe(snapshot);
+    }
 #endif
+    if (read_rpmh) {
+        elden_adreno830_rpmh_probe(snapshot);
+    }
     kfree_data(snapshot, Sm8750CmdDbSize);
 }
 

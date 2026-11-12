@@ -40,4 +40,12 @@
 #define SM8750_GPUCC_CXO_CBCR           0x0e4U
 #define SM8750_GPUCC_HUB_CX_INT_CBCR     0x0e8U
 
+/* AP RPMh RSC DRV-2. The Elden Linux DT selects DRV-2 and assigns the
+ * first three TCSes to active requests. The other TCSes are for sleep/wake. */
+#define SM8750_APPS_RSC_DRV2_BASE       0x16520000U
+#define SM8750_APPS_RSC_DRV2_PROBE_SIZE 0x00002000U
+#define SM8750_APPS_RSC_TCS_BASE        0x0d00U
+#define SM8750_APPS_RSC_TCS_STRIDE      0x02a0U
+#define SM8750_APPS_RSC_ACTIVE_TCS      3U
+
 #endif

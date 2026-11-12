@@ -90,3 +90,42 @@ Sm8750CmdDbRead(const void *snapshot, size_t bytes, const char *name, unsigned s
     *resource = found;
     return Sm8750CmdDbOk;
 }
+
+Sm8750CmdDbStatus
+Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name, unsigned requested,
+                   uint32_t *address, unsigned *index)
+{
+    if (!address || !index) {
+        return Sm8750CmdDbInvalid;
+    }
+    Sm8750CmdDbResource resource;
+    Sm8750CmdDbStatus result = Sm8750CmdDbRead(snapshot, bytes, name, Sm8750CmdDbArc, &resource);
+    if (result != Sm8750CmdDbOk) {
+        return result;
+    }
+    if (resource.aux_bytes == 0 || resource.aux_bytes > 32 || resource.aux_bytes % 2) {
+        return Sm8750CmdDbInvalid;
+    }
+    unsigned entries = (unsigned)resource.aux_bytes / 2;
+    unsigned selected = entries;
+    unsigned previous = 0;
+    for (unsigned i = 0; i < entries; ++i) {
+        unsigned level = cmd_db_le16(resource.aux + 2 * i);
+        if (!level && i != 0) {
+            break;
+        }
+        if (level < previous) {
+            return Sm8750CmdDbInvalid;
+        }
+        if (selected == entries && level >= requested) {
+            selected = i;
+        }
+        previous = level;
+    }
+    if (selected == entries) {
+        return Sm8750CmdDbMissing;
+    }
+    *address = resource.address;
+    *index = selected;
+    return Sm8750CmdDbOk;
+}

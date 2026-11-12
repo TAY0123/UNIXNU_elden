@@ -631,11 +631,28 @@ it was in a synchronous XPC reply wait from
 `-[CBPairingAgent initWithParentManager:]`, called from that same
 coordinator during AppKit launch notification. The background event
 thread was in its normal run loop. The baseline ADT has no Bluetooth
-controller node, though `bluetoothd` was running. A QEMU comparison
-adds the virtual Bluetooth controller from the DroidVM approach while
-retaining the baseline's existing `vmm-present=1`. This addresses the
-emulated dependency separately from the tablet's native UART transport.
+controller node, though `bluetoothd` was running. A QEMU comparison kept
+the same kernel, volumes and existing `vmm-present=1`, and added the
+DroidVM-style virtual Bluetooth node with transport encoding 10. At
+341 seconds the chooser main thread was waiting for `AuthorizationCreate`.
+An `authd` worker was in a Mach send during activity-stream logging from
+`SecCodeCopySigningInformation`. At 440 seconds that chooser thread was
+back in the pairing-agent wait. The final screenshot showed the Apple
+logo and progress bar. This run leaves both startup dependencies open.
 [DroidVM Bluetooth initialization](https://github.com/Droid-VM/macOS-DroidVM/blob/9db2f6f263173b660536530c2d102f480280cdb3/scripts/run-macos-vm.py)
+
+The closest Recovery display comparison is the paired 25F71 SHENG build
+40305570169. It showed the language list and accepted a selection in QEMU.
+The separate physical SHENG capture showed the Language window with an
+empty list. Compare the QEMU service sequence and presented pixels against
+that build. On Elden, require visible language controls and a working
+selection as the checkpoint after the first software frame.
+[SHENG 25F71 test record](https://github.com/CrossDarwin/macOS-ForSheng/blob/ca57db73c066162323e77156a9f0f1d72b1de4ff/docs/status.md)
+
+The AYN Odin 3 port reports an iPadOS lock screen with eight active
+SM8750 cores using firmware GOP and software rotation. Its presentation
+path is a second hardware reference for the GOP handoff.
+[Odin 3 device status](https://github.com/darkplace/UniXNU-Odin3/blob/6d58c09d1529fb22dba8e3d6f74d8d4c7f9f8306/README.md#L31-L43)
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
@@ -2922,6 +2939,58 @@ exchange remain separate steps.
 The paired guest-mode image is
 `~/elden-ptn3222/elden-4k-recovery-guest-hfi-bin-ram.img`, SHA-256
 `6199e1c8fff6f1c49671f0256c92cd8895147f927ffa305757b42f01cf80c807`.
+The tablet reached the software first frame and Language Chooser startup
+with all eight CPUs active. It returned automatically to bootloader
+fastboot, where the MacBook enumerated it.
+
+The OnePlus 13T Adreno830 port provides SM8750 GPUCC, GDSC and RPMh
+implementations with a reported Metal desktop on iPadOS 17.7.11. Use
+its power and clock sequence as a reference while retaining the Elden
+chip ID, measured OPPs, HFI policy and firmware. Verify the CX power
+readback and GMU clock branches, then qualify the GMU SMMU context,
+firmware ready and HFI acknowledgements before command submission.
+Metal and IOSurface integration must match the 25F71 kernel and userspace.
+[OnePlus 13T GPU result](https://unixnu.com/drivers/community-adreno830) ·
+[SM8750 power implementation](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/platform/sm8750/Sm8750GpuPower.c) ·
+[SM8750 RPMh implementation](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/platform/sm8750/Sm8750Rpmh.c)
+
+#### RPMh handoff on the tablet
+
+The saved Elden Linux FDT selects apps RSC DRV-2 at `0x16520000`
+with three active TCSes at `0xd00` and stride `0x2a0`. Its GPUCC
+requires LOW_SVS on MX and CX. With `elden-adreno830-rpmh=1`, XNU maps
+the RSC read-only and derives the two rail indices from the live ARC
+tables. A host sanitizer check using the captured Linux command database
+matched both indices and exercised rounding and malformed table handling.
+
+```text
+ELDEN-A830: RPMh LOW_SVS MX=30010:2 CX=30000:2
+ELDEN-A830: RPMh DRV-2 id=00030800 config=800c8104 tcs=8 commands=16
+ELDEN-A830: RPMh IRQ en=00000001 status=00000000 idle-snapshot=7
+```
+
+All three active slots had status 1 with zero control, wait and enable.
+This describes the handoff at the instant of the snapshot. The shared
+MX/CX rails may already have higher AP votes for storage and display.
+Linux keeps the highest supported corner before power-domain state sync.
+The OnePlus 13T port uses the same policy during GPU bring-up. The
+LOW_SVS indices here express the GPUCC minimum.
+[Linux RPMh power-domain aggregation](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/pmdomain/qcom/rpmhpd.c) ·
+[OnePlus rail ownership notes](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/docs/ARCHITECTURE.md)
+
+The passive probe booted with all eight CPUs active, reached a software
+frame and started Language Chooser, then returned automatically to
+fastboot. Kernel `742DD3C5-8DD1-3F75-AA57-94895F1FC2C3` is in the
+MacBook image `~/elden-ptn3222/elden-4k-recovery-guest-rpmh-ram.img`.
+Packed and MacBook SHA-256 matched
+`9f337fd9da7c4fa3848390d40ae133fac571499b7066aeb40713df4781749a80`.
+
+A follow-up attempted an active RPMh resource read through an idle
+slot before IOKit started USB. UniXNU acknowledged handoff, then the
+MacBook received no XNU console. The log does not locate the failing
+instruction or confirm that the command executed. The source retains
+the verified passive probe. Further transactions need a later hook,
+with USB logging and the reset timer already running.
 
 #### GPUCC handoff probe
 
@@ -3082,6 +3151,25 @@ The radio functions depend on the WCN7861 PMU. The same Linux boot image
 supplies both Bluetooth files and seven ath12k `PEACH/hw2.0` files,
 including board data, AMSS and the regulatory database. These are local
 driver inputs. The XNU PCIe, UART and shared PMU paths still need bring-up.
+
+QcaBluetooth provides a GENI DMA transport and H4/IBS framing. The
+WCN7850 iPadOS port uses UART.SK. The SHENG macOS 27.3 test opened
+`/dev/cu.BLTH` and loaded the capability library, then restarted during
+the vendor version query. Elden can test the TTY transport with its
+own WCN7861 startup sequence before integrating the paired 25F71
+daemon. The WCN7850 startup code uses a different firmware and baud
+sequence. The Elden Linux driver conditionally skips the vendor baud
+command for specific Peach revisions.
+[QcaBluetooth](https://github.com/UniXNU/QcaBluetooth/tree/986d6319d1d2819b27ed2c9786776f10bf63cc76) ·
+[SHENG Bluetooth test](https://unixnu.com/devices/sheng#bluetooth) ·
+[Elden Linux Bluetooth startup](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/bluetooth/hci_qca.c)
+
+Ath12kWifi supplies XNU-side MHI, QRTR and station networking. SHENG
+reports macOS 27.3 association, DHCP and traffic through its WCN7850.
+Elden needs the WCN7861 PEACH firmware and board data, shared PMU votes,
+PCIe MSI and DMA setup, and a 25F71 network integration check.
+[Ath12kWifi](https://github.com/UniXNU/Ath12kWifi/tree/5f7f5a8a9f02f7ab45ed10a2f226e348c519a838) ·
+[SHENG Wi-Fi test](https://unixnu.com/devices/sheng#network)
 
 An installed system still needs to exercise all eight cores, restore storage,
 display, input and radios after sleep, and resume from a hybrid hibernation

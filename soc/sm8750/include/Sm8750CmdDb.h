@@ -32,4 +32,9 @@ typedef struct {
 Sm8750CmdDbStatus Sm8750CmdDbRead(const void *snapshot, size_t bytes, const char *name,
                                  unsigned slave, Sm8750CmdDbResource *resource);
 
+/* Return the address and first hardware index at or above the requested ARC
+ * level. Zero padding after the first entry ends the table. */
+Sm8750CmdDbStatus Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name,
+                                      unsigned requested, uint32_t *address, unsigned *index);
+
 #endif
