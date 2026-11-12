@@ -1,0 +1,69 @@
+--- a/pexpert/pexpert/pexpert.h
++++ b/pexpert/pexpert/pexpert.h
+@@ -171,6 +171,7 @@
+ void sheng_log_status(const char *message);
+ void sheng_log_exception(uint64_t pc, uint64_t esr, uint64_t far, uint64_t sp);
+ void sheng_log_repaint_panel(void);
++void sheng_log_use_progress_panel(void);
+ extern volatile uint64_t sheng_panel_ready;
+ extern volatile uint64_t sheng_status_pixels;
+ extern unsigned sheng_boot_progress_enabled;
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -576,11 +576,16 @@
+ PE_create_console(void)
+ {
+ #if SHENG
+-	unsigned progress = 0, cpus = 0;
++	unsigned progress = 0, cpus = 0, progress_panel = 0;
+ 	PE_parse_boot_argn("sheng-boot-progress", &progress, sizeof(progress));
+ 	PE_parse_boot_argn("cpus", &cpus, sizeof(cpus));
+ 	sheng_boot_progress_enabled = progress == 1 && (cpus == 1 || cpus == 2 || cpus == 4 || cpus == 8);
+ 	sheng_smp_log_cpus = cpus;
++	if (sheng_boot_progress_enabled &&
++	    PE_parse_boot_argn("sheng-boot-progress-panel", &progress_panel, sizeof(progress_panel)) &&
++	    progress_panel == 1) {
++		sheng_log_use_progress_panel();
++	}
+ 	sheng_boot_checkpoint(0);
+ 	sheng_boot_checkpoint(1);
+ #endif
+--- a/pexpert/arm/pe_sheng_log.h
++++ b/pexpert/arm/pe_sheng_log.h
+@@ -55,6 +55,12 @@
+ }
+ 
+ static uint32_t sheng_log_panel_writer;
++static uint32_t sheng_log_progress_panel;
++
++void sheng_log_use_progress_panel(void)
++{
++    __atomic_store_n(&sheng_log_progress_panel, 1, __ATOMIC_RELAXED);
++}
+ 
+ static uint64_t sheng_log_mask_async(void)
+ {
+@@ -102,9 +108,10 @@
+     __atomic_store_n(&r->writer, 0, __ATOMIC_RELEASE);
+     sheng_log_clean(r, 64);
+     sheng_log_restore_async(interrupt_state);
+-    /* Slow display updates may be skipped; they must not hold the retained-log writer. */
++    /* The progress panel is painted by milestones and the timer. Keep byte output in RAM. */
+     expected = 0;
+-    if (total != UINT64_MAX && sheng_panel_ready &&
++    if (!__atomic_load_n(&sheng_log_progress_panel, __ATOMIC_RELAXED) &&
++        total != UINT64_MAX && sheng_panel_ready &&
+         __atomic_compare_exchange_n(&sheng_log_panel_writer, &expected, 1, 0,
+                                     __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+         sheng_panel_putc((unsigned char)byte);
+@@ -186,7 +193,9 @@
+     sheng_panel_ready = 1;
+     sheng_panel_reset();
+     /* Replay only a bounded tail; pin the first panic line separately so long backtraces cannot overwrite it. */
+-    for (unsigned i = 0; i < count; i++) sheng_panel_putc(history[i]);
++    if (!__atomic_load_n(&sheng_log_progress_panel, __ATOMIC_RELAXED)) {
++        for (unsigned i = 0; i < count; i++) sheng_panel_putc(history[i]);
++    }
+     __atomic_store_n(&sheng_log_panel_writer, 0, __ATOMIC_RELEASE);
+ }
+ 

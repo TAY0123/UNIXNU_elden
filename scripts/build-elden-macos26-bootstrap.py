@@ -122,6 +122,7 @@ def main() -> None:
         cache_progress_overlay = patches / "elden-macos26-cache-progress.patch"
         buffered_reads_overlay = patches / "elden-macos26-cache-buffered-reads.patch"
         cache_pipeline_overlay = patches / "elden-macos26-cache-pipeline.patch"
+        progress_panel_overlay = patches / "elden-macos26-progress-panel.patch"
         ce_stack_overlay = patches / "elden-macos26-ce-stack.patch"
         source = output / "source"
         subprocess.run(["git", "-C", source, "apply", trace_overlay, pid1_overlay], check=True)
@@ -134,6 +135,7 @@ def main() -> None:
         subprocess.run(["git", "-C", source, "apply", buffered_reads_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", cache_pipeline_overlay], check=True)
         subprocess.run(["git", "-C", source, "apply", ce_stack_overlay], check=True)
+        subprocess.run(["git", "-C", source, "apply", progress_panel_overlay], check=True)
         ubc = source / "bsd/kern/ubc_subr.c"
         code = ubc.read_text()
         marker = "#include <sys/ubc_internal.h>\n"
@@ -189,6 +191,7 @@ def main() -> None:
             "cache_progress_overlay_sha256": build.sha(cache_progress_overlay),
             "cache_buffered_reads_overlay_sha256": build.sha(buffered_reads_overlay),
             "cache_pipeline_overlay_sha256": build.sha(cache_pipeline_overlay),
+            "progress_panel_overlay_sha256": build.sha(progress_panel_overlay),
             "ce_stack_overlay_sha256": build.sha(ce_stack_overlay),
             "hardware_verified": False,
         }
