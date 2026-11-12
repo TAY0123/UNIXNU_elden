@@ -448,6 +448,16 @@ unresolved. The image is
 with SHA-256
 `12b63eb5a85e27e68d34ec57344e044274fd48225ec1a3918a79f4addf02a112`.
 
+The graphics build now adds a bounded user backtrace to the existing
+WindowServer exception capture. It uses XNU's backtrace reader when
+the context can service faults. A tablet RAM boot produced 12 frames
+and the actual cache slide `0x0ebf4000`. The paired 25F71 cache resolves
+the abort to `WSCompositeDestinationCreateWithIOSurface + 0x1cc`,
+called from `WS::Displays::SLCADisplay::render_update`. The matched
+instructions report an unsupported pixel format before calling
+`abort`. The capture identifies the branch. It did not record the
+runtime format value.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its

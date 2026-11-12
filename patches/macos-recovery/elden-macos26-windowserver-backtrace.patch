@@ -1,0 +1,35 @@
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -135,7 +135,9 @@
+ 
+ #if SHENG && defined(MACH_BSD)
+ #include <arm/thread.h>
++#include <kern/backtrace.h>
+ #include <libkern/copyio.h>
++#include <machine/machine_routines.h>
+ #include <mach/arm/exception.h>
+ #include <vm/vm_shared_region_xnu.h>
+ 
+@@ -191,6 +193,22 @@
+ 		    (unsigned long long)get_saved_state_sp(state), (unsigned)get_saved_state_esr(state),
+ 		    (unsigned long long)far, (unsigned long long)sctlr, (unsigned long long)par,
+ 		    instruction, read_error, slide);
++	}
++	if (exception == EXC_CRASH && ml_get_interrupts_enabled() && get_preemption_level() == 0) {
++		uintptr_t frames[12];
++		struct backtrace_user_info info = BTUINFO_INIT;
++		unsigned int count = backtrace_user(frames, sizeof(frames) / sizeof(frames[0]), NULL, &info);
++		uint32_t slide = ~0u;
++		vm_shared_region_t region = vm_shared_region_get(current_task());
++		if (region) {
++			slide = region->sr_slide;
++			vm_shared_region_deallocate(region);
++		}
++		printf("ELDEN-WS-BT: pid=%d slide=%x frames=%u error=%d flags=%x\n",
++		    proc_selfpid(), slide, count, info.btui_error, (unsigned int)info.btui_info);
++		for (unsigned int i = 0; i < count; i++) {
++			printf("ELDEN-WS-BT: %u %llx\n", i, (unsigned long long)frames[i]);
++		}
+ 	}
+ 	/* Stop before exception delivery; the first exception may still be recoverable. */
+ 	panic("SHENG WS EXCEPTION pid=%d type=%x code=%llx sub=%llx pc=%llx lr=%llx sp=%llx esr=%llx far=%llx",

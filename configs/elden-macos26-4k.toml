@@ -71,3 +71,8 @@ record = "progress_panel_overlay_sha256"
 patch = "elden-macos26-software-display.patch"
 record = "software_display_overlay_sha256"
 optional = "recovery_graphics_cache"
+
+[[overlay]]
+patch = "elden-macos26-windowserver-backtrace.patch"
+record = "windowserver_backtrace_overlay_sha256"
+optional = "recovery_graphics_cache"
