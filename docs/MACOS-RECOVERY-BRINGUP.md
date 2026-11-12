@@ -2863,6 +2863,51 @@ clang -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined \
 out/gmu-tests/test-context
 ```
 
+#### GMU cold start and HFI readiness
+
+`EldenAdreno830BootGmu` connects the reset-held firmware transfer and the
+GMU context buffers to the shared HFI transport. It requires a live audited
+SID 5 route, powered CX, GMU clocks, boot bandwidth, secure setup and an
+awake RSCC. The platform owner masks the GMU interrupts for polling and
+retains the MMIO and DMA resources throughout the attempt.
+
+While CM3 is held in reset, the driver reads back the firmware transfer,
+initializes the coherent HFI rings, configures CX GBIF, publishes the log
+and queue IOVAs, and verifies that the firmware and HFI ready registers are
+clear. After release it polls the firmware signature selected by the DTCM
+core version, then requests and polls HFI startup separately. Both waits
+check for GMU and platform faults and have independent 10 ms deadlines.
+Failure after release attempts to reassert reset and reports whether
+readback confirmed it. The owner still has to quiesce DMA and drain
+translations before reclaiming the buffers.
+[Paired Linux GMU configuration](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/gpu/drm/msm/adreno/a6xx_gmu.c#L978-L1069) ·
+[CM3 and HFI ready checks](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/drivers/gpu/drm/msm/adreno/a6xx_gmu.c#L297-L351)
+
+The native ARM64 sanitizer test uses the pinned `gen80000_gmu.bin`. It
+checks the real transfer and queue setup against a register model, then
+uses the returned HFI queue to exchange both startup tables with a model
+firmware peer. The model checks stale readiness, missing responses,
+CM3 and watchdog faults, bounded polling with a stopped timer, and
+indeterminate reset writes. The adapter also compiles to ARM64e.
+The XNU boot hook still calls the diagnostics. Runtime binding needs the
+platform owner for CX, GPUCC and SID 5, and hardware confirmation of both
+readiness stages and both acknowledgments.
+
+From the device repository on an ARM64 build host, set `firmware` to the
+pinned GMU image and run:
+
+```sh
+kit=../AdrenoFirmware_a8xx # deaaae24d7fe1a8fdd10a0fe8bfb3fbc4c9a3c87
+smmu=../UniXNU/kits/ArmSmmu4K
+mkdir -p out/gmu-tests
+clang -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined \
+  -I "$kit" -I "$smmu" -I soc/sm8750/include \
+  "$kit"/Adreno{Firmware,Hfi,HfiStartup,HfiA8xx,HfiA8xxStartup}.c \
+  drivers/Adreno830/{EldenAdreno830,EldenAdreno830GmuBoot,test-gmu-boot}.c \
+  -o out/gmu-tests/test-gmu-boot
+out/gmu-tests/test-gmu-boot "$firmware"
+```
+
 #### A8xx HFI table exchange
 
 The shared AdrenoFirmware branch

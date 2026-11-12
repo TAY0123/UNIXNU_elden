@@ -4,8 +4,6 @@
 #include "Sm8750AdrenoResources.h"
 
 enum {
-    GmuLogIova = SM8750_GMU_SCRATCH_IOVA + SM8750_GMU_SCRATCH_BYTES,
-    GmuHfiIova = GmuLogIova + SM8750_GMU_LOG_BYTES,
     GmuData = ArmSmmu4KRead | ArmSmmu4KWrite,
 };
 
@@ -20,8 +18,8 @@ static const struct {
                              GmuData | ArmSmmu4KPrivileged | ArmSmmu4KExecute},
     [EldenGmuMemoryScratch] = {SM8750_GMU_SCRATCH_IOVA, SM8750_GMU_SCRATCH_BYTES,
                               GmuData | ArmSmmu4KPrivileged},
-    [EldenGmuMemoryLog] = {GmuLogIova, SM8750_GMU_LOG_BYTES, GmuData},
-    [EldenGmuMemoryHfi] = {GmuHfiIova, SM8750_GMU_HFI_BYTES, GmuData},
+    [EldenGmuMemoryLog] = {SM8750_GMU_LOG_IOVA, SM8750_GMU_LOG_BYTES, GmuData},
+    [EldenGmuMemoryHfi] = {SM8750_GMU_HFI_IOVA, SM8750_GMU_HFI_BYTES, GmuData},
     [EldenGmuMemoryDebug] = {SM8750_GMU_DEBUG_IOVA, SM8750_GMU_DEBUG_BYTES,
                             GmuData | ArmSmmu4KPrivileged},
 };
