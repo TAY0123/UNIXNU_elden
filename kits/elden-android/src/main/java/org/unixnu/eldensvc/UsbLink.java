@@ -61,13 +61,35 @@ final class UsbLink implements Closeable, Fastboot.Transport {
         return null;
     }
 
-    private static UsbInterface serialData(UsbDevice device) {
+    private static boolean hasSerialEndpoints(UsbInterface candidate) {
+        return candidate.getInterfaceClass() == UsbConstants.USB_CLASS_CDC_DATA
+                && endpoint(candidate, UsbConstants.USB_DIR_IN) != null
+                && endpoint(candidate, UsbConstants.USB_DIR_OUT) != null;
+    }
+
+    private static UsbInterface serialData(UsbDevice device, UsbInterface control, int unionDataId) {
+        UsbInterface fallback = null;
+        int candidates = 0;
         for (int i = 0; i < device.getInterfaceCount(); i++) {
             UsbInterface candidate = device.getInterface(i);
-            if (candidate.getInterfaceClass() == UsbConstants.USB_CLASS_CDC_DATA
-                    && endpoint(candidate, UsbConstants.USB_DIR_IN) != null) return candidate;
+            if (!hasSerialEndpoints(candidate)) continue;
+            if (unionDataId >= 0) {
+                if (candidate.getId() == unionDataId) return candidate;
+            } else if (candidate.getInterfaceProtocol() == 0) {
+                if (candidate.getId() == control.getId() + 1) return candidate;
+                fallback = candidate;
+                candidates++;
+            }
         }
-        return null;
+        return candidates == 1 ? fallback : null;
+    }
+
+    private static boolean hasSerialFunction(UsbDevice device) {
+        if (serialControl(device) == null) return false;
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            if (hasSerialEndpoints(device.getInterface(i))) return true;
+        }
+        return false;
     }
 
     static UsbDevice find(UsbManager manager, boolean forFastboot) throws IOException {
@@ -79,8 +101,7 @@ final class UsbLink implements Closeable, Fastboot.Transport {
         UsbDevice elden = null;
         int matches = 0;
         for (UsbDevice device : devices) {
-            boolean suitable = forFastboot ? fastboot(device) != null
-                    : serialControl(device) != null && serialData(device) != null;
+            boolean suitable = forFastboot ? fastboot(device) != null : hasSerialFunction(device);
             if (!suitable) continue;
             match = device;
             matches++;
@@ -108,7 +129,7 @@ final class UsbLink implements Closeable, Fastboot.Transport {
         TreeSet<String> descriptors = new TreeSet<>();
         for (UsbDevice device : devices) {
             String mode = fastboot(device) != null ? "fastboot"
-                    : serialControl(device) != null && serialData(device) != null ? "CDC ACM"
+                    : hasSerialFunction(device) ? "CDC ACM"
                     : eldenConsole(device) ? "Elden device without a usable CDC interface" : "other";
             descriptors.add(String.format(Locale.ROOT, "%04x:%04x (%s)",
                     device.getVendorId(), device.getProductId(), mode));
@@ -125,15 +146,18 @@ final class UsbLink implements Closeable, Fastboot.Transport {
 
     static UsbLink open(UsbManager manager, UsbDevice device, boolean forFastboot) throws IOException {
         UsbInterface control = forFastboot ? null : serialControl(device);
-        UsbInterface data = forFastboot ? fastboot(device) : serialData(device);
-        if (data == null || (!forFastboot && control == null)) throw new IOException("USB interface disappeared");
-        UsbEndpoint input = endpoint(data, UsbConstants.USB_DIR_IN);
-        UsbEndpoint output = endpoint(data, UsbConstants.USB_DIR_OUT);
-        if (input == null || output == null) throw new IOException("USB bulk endpoints are unavailable");
+        if (!forFastboot && control == null) throw new IOException("USB serial control interface disappeared");
         UsbDeviceConnection connection = manager.openDevice(device);
         if (connection == null) throw new IOException("Android could not open the USB device");
-        UsbLink link = new UsbLink(connection, control, data, input, output);
+        UsbLink link = null;
         try {
+            UsbInterface data = forFastboot ? fastboot(device) : serialData(device, control,
+                    CdcDescriptors.dataInterface(connection.getRawDescriptors(), control.getId()));
+            if (data == null) throw new IOException("USB data interface is unavailable");
+            UsbEndpoint input = endpoint(data, UsbConstants.USB_DIR_IN);
+            UsbEndpoint output = endpoint(data, UsbConstants.USB_DIR_OUT);
+            if (input == null || output == null) throw new IOException("USB bulk endpoints are unavailable");
+            link = new UsbLink(connection, control, data, input, output);
             if ((control != null && !connection.claimInterface(control, true))
                     || !connection.claimInterface(data, true)) {
                 throw new IOException("Android could not claim the USB interface");
@@ -156,7 +180,8 @@ final class UsbLink implements Closeable, Fastboot.Transport {
             }
             return link;
         } catch (IOException | RuntimeException error) {
-            link.close();
+            if (link != null) link.close();
+            else connection.close();
             throw error;
         }
     }

@@ -15,10 +15,12 @@ log and empties the current log while capture continues.
 
 Leave capture running when moving from fastboot to the UniXNU menu and
 then into **Elden macOS 26.5 - Recovery**. Android may ask for USB access
-as the tablet re-enumerates. If Android opens Elden Service for the
-Elden console, capture starts automatically. The log records the USB vendor and product
-IDs Android sees, whether a CDC session opened, and when its first bytes
-arrived.
+as the tablet re-enumerates. If Android opens Elden Service for the Elden
+console, capture starts automatically. Capture switches to the Elden
+console when it appears during a generic CDC session. The app uses the
+CDC Union descriptor to open the serial data interface on composite
+devices. The log records the USB IDs Android sees, whether a CDC session
+opened, and when its first bytes arrived.
 
 The app uses the Kindle profile's identity and endpoint, with a route for
 `10.8.0.0/24` and a 25-second keepalive for inbound log access. Stop the

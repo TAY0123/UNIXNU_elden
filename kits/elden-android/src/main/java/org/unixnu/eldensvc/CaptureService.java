@@ -17,6 +17,7 @@ import android.os.PowerManager;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -96,7 +97,11 @@ public final class CaptureService extends Service {
                     try (UsbLink link = UsbLink.open(manager, device, false)) {
                         report("USB CDC console connected, waiting for bytes");
                         byte[] buffer = new byte[8192];
-                        while (running && device.equals(manager.getDeviceList().get(device.getDeviceName()))) {
+                        while (running) {
+                            Map<String, UsbDevice> attached = manager.getDeviceList();
+                            if (!device.equals(attached.get(device.getDeviceName()))) break;
+                            if (usbChanges.poll() != null && !UsbLink.eldenConsole(device)
+                                    && attached.values().stream().anyMatch(UsbLink::eldenConsole)) break;
                             int count = link.receive(buffer, 750);
                             if (count > 0) {
                                 report("Recording the tablet USB console");
