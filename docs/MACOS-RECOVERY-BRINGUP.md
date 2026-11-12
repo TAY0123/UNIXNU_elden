@@ -1,5 +1,8 @@
 # Elden macOS Recovery bring-up
 
+Related controller, graphics and Recovery implementations are reviewed in
+[the pinned project comparison](RELATED-PORTS-20261113.md).
+
 The reference target is macOS 26.5 build 25F71 with XNU 12377.121.6, ARM64e
 and 16 KiB pages. Start with the pinned
 [macOS-ForSheng 26.5 reference](https://github.com/CrossDarwin/macOS-ForSheng/tree/ca57db73c066162323e77156a9f0f1d72b1de4ff)
