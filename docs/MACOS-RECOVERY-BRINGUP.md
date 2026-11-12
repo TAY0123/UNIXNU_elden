@@ -263,6 +263,48 @@ The separate 4 KiB QEMU run with generic GOP reached `Display on` after
 starting WindowServer. It also recorded the missing `imgsrc` information.
 The capture ended without a first-frame checkpoint.
 
+### Local QEMU CPU and first-frame comparison
+
+Both runs used the same 4 KiB ARM64e kernel, paired 25F71 BaseSystem,
+ISC overlay, and 800×600 GOP driver under x86-64 TCG. The eight-CPU
+observer checked the combined Elden ArmCpu patch digest. XNU reported
+seven initialized secondaries, with timer interrupts and IPIs on
+all eight CPUs.
+
+| First log sample after QEMU start | 1 CPU | 8 CPUs |
+| --- | ---: | ---: |
+| `launchd` exec | 50 s | 50 s |
+| Shared-cache verification complete | 119 s | 125 s |
+| Task following `restore-datapartition` | 148 s | 156 s |
+| WindowServer exec | 203 s | 194 s |
+| Display on | 252 s | 245 s |
+
+The four logged dyld cache files total 1,136,214,016 bytes. XNU's
+buffered verification loop performs reads and hashes serially. The
+recorded read and hash totals were 42.5 s and 25.7 s on one CPU,
+and 47.7 s and 26.1 s on eight. The results are elapsed measurements
+for these emulated runs.
+
+Both runs reached display power-on. Neither recorded a swap submission
+or a first frame in the 270-second observation. In the eight-CPU run,
+`configd` exited three times with reason 37, code 57. The paired XNU
+defines code 57 as `KERN_INVALID_GUARD_OBJECT_SLOT` and reports it in
+the shared memory-integrity exit namespace. `launchd` explicitly logged
+`rebooting due to critical process crashes: configd`, then sent
+WindowServer SIGTERM and later SIGKILL during shutdown. The tablet
+photo is consistent with shutdown cleanup. A tablet log containing
+the shutdown trigger is still needed to establish its cause.
+
+An extended one-CPU run enabled the WindowServer exception probe.
+After display power-on, WindowServer aborted with SIGABRT before its
+first swap. The panic buffer passed CRC and kernel UUID checks. Its
+stackshot identified the WindowServer main thread and the loaded
+shared-cache UUID and slide. The matched 25F71 symbols resolved the
+call chain through `WSInitialize`, `WSCompositorActivateDefault`,
+`WSSystemCanCompositeWithMetal`, `abort`, and `__pthread_kill`.
+The GOP companion provides CPU scanout. The default compositor's
+Metal-device check aborts before it submits a surface to that driver.
+
 ## Stage 4 · Elden hardware
 
 Qualify EL1 PAC and the available translation granule on the tablet
