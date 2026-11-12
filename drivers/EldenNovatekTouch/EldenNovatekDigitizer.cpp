@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 #include <IOKit/IOBufferMemoryDescriptor.h>
+#include <IOKit/IOLib.h>
 #include <IOKit/hid/IOHIDDevice.h>
 #include <libkern/c++/OSString.h>
 #include "EldenNovatekDigitizer.h"
 #include "EldenNovatekHid.h"
+#include "EldenNovatekSpi4.h"
 
 static_assert(sizeof(IOHIDDevice) == 208, "paired macOS 25F71 IOHIDDevice ABI");
 
@@ -12,7 +14,10 @@ class EldenNovatekDigitizer : public IOHIDDevice {
 
     struct elden_touch_hid state = {};
     IOBufferMemoryDescriptor *input = nullptr;
-    struct geni_spi *bus = nullptr;
+    struct elden_touch_spi4 *bus = nullptr;
+    bool retrySample = true;
+    bool reportedContact = false;
+    bool reportedRelease = false;
 
     static int deliver(void *context, const uint8_t *report, size_t bytes);
 
@@ -24,7 +29,7 @@ public:
     OSString *newTransportString() const override;
     OSString *newProductString() const override;
 
-    void setBus(struct geni_spi *spi) { bus = spi; }
+    void setBus(struct elden_touch_spi4 *spi) { bus = spi; }
     int sample();
     int releaseContacts();
 };
@@ -44,6 +49,9 @@ EldenNovatekDigitizer::handleStart(IOService *provider)
     }
     input->setLength(ELDEN_TOUCH_HID_REPORT_BYTES);
     state = {};
+    retrySample = true;
+    reportedContact = false;
+    reportedRelease = false;
     return true;
 }
 
@@ -98,8 +106,26 @@ EldenNovatekDigitizer::deliver(void *context, const uint8_t *report, size_t byte
 int
 EldenNovatekDigitizer::sample()
 {
-    return input && !isInactive() ? elden_touch_hid_poll(&state, bus, deliver, this) :
-        kIOReturnNotAttached;
+    if (!input || isInactive()) {
+        return kIOReturnNotAttached;
+    }
+    int event = elden_touch_spi4_take_event(bus);
+    if (event < 0) {
+        return event;
+    }
+    if (!event && !retrySample) {
+        return 0;
+    }
+    int result = elden_touch_hid_poll(&state, &bus->spi, deliver, this);
+    retrySample = result != 0;
+    if (!result && !reportedContact && state.delivered.active_slots) {
+        reportedContact = true;
+        IOLog("EldenNovatekDigitizer: first contact report accepted\n");
+    } else if (!result && reportedContact && !reportedRelease && !state.delivered.active_slots) {
+        reportedRelease = true;
+        IOLog("EldenNovatekDigitizer: first release report accepted\n");
+    }
+    return result;
 }
 
 int
@@ -111,9 +137,9 @@ EldenNovatekDigitizer::releaseContacts()
 }
 
 IOService *
-elden_digitizer_attach(IOService *provider, struct geni_spi *spi)
+elden_digitizer_attach(IOService *provider, struct elden_touch_spi4 *bus)
 {
-    if (!provider || !spi) {
+    if (!provider || !bus) {
         return nullptr;
     }
     auto *device = OSTypeAlloc(EldenNovatekDigitizer);
@@ -124,7 +150,7 @@ elden_digitizer_attach(IOService *provider, struct geni_spi *spi)
         device->release();
         return nullptr;
     }
-    device->setBus(spi);
+    device->setBus(bus);
     if (!device->start(provider)) {
         device->detach(provider);
         device->release();

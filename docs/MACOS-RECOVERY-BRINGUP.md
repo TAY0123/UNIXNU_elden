@@ -3196,12 +3196,8 @@ worker must serialize SPI access and release active contacts before suspend.
 The SPI model tested a finger lifting while another lands, delivery
 failure and retry, a bad checksum, ten simultaneous contacts and
 release of all ten. An independent HID parser verified the report size,
-application usage, axes and contact fields. The MacBook compiled and
-linked the bridge as ARM64e kernel code, including the SPI transport.
-The 334 authenticated digitizer vtable slots matched the inherited
-layout in the paired Recovery HID reference. The bridge is outside the
-boot image pending MMIO and interrupt provider integration and hardware
-qualification of the firmware upload.
+application usage, axes and contact fields. The digitizer uses the
+paired 25F71 IOHIDFamily.
 [USB HID usage tables](https://www.usb.org/sites/default/files/hut1_5.pdf) ·
 [Apple IOHIDDevice](https://github.com/apple-oss-distributions/IOHIDFamily/blob/main/IOHIDFamily/IOHIDDevice.cpp)
 
@@ -3210,9 +3206,7 @@ touch pins through caller-supplied MMIO. It uses SPI mode 0 at 9.6 MHz
 from the 19.2 MHz TCXO and leaves the GENI IRQ output masked for polled
 transfers. The register model exercised startup, failed readbacks and
 rollback, including a busy engine and preservation of the USB repeater's
-SE5 vote and inherited QUP1 AHB votes. The MacBook compiled and linked
-the same setup with the ARM64e digitizer. The next device checkpoint is
-controller operation under XNU before firmware upload or HID delivery.
+SE5 vote and inherited QUP1 AHB votes.
 [SM8750 GCC](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/gcc-sm8750.c) ·
 [SM8750 TLMM](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/pinctrl/qcom/pinctrl-sm8750.c)
 
@@ -3230,6 +3224,52 @@ version and product ID `0x6097` before returning success. The host SPI
 model exercised the complete transfer with the original firmware, including
 invalid images, unexpected hardware IDs, timeout and transport failure.
 The loader and shared SPI transport also compiled as arm64e Mach-O objects.
+
+#### Recovery touch image
+
+The Elden ADT publishes an `elden-novatek` provider containing the
+verified local firmware. Its controller is enabled by `elden-touch=1`.
+The controller maps the SE4 resources, starts GENI and uploads the
+firmware on an IOKit work loop. It samples GPIO 162's falling-edge latch
+every 8 ms with GIC and PDC delivery disabled. Acknowledging the latch
+before reading the SPI report lets a new edge during the read remain
+pending. The host register model tested that ordering and cleanup when
+restoring the GPIO configuration fails. The original IOHID event driver
+matches the Elden Touch Screen product and touchscreen usage.
+[Linux GPIO interrupt handling](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/pinctrl/qcom/pinctrl-msm.c) ·
+[Apple IOHIDInterface matching](https://github.com/apple-oss-distributions/IOHIDFamily/blob/e31e90a24c27ad6cbe981650d12a1a4124065b03/IOHIDFamily/IOHIDInterface.cpp)
+
+Build the driver on the MacBook with the paired Elden native build,
+including its `ufs-driver` with GOP. Use the four private HID headers
+named in the reference JSON and the selected QcomGeniSpi checkout.
+
+```sh
+python3 scripts/build-elden-recovery-touch.py \
+  --native-build "$KERNEL_BUILD" --geni-spi-source "$GENI_SPI" \
+  --hid-reference "$SHENG_ROOT/config/macos26-input-reference.json" \
+  --hid-headers "$HID_HEADERS" --output "$TOUCH_DRIVER"
+```
+
+Apply `elden-macos26-touch-prelink.patch` after the Elden UFS, GOP and
+Recovery prelink overlays in the reference checkout. In the paired
+Recovery prelink command, keep `--hid-components` and use
+`--storage-driver "$TOUCH_DRIVER"`. Generate the ADT using
+`scripts/prepare-elden-recovery-adt.py --touch-firmware "$TOUCH_FIRMWARE"`
+along with its usual ADT arguments. Pack that ADT and the linked kernel
+into the same payload. The firmware and generated images stay private.
+
+The 31-module prelink verified all 334 authenticated digitizer vtable
+slots against the paired HID family. The ARM64e build, sanitizer tests,
+ADT round-trip, DarwinBoot preflight and packed image readback passed.
+The MacBook RAM image is `~/elden-ptn3222/elden-4k-recovery-touch-ram.img`,
+SHA-256 `0b030031cc4ad9aa55cdaf1a3b233a0d6a287562647fd6d883e6d9781832c90a`.
+The **Recovery with Touch (8 cores)** entry enables the controller.
+Look for the NT36536 product `6097` and firmware `1a` ready line, then
+the first accepted contact and release reports. Verify that a tap
+actually selects a Recovery control. Hardware firmware startup, event
+delivery and suspend/resume remain unverified.
+
+#### Radios and suspend
 
 The same device tree describes the Wi-Fi PCIe function `17cb:110e` and the
 WCN7861 Bluetooth function on UART with `brhbtnv20.bin` and `brhbtfw20.tlv`.

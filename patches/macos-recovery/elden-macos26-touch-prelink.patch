@@ -1,0 +1,85 @@
+--- a/scripts/native_storage_module.py
++++ b/scripts/native_storage_module.py
+@@ -128,6 +128,9 @@
+     display = evidence.get('native_gop_display')
+     input_driver = evidence.get('native_recovery_input')
+     allowed = {component, 'NativeGOPDisplay'} if display else {component}
++    touch_driver = evidence.get('elden_touch')
++    if touch_driver:
++        allowed |= {'EldenNovatekController', 'IOHIDEventDriver'}
+     if input_driver:
+         allowed |= {'NativeRecoveryInput', 'IOHIDEventDriver'}
+     if info['CFBundleExecutable'] != component or any(
+@@ -192,6 +195,47 @@
+                 hashlib.sha256(original[text['fileoff']:text['fileoff'] + text['filesize']]).hexdigest()
+                 != contract['family_text_sha256']):
+             raise ValueError('input companion requires the reviewed original HID family')
++
++    if touch_driver:
++        reference = json.loads((Path(__file__).resolve().parents[1] /
++                                'config/macos26-input-reference.json').read_text())
++        contract = reference['abi']
++        headers = reference['apple_headers']['files']
++        required = {'EldenNovatekController.cpp', 'EldenNovatekDigitizer.cpp',
++                    'EldenNovatekDigitizer.h', 'EldenNovatekHid.c', 'EldenNovatekHid.h',
++                    'EldenNovatekSpi4.c', 'EldenNovatekSpi4.h', 'EldenNovatekTouch.c',
++                    'EldenNovatekTouch.h', 'GeniSpi.c', 'GeniSpi.h', 'Sm8750Qup1Resources.h'}
++        required |= {f'include/IOKit/hid/{name}' for name in headers}
++        files = touch_driver.get('files', {})
++        if ('elden_ufs' not in evidence or not display or input_driver
++                or 'com.apple.iokit.IOHIDFamily' not in selected or files.keys() != required
++                or touch_driver.get('abi') != contract or touch_driver.get('default_off') is not True
++                or touch_driver.get('boot_argument') != 'elden-touch=1'):
++            raise ValueError('touch companion requires the paired default-off Elden HID contract')
++        expected = dict(CFBundleIdentifier=evidence['bundle'], IOClass='EldenNovatekController',
++            IOProviderClass='IOPlatformDevice', IONameMatch='elden-novatek',
++            IOMatchCategory='EldenNovatekController', IOProbeScore=500)
++        event_driver = dict(CFBundleIdentifier='com.apple.iokit.IOHIDFamily', IOClass='IOHIDEventDriver',
++            IOProviderClass='IOHIDInterface', IOPropertyMatch={'Product': 'Elden Touch Screen'},
++            DeviceUsagePairs=[dict(DeviceUsagePage=13, DeviceUsage=4)], IOProbeScore=3000)
++        personalities = info['IOKitPersonalities']
++        if (personalities.get('EldenNovatekController') != expected
++                or personalities.get('EldenNovatekEventDriver') != event_driver
++                or sum(item['IOClass'] == 'IOHIDEventDriver' for item in personalities.values()) != 1
++                or sum(item['IOClass'] == 'EldenNovatekController' for item in personalities.values()) != 1):
++            raise ValueError('Elden touch provider or event driver identity differs')
++        for name, entry in headers.items():
++            if files[f'include/IOKit/hid/{name}'] != entry['canonical_sha256']:
++                raise ValueError('touch companion private HID headers differ from the paired reference')
++        for name, digest in files.items():
++            if hashlib.sha256((directory / 'elden-touch' / name).read_bytes()).hexdigest() != digest:
++                raise ValueError('Elden touch source differs from the compiled record')
++        family = kc_macho(original, kc['entries']['com.apple.iokit.IOHIDFamily'][1])
++        text = next(s for s in family['segments'] if s['name'] == '__TEXT_EXEC')
++        if (family['uuid'] != contract['family_uuid'] or
++                hashlib.sha256(original[text['fileoff']:text['fileoff'] + text['filesize']]).hexdigest()
++                != contract['family_text_sha256']):
++            raise ValueError('touch companion requires the reviewed original HID family')
+
+     if 'com.apple.iokit.IOStorageFamily' not in selected:
+         raise ValueError('transport needs the original IOStorageFamily dependency')
+@@ -341,6 +385,13 @@
+         if audit['slots'] != evidence['native_recovery_input']['abi']['device_slots']:
+             raise ValueError('input companion HID vtable slot count differs')
+         driver['input_vtable_abi'] = audit
++    if touch_driver:
++        audit = audit_storage_vtable(driver, original, kc, native, slide,
++            family_bundle='com.apple.iokit.IOHIDFamily', base_class='IOHIDDevice',
++            own_class='EldenNovatekDigitizer')
++        if audit['slots'] != touch_driver['abi']['device_slots']:
++            raise ValueError('Elden touch digitizer HID vtable slot count differs')
++        driver['touch_vtable_abi'] = audit
+     return driver
+
+
+--- a/scripts/emit_macos26_security.py
++++ b/scripts/emit_macos26_security.py
+@@ -485,6 +485,8 @@
+             report['storage_driver']['display_private_vtable_bindings'] = driver['display_private_vtable_bindings']
+         if 'input_vtable_abi' in driver:
+             report['storage_driver']['input_vtable_abi'] = driver['input_vtable_abi']
++        if 'touch_vtable_abi' in driver:
++            report['storage_driver']['touch_vtable_abi'] = driver['touch_vtable_abi']
+     return final_data, report
+
+

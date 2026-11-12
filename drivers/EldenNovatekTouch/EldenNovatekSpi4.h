@@ -17,6 +17,7 @@ struct elden_touch_spi4 {
     uint32_t added_ahb_votes;
     uint32_t root_config;
     uint32_t pin_config[5];
+    uint32_t irq_config;
     unsigned acquired;
 };
 
@@ -25,6 +26,14 @@ struct elden_touch_spi4 {
 // and shared GCC clock votes, and keep wrapper votes owned for the lifetime
 // of their clients. If using SE DMA, the provider supplies qualified buffers.
 int elden_touch_spi4_start(struct elden_touch_spi4 *bus);
+
+// Arm the falling-edge status latch after the controller is ready. The
+// caller must own GPIO 162 and serialize this with report reads and stop.
+int elden_touch_spi4_arm_events(struct elden_touch_spi4 *bus);
+
+// Return 1 for an acknowledged event, 0 for idle, or a negative error.
+// Acknowledge before reading SPI so an edge during the transfer stays latched.
+int elden_touch_spi4_take_event(struct elden_touch_spi4 *bus);
 
 // Quiesce SPI transfers before stopping. A failed cleanup leaves ownership
 // recorded so the provider can retry without releasing live resources.

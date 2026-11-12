@@ -7,6 +7,7 @@ enum {
     AcquiredRoot = 1u << 1,
     AcquiredEngine = 1u << 2,
     AcquiredPins = 1u << 3,
+    AcquiredEvents = 1u << 4,
     ClockOff = 1u << 31,
     AhbHardwareGating = 1u << 1,
     RootUpdate = 1u << 0,
@@ -19,7 +20,18 @@ enum {
     PinMuxPullDrive = 0x1ff,
     PinOutputEnable = 1u << 9,
     PinIrqConfig = 0x8,
+    PinIrqStatus = 0xc,
     PinIrqEnable = 1u << 0,
+    PinIrqPolarity = 1u << 1,
+    PinIrqDetection = 3u << 2,
+    PinIrqFalling = 2u << 2,
+    PinIrqRawStatusEnable = 1u << 4,
+    PinIrqWakeEnable = 1u << 7,
+    PinIrqExternalEnable = PinIrqEnable | PinIrqWakeEnable,
+    PinIrqEventMask = PinIrqPolarity | PinIrqDetection | PinIrqRawStatusEnable,
+    PinIrqEventConfig = PinIrqPolarity | PinIrqFalling | PinIrqRawStatusEnable,
+    PinIrqPending = 1u << 0,
+    TouchIrqGpio = 162,
     GeniSecondaryActive = 1u << 12,
 };
 
@@ -33,7 +45,7 @@ static const struct {
     {49, PinMuxPullDrive, 0x85},
     {50, PinMuxPullDrive, 0x85},
     {51, PinMuxPullDrive, 0x87},
-    {162, PinMuxPullDrive | PinOutputEnable, 0xc3},
+    {TouchIrqGpio, PinMuxPullDrive | PinOutputEnable, 0xc3},
 };
 
 _Static_assert(sizeof(pins) / sizeof(pins[0]) ==
@@ -118,6 +130,73 @@ set_pins(struct elden_touch_spi4 *bus, int restore)
     return 0;
 }
 
+static uint32_t
+touch_irq_reg(uint32_t offset)
+{
+    return TouchIrqGpio * SM8750_TLMM_GPIO_STRIDE + offset;
+}
+
+static int
+restore_events(struct elden_touch_spi4 *bus)
+{
+    const struct geni_io *tlmm = &bus->tlmm;
+    uint32_t config = touch_irq_reg(PinIrqConfig);
+    if (read32(tlmm, config) & PinIrqExternalEnable) {
+        return ELDEN_TOUCH_SPI4_BUSY;
+    }
+    update32(tlmm, config, PinIrqEventMask, bus->irq_config);
+    if ((read32(tlmm, config) & PinIrqEventMask) != bus->irq_config) {
+        return GENI_ERR_IO;
+    }
+    tlmm->wr(tlmm->ctx, touch_irq_reg(PinIrqStatus), 0);
+    bus->acquired &= ~AcquiredEvents;
+    return 0;
+}
+
+int
+elden_touch_spi4_arm_events(struct elden_touch_spi4 *bus)
+{
+    if (!bus || !(bus->acquired & AcquiredPins)) {
+        return GENI_ERR_PARAM;
+    }
+    const struct geni_io *tlmm = &bus->tlmm;
+    uint32_t config = touch_irq_reg(PinIrqConfig);
+    uint32_t current = read32(tlmm, config);
+    if ((bus->acquired & AcquiredEvents) || (current & PinIrqExternalEnable)) {
+        return ELDEN_TOUCH_SPI4_BUSY;
+    }
+    bus->irq_config = current & PinIrqEventMask;
+    bus->acquired |= AcquiredEvents;
+    // RAW_STATUS_EN latches the edge with the GIC and PDC routes disabled.
+    update32(tlmm, config, PinIrqEventMask, PinIrqEventConfig);
+    if ((read32(tlmm, config) & PinIrqEventMask) != PinIrqEventConfig) {
+        int cleanup = restore_events(bus);
+        return cleanup ? cleanup : GENI_ERR_IO;
+    }
+    // Configuring the raw latch can set INTR_STATUS without a real edge.
+    tlmm->wr(tlmm->ctx, touch_irq_reg(PinIrqStatus), 0);
+    return 0;
+}
+
+int
+elden_touch_spi4_take_event(struct elden_touch_spi4 *bus)
+{
+    if (!bus || !(bus->acquired & AcquiredEvents)) {
+        return GENI_ERR_PARAM;
+    }
+    const struct geni_io *tlmm = &bus->tlmm;
+    uint32_t config = read32(tlmm, touch_irq_reg(PinIrqConfig));
+    if ((config & (PinIrqEventMask | PinIrqExternalEnable)) != PinIrqEventConfig) {
+        return ELDEN_TOUCH_SPI4_BUSY;
+    }
+    uint32_t status = touch_irq_reg(PinIrqStatus);
+    if (!(read32(tlmm, status) & PinIrqPending)) {
+        return 0;
+    }
+    tlmm->wr(tlmm->ctx, status, 0);
+    return 1;
+}
+
 int
 elden_touch_spi4_stop(struct elden_touch_spi4 *bus)
 {
@@ -141,6 +220,12 @@ elden_touch_spi4_stop(struct elden_touch_spi4 *bus)
             return error;
         }
         bus->acquired &= ~AcquiredEngine;
+    }
+    if (bus->acquired & AcquiredEvents) {
+        int error = restore_events(bus);
+        if (error) {
+            return error;
+        }
     }
     if (bus->acquired & AcquiredPins) {
         int error = set_pins(bus, 1);
@@ -180,7 +265,7 @@ elden_touch_spi4_start(struct elden_touch_spi4 *bus)
     if (bus->acquired || (votes & SM8750_GCC_QUP1_SE4_VOTE) ||
         !(read32(gcc, SM8750_GCC_QUP1_SE4_BRANCH) & ClockOff) ||
         (read32(gcc, SM8750_GCC_QUP1_SE4_ROOT) & (RootForceEnable | RootUpdate)) ||
-        (read32(&bus->tlmm, pin_reg(4) + PinIrqConfig) & PinIrqEnable)) {
+        (read32(&bus->tlmm, touch_irq_reg(PinIrqConfig)) & PinIrqExternalEnable)) {
         return ELDEN_TOUCH_SPI4_BUSY;
     }
     bus->root_config = read32(gcc, SM8750_GCC_QUP1_SE4_CONFIG);

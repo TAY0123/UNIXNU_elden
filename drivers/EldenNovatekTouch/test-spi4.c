@@ -7,11 +7,15 @@
 #include <string.h>
 
 static const unsigned pin_gpios[] = {48, 49, 50, 51, 162};
+enum {
+    TouchIrqConfig = 162 * SM8750_TLMM_GPIO_STRIDE + 8,
+    TouchIrqStatus = 162 * SM8750_TLMM_GPIO_STRIDE + 12,
+};
 
 struct registers {
-    uint32_t votes, root, config, irq_config;
+    uint32_t votes, root, config, irq_config, irq_status;
     uint32_t pins[5], se[0x1000 / 4];
-    bool hold_update, hold_branch, refuse_pin;
+    bool hold_update, hold_branch, refuse_pin, refuse_irq_config, edge_after_ack;
     unsigned writes, delays;
 };
 
@@ -86,8 +90,11 @@ static uint32_t
 tlmm_read(void *context, uint32_t reg)
 {
     struct registers *r = context;
-    if (reg == 162 * SM8750_TLMM_GPIO_STRIDE + 8) {
+    if (reg == TouchIrqConfig) {
         return r->irq_config;
+    }
+    if (reg == TouchIrqStatus) {
+        return r->irq_status;
     }
     return r->pins[pin_index(reg)];
 }
@@ -96,8 +103,22 @@ static void
 tlmm_write(void *context, uint32_t reg, uint32_t value)
 {
     struct registers *r = context;
-    unsigned i = pin_index(reg);
     ++r->writes;
+    if (reg == TouchIrqConfig) {
+        assert((value & ((1u << 7) | 1u)) == 0);
+        if (!r->refuse_irq_config) {
+            r->irq_config = value;
+            r->irq_status = 1;
+        }
+        return;
+    }
+    if (reg == TouchIrqStatus) {
+        assert(value == 0 && (r->irq_config & ((1u << 7) | 1u)) == 0);
+        r->irq_status = r->edge_after_ack ? 1 : 0;
+        r->edge_after_ack = false;
+        return;
+    }
+    unsigned i = pin_index(reg);
     if (!r->refuse_pin || i != 2) {
         r->pins[i] = value;
     }
@@ -182,6 +203,9 @@ main(void)
     r.irq_config = 1;
     assert(elden_touch_spi4_start(&bus) == ELDEN_TOUCH_SPI4_BUSY && r.writes == 0);
     bus = setup(&r);
+    r.irq_config = 1u << 7;
+    assert(elden_touch_spi4_start(&bus) == ELDEN_TOUCH_SPI4_BUSY && r.writes == 0);
+    bus = setup(&r);
     r.config |= 1u << 8;
     assert(elden_touch_spi4_start(&bus) == GENI_ERR_NOTSUP && r.writes == 0);
 
@@ -210,4 +234,43 @@ main(void)
     r.hold_update = false;
     assert(elden_touch_spi4_stop(&bus) == 0 && !bus.acquired);
     assert(r.votes == before.votes && r.config == before.config);
+
+    bus = setup(&r);
+    uint32_t original_irq = 0x340 | 0x6;
+    r.irq_config = original_irq;
+    assert(elden_touch_spi4_arm_events(&bus) == GENI_ERR_PARAM);
+    assert(elden_touch_spi4_start(&bus) == 0);
+    assert(elden_touch_spi4_take_event(&bus) == GENI_ERR_PARAM);
+    assert(elden_touch_spi4_arm_events(&bus) == 0);
+    assert(r.irq_config == (0x340 | 0x1a) && r.irq_status == 0);
+    assert(elden_touch_spi4_arm_events(&bus) == ELDEN_TOUCH_SPI4_BUSY);
+    assert(elden_touch_spi4_take_event(&bus) == 0);
+    r.irq_status = 1;
+    r.edge_after_ack = true;
+    assert(elden_touch_spi4_take_event(&bus) == 1 && r.irq_status == 1);
+    assert(elden_touch_spi4_take_event(&bus) == 1 && r.irq_status == 0);
+    assert(elden_touch_spi4_take_event(&bus) == 0);
+    r.irq_config |= 1;
+    r.irq_status = 1;
+    writes = r.writes;
+    assert(elden_touch_spi4_take_event(&bus) == ELDEN_TOUCH_SPI4_BUSY);
+    assert(r.writes == writes && r.irq_status == 1);
+    r.irq_config &= ~1u;
+    assert(elden_touch_spi4_stop(&bus) == 0 && !bus.acquired);
+    assert(r.irq_config == original_irq && r.irq_status == 0);
+
+    bus = setup(&r);
+    r.irq_config = original_irq;
+    assert(elden_touch_spi4_start(&bus) == 0);
+    r.refuse_irq_config = true;
+    assert(elden_touch_spi4_arm_events(&bus) == GENI_ERR_IO);
+    assert(r.irq_config == original_irq);
+    assert(elden_touch_spi4_take_event(&bus) == GENI_ERR_PARAM);
+    r.refuse_irq_config = false;
+    assert(elden_touch_spi4_arm_events(&bus) == 0);
+    r.refuse_irq_config = true;
+    assert(elden_touch_spi4_stop(&bus) == GENI_ERR_IO && bus.acquired);
+    r.refuse_irq_config = false;
+    assert(elden_touch_spi4_stop(&bus) == 0 && !bus.acquired);
+    assert(r.irq_config == original_irq && r.irq_status == 0);
 }
