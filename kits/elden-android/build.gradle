@@ -1,0 +1,29 @@
+plugins {
+    id 'com.android.application' version '8.9.2'
+}
+
+android {
+    namespace 'org.unixnu.eldensvc'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.unixnu.eldensvc'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
+    }
+    if (project.hasProperty('eldenPrivateAssets')) {
+        sourceSets.main.assets.srcDir(project.property('eldenPrivateAssets'))
+    }
+}
+
+dependencies {
+    implementation 'com.wireguard.android:tunnel:1.0.20260102'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
+}
