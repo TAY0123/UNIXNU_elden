@@ -19,6 +19,9 @@ typedef struct {
 
 STATIC EFI_GUID mQcomI2cGuid = {0xb27ae8b1, 0x3e10, 0x4d07,
     {0xab, 0x5c, 0xeb, 0x9a, 0x6d, 0xc6, 0xfa, 0x8f}};
+STATIC CONST CHAR8 *mRepeaterStep;
+STATIC UINT32 mRepeaterI2cStatus, mRepeaterI2cBytes, mRepeaterId;
+STATIC UINT64 mRepeaterEngine;
 
 STATIC BOOLEAN RepeaterBus(VOID *Handle)
 {
@@ -27,15 +30,18 @@ STATIC BOOLEAN RepeaterBus(VOID *Handle)
     CONST VOID *Hw = *(CONST VOID *CONST *)Handle;
     if (Hw == NULL) return FALSE;
     CONST UINT64 *Config = *(CONST UINT64 *CONST *)Hw;
-    return Config != NULL && Config[3] == PTN_GENI_BASE;
+    if (Config == NULL) return FALSE;
+    mRepeaterEngine = Config[3];
+    return mRepeaterEngine == PTN_GENI_BASE;
 }
 
 STATIC BOOLEAN RepeaterIo(QCOM_I2C_IO Io, VOID *Handle, UINT32 Reg, UINT8 *Data, UINT32 Length)
 {
     // 100 kHz, 7-bit address, 500 us clock stretch, default core settings.
     UINT32 Config[7] = {100, PTN_I2C_ADDRESS, 0, 500, 0, 0, 0};
-    UINT32 Actual = 0;
-    return Io(Handle, Config, Reg, 1, Data, Length, &Actual, 2500) == 0 && Actual == Length;
+    mRepeaterI2cBytes = 0;
+    mRepeaterI2cStatus = Io(Handle, Config, Reg, 1, Data, Length, &mRepeaterI2cBytes, 2500);
+    return mRepeaterI2cStatus == 0 && mRepeaterI2cBytes == Length;
 }
 
 STATIC EFI_STATUS ResetChannels(UINT64 *Observer, UINT64 *Writer)
@@ -81,6 +87,7 @@ STATIC BOOLEAN SpmiGpioIo(UINT64 Channel, UINT8 Reg, UINT8 *Value, BOOLEAN Write
 STATIC EFI_STATUS ReleaseRepeaterReset(VOID)
 {
     UINT64 Observer, Writer;
+    mRepeaterStep = "reset-channel";
     EFI_STATUS Status = ResetChannels(&Observer, &Writer);
     if (EFI_ERROR(Status)) return Status;
 
@@ -89,10 +96,12 @@ STATIC EFI_STATUS ReleaseRepeaterReset(VOID)
     STATIC CONST UINT8 Config[] = {0x02, 0x01, 0x05, 0x80, 0x02, 0x80};
     UINT8 Old[ARRAY_SIZE(Registers)], Type = 0, Subtype = 0;
     EFI_TPL Tpl = gBS->RaiseTPL(TPL_NOTIFY);
+    mRepeaterStep = "reset-gpio-id";
     Status = EFI_UNSUPPORTED;
     if (!SpmiGpioIo(Observer, 0x04, &Type, FALSE) || Type != 0x10 ||
         !SpmiGpioIo(Observer, 0x05, &Subtype, FALSE) || Subtype != 0x13) goto Done;
     Status = EFI_DEVICE_ERROR;
+    mRepeaterStep = "reset-gpio-config";
     for (UINTN I = 0; I < ARRAY_SIZE(Registers); ++I)
         if (!SpmiGpioIo(Observer, Registers[I], &Old[I], FALSE)) goto Done;
     UINT8 Disabled = Old[5] & ~BIT7;
@@ -115,12 +124,17 @@ Done:
 STATIC EFI_STATUS PrepareRepeater(VOID)
 {
     QCOM_I2C *I2c;
+    UINT32 CloseStatus;
+    mRepeaterStep = "i2c-protocol";
     EFI_STATUS Status = gBS->LocateProtocol(&mQcomI2cGuid, NULL, (VOID **)&I2c);
     if (EFI_ERROR(Status)) return Status;
     if (I2c->Revision != 0x10000 || !I2c->Open || !I2c->Read || !I2c->Write || !I2c->Close)
         return EFI_UNSUPPORTED;
     VOID *Handle = NULL;
-    if (I2c->Open(PTN_I2C_INSTANCE, &Handle) != 0 || Handle == NULL) return EFI_NOT_READY;
+    mRepeaterStep = "i2c-open";
+    mRepeaterI2cStatus = I2c->Open(PTN_I2C_INSTANCE, &Handle);
+    if (mRepeaterI2cStatus != 0 || Handle == NULL) return EFI_NOT_READY;
+    mRepeaterStep = "i2c-engine";
     Status = EFI_UNSUPPORTED;
     if (!RepeaterBus(Handle)) goto Close;
 
@@ -129,14 +143,18 @@ STATIC EFI_STATUS PrepareRepeater(VOID)
         Status = ReleaseRepeaterReset();
         if (EFI_ERROR(Status)) goto Close;
         gBS->Stall(2000);
+        mRepeaterStep = "i2c-id-read";
         Status = EFI_NO_RESPONSE;
         if (!RepeaterIo(I2c->Read, Handle, 0x14, Id, sizeof(Id))) goto Close;
     }
+    mRepeaterStep = "i2c-id";
+    mRepeaterId = ((UINT32)Id[0] << 16) | ((UINT32)Id[1] << 8) | Id[2];
     Status = EFI_UNSUPPORTED;
     if (Id[0] != 0x22 || Id[1] != 0x32 || Id[2] != 0x11) goto Close;
 
     // Follow the firmware's live mux. Linux applies these overrides only to C1.
     Status = EFI_SUCCESS;
+    mRepeaterStep = "ready";
     if (IdentityMapped(TLMM_GPIO29_PAGE, EFI_PAGE_SIZE, FALSE) &&
         (ReadReg(TLMM_GPIO29_PAGE) & (BIT9 | 0x3c)) == BIT9 &&
         !(ReadReg(TLMM_GPIO29_PAGE + 4) & BIT1)) {
@@ -145,12 +163,18 @@ STATIC EFI_STATUS PrepareRepeater(VOID)
             UINT8 Value = Tuning[I][1];
             if (!RepeaterIo(I2c->Write, Handle, Tuning[I][0], &Value, 1) ||
                 !RepeaterIo(I2c->Read, Handle, Tuning[I][0], &Value, 1) || Value != Tuning[I][1]) {
+                mRepeaterStep = "tuning";
                 Status = EFI_DEVICE_ERROR;
                 break;
             }
         }
     }
 Close:
-    if (I2c->Close(Handle) != 0 && !EFI_ERROR(Status)) Status = EFI_DEVICE_ERROR;
+    CloseStatus = I2c->Close(Handle);
+    if (CloseStatus != 0 && !EFI_ERROR(Status)) {
+        mRepeaterStep = "i2c-close";
+        mRepeaterI2cStatus = CloseStatus;
+        Status = EFI_DEVICE_ERROR;
+    }
     return Status;
 }

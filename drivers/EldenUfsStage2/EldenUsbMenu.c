@@ -2,6 +2,7 @@
 #include <Uefi.h>
 #include <Guid/EventGroup.h>
 #include <Library/BaseLib.h>
+#include <Library/PrintLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 #include <Protocol/LoadedImage.h>
@@ -227,7 +228,7 @@ EFI_STATUS EFIAPI EldenUsbMenuEntry(EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTa
         return EFI_UNSUPPORTED;
     }
     EFI_STATUS Repeater = PrepareRepeater();
-    Print(L"ELDEN USB: PTN3222 %r\r\n", Repeater);
+    Print(L"ELDEN USB: PTN3222 %a %r\r\n", mRepeaterStep, Repeater);
     mArena = MAX_UINT32;
     Status = gBS->AllocatePages(AllocateMaxAddress, EfiReservedMemoryType,
                                EFI_SIZE_TO_PAGES(DWC3_DMA_BYTES), &mArena);
@@ -264,9 +265,11 @@ EFI_STATUS EFIAPI EldenUsbMenuEntry(EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTa
         if (mExit) gBS->CloseEvent(mExit);
         Handoff(NULL, NULL);
     } else {
-        CHAR8 *Banner = EFI_ERROR(Repeater) ? "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 fallback\r\n" :
-                                             "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 ready\r\n";
-        UINTN Bytes = AsciiStrLen(Banner);
+        CHAR8 Banner[224];
+        UINTN Bytes = AsciiSPrint(Banner, sizeof(Banner),
+            "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 %a step=%a efi=%r i2c=%x bytes=%u engine=%Lx id=%06x\r\n",
+            EFI_ERROR(Repeater) ? "fallback" : "ready", mRepeaterStep, Repeater,
+            mRepeaterI2cStatus, mRepeaterI2cBytes, mRepeaterEngine, mRepeaterId);
         Write(&mSerial, &Bytes, Banner);
     }
     return Status;

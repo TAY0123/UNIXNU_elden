@@ -23,6 +23,7 @@
   UefiLib
   BaseLib
   BaseMemoryLib
+  PrintLib
 [Protocols]
   gEfiLoadedImageProtocolGuid
 [Guids]

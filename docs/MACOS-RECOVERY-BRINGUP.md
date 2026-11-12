@@ -1473,6 +1473,19 @@ application with r37. The RAM image SHA-256 is
 The hardware acceptance is MC50 capture of the UniXNU menu banner
 followed by XNU log output from the Recovery USB Console entry.
 
+The MC50 verified and RAM-booted that image on slot A. The tablet
+reached the UniXNU menu, while the MC50 showed only its root hubs.
+The MacBook then booted the same image. It captured the UniXNU
+`PTN3222 fallback` banner and the Recovery handoff. XNU CDC started and
+sent the buffered early boot log after the MacBook opened the port.
+
+A second RAM candidate reports the repeater setup stage, EFI status,
+Qualcomm I²C result, transfer size, GENI base, and detected chip ID
+on the firmware serial port. It uses the newer Recovery GUI capture
+payload. Its Linux EFI and DTB, Recovery kernel and ADT, and slot
+utility matched that payload. The verified image SHA-256 is
+`b1b3dd6b3af50535a35fe6c4f8d50cb5b8ff1703e618fbfedf5a14e28fd02d12`.
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded
