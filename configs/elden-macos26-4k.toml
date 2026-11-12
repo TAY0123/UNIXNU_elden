@@ -72,6 +72,10 @@ patch = "elden-macos26-iortc-wait.patch"
 record = "iortc_wait_overlay_sha256"
 
 [[overlay]]
+patch = "elden-macos26-pmic-rtc.patch"
+record = "pmic_rtc_overlay_sha256"
+
+[[overlay]]
 patch = "elden-macos26-software-display.patch"
 record = "software_display_overlay_sha256"
 optional = "recovery_graphics_cache"

@@ -1,0 +1,52 @@
+--- a/iokit/Kernel/IOPlatformExpert.cpp
++++ b/iokit/Kernel/IOPlatformExpert.cpp
+@@ -902,6 +902,10 @@
+ }
+ 
+ 
++#if SHENG
++#include "EldenPmicRtcXnu.inc"
++#endif
++
+ extern "C" {
+ /*
+  * Callouts from BSD for machine name & model
+@@ -1406,6 +1410,14 @@
+ void
+ PEGetUTCTimeOfDay(clock_sec_t * secs, clock_usec_t * usecs)
+ {
++#if SHENG
++	uint32_t pmicSeconds;
++	if (eldenRtcRead(pmicSeconds)) {
++		*secs = pmicSeconds;
++		*usecs = 0;
++		return;
++	}
++#endif
+ 	clock_nsec_t    nsecs = 0;
+ 
+ 	*secs = 0;
+--- a/iokit/Kernel/IOStartIOKit.cpp
++++ b/iokit/Kernel/IOStartIOKit.cpp
+@@ -70,6 +70,10 @@
+ #include <kern/clock.h>
+ #include <sys/time.h>
+ 
++#if SHENG
++extern "C" bool eldenPmicRtcInitialize();
++#endif
++
+ void
+ IOKitInitializeTime( void )
+ {
+@@ -80,7 +84,9 @@
+ 	// The Elden Recovery kernel has no IORTC provider. Let its boot
+ 	// profile bound this wait while using the standard calendar path.
+ 	uint32_t iortcWait = t.tv_sec;
+-	if (PE_parse_boot_argn("elden-iortc-wait", &iortcWait, sizeof(iortcWait)) && iortcWait <= 30) {
++	if (eldenPmicRtcInitialize()) {
++		t.tv_sec = 0;
++	} else if (PE_parse_boot_argn("elden-iortc-wait", &iortcWait, sizeof(iortcWait)) && iortcWait <= 30) {
+ 		t.tv_sec = iortcWait;
+ 	}
+ #endif

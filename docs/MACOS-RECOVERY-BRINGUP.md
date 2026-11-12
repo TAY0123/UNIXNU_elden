@@ -688,6 +688,36 @@ MacBook readback passed with image SHA-256
 `ede555b69d94ef90070c6458fd89e90ea85da6b2db6dfc9ae2b9ec2f36ba7942`.
 Tablet timing and the visible chooser remain unverified with this image.
 
+The opt-in `elden-pmic-rtc=1` path now reads the PMK8550 RTC during
+`IOKitInitializeTime`. It verifies the Elden ADT before mapping the SPMI
+arbiter and uses the bus 0 application observer channel for PMIC SID 0.
+The reader validates the RTC enable bit, handles a counter rollover and
+rejects an unset calendar. `elden-rtc-sdam=1` also reads the optional
+32-bit UTC offset at SDAM2 byte `0xb0`, as defined by the alternate Elden
+Linux tree. A valid reading skips the `IORTC` wait and feeds the standard
+calendar initializer. The boot flag and normal calendar path still apply
+if the PMIC clock is unavailable. This path issues SPMI read commands and
+has no alarm programming or persistent clock-setting operation.
+[Linux PMIC RTC driver](https://github.com/torvalds/linux/blob/master/drivers/rtc/rtc-pm8xxx.c) ·
+[Elden Linux SDAM clock offset](https://github.com/xiaquwan1001/lenovo-legion-y700-gen4-tb322fc-elden-linux/blob/6345abc6ef845488db3d7d1b40f07a8b3a50b1c4/patches/dt/0002-arm64-dts-qcom-sm8750-elden-pmk8550-rtc-offset.patch)
+
+The sanitizer test exercises the observer command, channel selection,
+raw and offset-adjusted time, rollover, invalid counter and timeout.
+The MacBook compiled both changed IOKit units and linked the 4 KiB
+ARM64e kernel with matching DWARF UUID
+`465091A5-149E-3123-8CCB-CCB9A2C725F3`.
+Eight-vCPU QEMU reached the BaseSystem mount and `launchd` PID 1 with
+the RTC argument present and a non-Elden ADT. The PMIC probe was skipped.
+
+The MacBook image is `~/elden-ptn3222/elden-4k-recovery-pmic-rtc-ram.img`.
+Select **Inspect Install Target and RTC** to test raw RTC time and the
+read-only install target in the same eight-core boot. SDAM2 mode is off
+in this entry because the saved tablet Linux DT uses the raw clock.
+DarwinBoot preflight, packed verification and MacBook readback passed
+with SHA-256 `7d321740ba576abf65d62d82ca7733d46fa3c5ded4bfd642ce7bc793f6bca9f5`.
+Compare the `ELDEN_RTC: UTC=` line against the host clock during the
+tablet run. Physical RTC, alarms and suspend remain unverified.
+
 The closest Recovery display comparison is the paired 25F71 SHENG build
 40305570169. It showed the language list and accepted a selection in QEMU.
 The separate physical SHENG capture showed the Language window with an

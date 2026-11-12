@@ -162,6 +162,11 @@ def main() -> None:
         "recovery_graphics_header_sha256": hashlib.sha256(graphics_header).hexdigest()
         if graphics_header is not None else None,
     }
+    rtc_driver = DEVICE / "drivers/EldenPmicRtc"
+    rtc_resources = DEVICE / "soc/sm8750/include"
+    rtc_inputs = [rtc_driver / name for name in ("EldenPmicRtc.h", "EldenPmicRtcXnu.inc")]
+    rtc_inputs.extend(rtc_resources / name for name in ("EldenRtcResources.h", "EldenPonResources.h"))
+    profile_inputs["rtc_sources"] = {path.name: build.sha(path) for path in rtc_inputs}
     previous_path = output / "build.json"
     previous = json.loads(previous_path.read_text()) if previous_path.is_file() else None
     if previous is not None and previous.get("elden_profile_inputs") != profile_inputs:
@@ -216,6 +221,11 @@ def main() -> None:
         if previous is None:
             for patch in filter(None, overlays.values()):
                 subprocess.run(["git", "-C", source, "apply", patch], check=True)
+        iokit = source / "iokit/Kernel"
+        for item in rtc_inputs:
+            write_if_changed(iokit / item.name, item.read_bytes())
+        subprocess.run(["git", "-C", source, "add", "-N", "--", *(iokit / item.name for item in rtc_inputs)],
+                       check=True)
         if graphics_header is not None:
             record["recovery_ui_policy"].update(
                 boot_argument="elden-recovery-software-display=1",
