@@ -40,6 +40,15 @@ gcc_page = 0x177000
 smmu_base = 0x15000000
 stream_id = 0x60
 
+[board.hardware.usb_repeater]
+# Lenovo Linux DT and the Qualcomm TOP_QUP table from this board's xbl_config.
+geni_base = 0xa94000
+firmware_i2c_instance = 16
+i2c_address = 0x4f
+reset_ppid = 0x88d
+port_mux_gpio = 29
+long_edge_tuning = [[0x06, 0x40], [0x07, 0x22], [0x08, 0x65], [0x0a, 0x03]]
+
 [board.hardware.gop_framebuffer]
 # The firmware splash reservation bounds the inherited 32-bit scanout.
 base = 0xfc800000

@@ -8,10 +8,13 @@
 [Sources]
   EldenUsbMenu.c
   EldenUsbMenuProtocol.h
+  EldenUsbRepeater.inc
   Generated/Dwc3.c
   Generated/Dwc3.h
   Generated/Dwc3Regs.h
   Generated/EldenUsbResources.h
+  Generated/EldenUsbRepeaterConfig.h
+  Generated/EldenPonResources.h
 [Packages]
   MdePkg/MdePkg.dec
 [LibraryClasses]

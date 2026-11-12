@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / 'drivers/EldenUfsStage2'
@@ -80,6 +81,22 @@ def prepare(usb_core=None):
             report[name] = dict(sha256=expected,
                 compiled_sha256=hashlib.sha256((generated / name).read_bytes()).hexdigest())
         shutil.copyfile(ROOT / 'soc/sm8750/include/EldenUsbResources.h', generated / 'EldenUsbResources.h')
+        shutil.copyfile(ROOT / 'soc/sm8750/include/EldenPonResources.h', generated / 'EldenPonResources.h')
+        board = tomllib.loads((ROOT / 'board.toml').read_text())
+        repeater = board['board']['hardware']['usb_repeater']
+        constants = {
+            'PTN_GENI_BASE': repeater['geni_base'],
+            'PTN_I2C_INSTANCE': repeater['firmware_i2c_instance'],
+            'PTN_I2C_ADDRESS': repeater['i2c_address'],
+            'PTN_RESET_PPID': repeater['reset_ppid'],
+            'PTN_MUX_GPIO': repeater['port_mux_gpio'],
+        }
+        tuning = ', '.join(f'{{{reg:#04x}, {value:#04x}}}'
+                           for reg, value in repeater['long_edge_tuning'])
+        (generated / 'EldenUsbRepeaterConfig.h').write_text(
+            '// Generated from board.toml\n#pragma once\n' +
+            ''.join(f'#define {name} {value:#x}U\n' for name, value in constants.items()) +
+            f'#define PTN_LONG_EDGE_TUNING {{{tuning}}}\n')
     return report
 
 

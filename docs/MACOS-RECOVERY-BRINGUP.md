@@ -1449,6 +1449,30 @@ a firmware initialization mismatch to investigate before CDC setup. The
 photo and MC50 trace do not establish which controller step ultimately
 prevents enumeration. [Elden Linux device tree](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/arch/arm64/boot/dts/qcom/sm8750-lenovo-elden.dts)
 
+The running tablet bound `5-004f` to `ptn3222` at GENI `0xa94000`.
+The chip ID registers `0x14–0x16` read `22 32 11`. Linux showed
+PM8550VE GPIO 6 released and the PTN3222 set to automatic role
+selection. GPIO 98 was claimed by the DSI panel. The board's
+`xbl_config` confirms `TOP_QUP_1_SE_5` at `0xa80000 + 0x14000`,
+with FIFO I²C enabled. Qualcomm I2CDxe numbers this engine as instance
+16 from the wrapper engine counts.
+
+The RAM candidate adds PTN3222 setup to the UniXNU menu driver. It
+checks the firmware's actual GENI engine and reads the chip ID before
+writing repeater tuning. If the chip fails to respond, the driver can
+release its active-low reset through the AP-owned PMIC GPIO channel
+and retry the read. It applies the four Linux tuning values when
+the live mux selects the long-edge port and verifies each write.
+Firmware still handles Type-C role selection and regulator power.
+Its WCD messages may still appear on reconnect.
+
+Host checks verified the replacement EFI driver in the packed FAT and
+byte-compared the inherited Linux EFI/DTB, kernel, ADT, and slot
+application with r37. The RAM image SHA-256 is
+`fcb44fa15876ecfb0dae75d46a7b4fc1a28533df1550b93a98c0e469242fc536`.
+The hardware acceptance is MC50 capture of the UniXNU menu banner
+followed by XNU log output from the Recovery USB Console entry.
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded

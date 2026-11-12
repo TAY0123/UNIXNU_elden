@@ -55,6 +55,8 @@ STATIC BOOLEAN IdentityMapped(UINT64 Address, UINTN Bytes, BOOLEAN Write)
     return Valid;
 }
 
+#include "EldenUsbRepeater.inc"
+
 STATIC UINT32 Smmu(UINT32 Offset) { return ReadReg(ELDEN_USB_SMMU_PHYS + Offset); }
 
 STATIC BOOLEAN IdentityDma(VOID)
@@ -224,6 +226,8 @@ EFI_STATUS EFIAPI EldenUsbMenuEntry(EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTa
         Print(L"ELDEN USB: inherited SID 0x40 DMA route refused\r\n");
         return EFI_UNSUPPORTED;
     }
+    EFI_STATUS Repeater = PrepareRepeater();
+    Print(L"ELDEN USB: PTN3222 %r\r\n", Repeater);
     mArena = MAX_UINT32;
     Status = gBS->AllocatePages(AllocateMaxAddress, EfiReservedMemoryType,
                                EFI_SIZE_TO_PAGES(DWC3_DMA_BYTES), &mArena);
@@ -260,8 +264,9 @@ EFI_STATUS EFIAPI EldenUsbMenuEntry(EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTa
         if (mExit) gBS->CloseEvent(mExit);
         Handoff(NULL, NULL);
     } else {
-        STATIC CHAR8 Banner[] = "UNIXNU: ELDEN-UEFI USB console v1\r\n";
-        UINTN Bytes = sizeof(Banner) - 1;
+        CHAR8 *Banner = EFI_ERROR(Repeater) ? "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 fallback\r\n" :
+                                             "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 ready\r\n";
+        UINTN Bytes = AsciiStrLen(Banner);
         Write(&mSerial, &Bytes, Banner);
     }
     return Status;
