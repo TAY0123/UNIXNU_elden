@@ -7,6 +7,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.time.Instant;
 
 final class BootLog {
@@ -30,6 +31,20 @@ final class BootLog {
             }
             try (FileOutputStream stream = new FileOutputStream(latest, true)) {
                 stream.write(bytes, 0, length);
+            }
+        }
+    }
+
+    static void clear(Context context) throws IOException {
+        synchronized (LOCK) {
+            File empty = File.createTempFile("boot-log-", ".tmp", context.getFilesDir());
+            try {
+                Files.deleteIfExists(file(context, true).toPath());
+                if (!empty.renameTo(file(context, false))) {
+                    throw new IOException("Could not clear the boot log");
+                }
+            } finally {
+                Files.deleteIfExists(empty.toPath());
             }
         }
     }

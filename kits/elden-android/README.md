@@ -10,7 +10,8 @@ Connect the Android device as the USB host and grant access when prompted.
 Use **Start capture** to collect USB logs across tablet USB disconnects and
 reconnections. Activate **WireGuard → Connect** to serve the log to the
 `10.8.0.1` LAN peer at `http://10.8.0.8:8734/latest`. The previous log is
-served at `/previous` after rotation.
+served at `/previous` after rotation. **Clear logs** deletes the previous
+log and empties the current log while capture continues.
 
 Leave capture running when moving from fastboot to the UniXNU menu and
 then into **Elden macOS 26.5 - Recovery**. Android may ask for USB access

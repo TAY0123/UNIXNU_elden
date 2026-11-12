@@ -21,6 +21,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -193,6 +194,13 @@ public final class MainActivity extends Activity {
                 () -> startForegroundService(new Intent(this, CaptureService.class)));
         button(captureActions, "Stop capture",
                 () -> stopService(new Intent(this, CaptureService.class)));
+        button(logs, "Clear logs", () -> task(() -> {
+            BootLog.clear(this);
+            runOnUiThread(() -> {
+                refresh();
+                Toast.makeText(this, "Boot logs cleared", Toast.LENGTH_SHORT).show();
+            });
+        }));
 
         LinearLayout network = section(body, "WireGuard");
         vpn = text(network, "", 14, MUTED, false);
