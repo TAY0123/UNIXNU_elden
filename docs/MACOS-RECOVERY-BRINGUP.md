@@ -1512,6 +1512,15 @@ an Aqua audit session. The MacBook retained the boot stream across
 reopening the serial port. A visible Recovery frame was not observed
 in the serial record.
 
+The next RAM image combines the live-QUP lookup with the device-verified
+eight-core ADT. Its **Capture Recovery GUI Failure (8 cores)** entry
+enables SMP, per-core IPI observation and USB management. The test
+allows 1,200 seconds for userspace startup and a software return to
+fastboot. The ordinary Recovery entry remains available as the
+single-core comparison. DarwinBoot preflight, packed verification and
+MacBook readback matched SHA-256
+`dd5868ff1f4aa3af7fa6c97b392b497d4e2bdbcc6dcef4595c522359576c947c`.
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded
