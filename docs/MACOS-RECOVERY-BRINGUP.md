@@ -209,6 +209,22 @@ zero denials, and started `recoveryosd` and WindowServer.
 The QEMU run used no display companion. A visible Recovery session and
 verification on the tablet remain open.
 
+The native UFS build with the stack fix passed the 30-module prelink,
+UFS and display ABI checks, DarwinBoot preflight, and embedded image
+verification. The 96 MiB signed image retained the installed Android
+boot header and AVB key, salt, rollback settings and boot properties.
+The embedded Linux, DTB, and slot and USB EFI binaries matched the
+previous `boot_a` byte for byte.
+
+Running slot B Linux, the tablet wrote the fixed image to inactive
+`boot_a` over SSH. The backup and full readback were verified. The new
+`boot_a` SHA-256 is
+`6f5c12cbf18d14e56051d0e97d5cd343ddeeb81a227d01a9ce87fe69580cb06e`.
+Slot B remained active on UFS boot LUN 2, and `boot_b` and both
+`vbmeta` hashes matched their pre-flash values. Both boot partitions
+returned to read-only. The next hardware checkpoint is starting
+`recoveryosd` from the installed slot A image.
+
 ## Stage 4 · Elden hardware
 
 Qualify EL1 PAC and the available translation granule on the tablet
