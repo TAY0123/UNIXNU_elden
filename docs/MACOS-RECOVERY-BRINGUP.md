@@ -654,8 +654,23 @@ A separate read-only QEMU trace stopped at the sysctl output call
 after selecting the actual `bluetoothd` process. The original
 `kern.hv_vmm_present` handler prepared the integer `1` for its
 four-byte output, matching the platform's live VM flag. The pairing
-agent wait persists in a full boot with the same tree. Check the
-daemon's virtual controller match and its XPC request handling next.
+agent wait persists in a full boot with the same tree. A second trace
+caught `bluetoothd` PID 73 calling IOKit with `IONameMatch=bluetooth`.
+The original lookup returned `KERN_SUCCESS` and a nonnull service,
+confirming controller discovery in the virtual Bluetooth fixture.
+A subsequent trace selected PID 73's original IOKit property call
+for `transport-encoding` and observed `KERN_SUCCESS` on return at
+156 seconds. The fixture declares encoding 10. The call trace did
+not inspect the copied value or observe a pairing-agent reply.
+
+A separate eight-CPU QEMU observation on kernel `0FA14065` reached
+`IOKitInitializeTime` at 10.324 seconds and `clock_initialize_calendar`
+at 40.358 seconds. The matching XNU source waits up to 30 seconds for
+`IORTC` between those calls. The 25F71 SHENG Link Lab port measured a
+similar saving on its tablet after adding a clock provider. Elden can
+measure this interval separately from the much later chooser wait.
+[Paired XNU time initialization](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/iokit/Kernel/IOStartIOKit.cpp) ·
+[SHENG RTC result](https://github.com/mataht/sheng-macos-link-lab/blob/be7c6c4b8684492870a95d316e8fac86db4cb0a1/docs/technical-route.md#L133-L137)
 
 The closest Recovery display comparison is the paired 25F71 SHENG build
 40305570169. It showed the language list and accepted a selection in QEMU.
@@ -3159,10 +3174,21 @@ application usage, axes and contact fields. The MacBook compiled and
 linked the bridge as ARM64e kernel code, including the SPI transport.
 The 334 authenticated digitizer vtable slots matched the inherited
 layout in the paired Recovery HID reference. The bridge is outside the
-boot image until the Elden SPI4 clock, pin and interrupt provider is
-connected and the firmware upload is qualified on hardware.
+boot image pending MMIO and interrupt provider integration and hardware
+qualification of the firmware upload.
 [USB HID usage tables](https://www.usb.org/sites/default/files/hut1_5.pdf) ·
 [Apple IOHIDDevice](https://github.com/apple-oss-distributions/IOHIDFamily/blob/main/IOHIDFamily/IOHIDDevice.cpp)
+
+`EldenNovatekSpi4` sets up the SM8750 SE4 root, GENI engine and Elden
+touch pins through caller-supplied MMIO. It uses SPI mode 0 at 9.6 MHz
+from the 19.2 MHz TCXO and leaves the GENI IRQ output masked for polled
+transfers. The register model exercised startup, failed readbacks and
+rollback, including a busy engine and preservation of the USB repeater's
+SE5 vote and inherited QUP1 AHB votes. The MacBook compiled and linked
+the same setup with the ARM64e digitizer. The next device checkpoint is
+controller operation under XNU before firmware upload or HID delivery.
+[SM8750 GCC](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/gcc-sm8750.c) ·
+[SM8750 TLMM](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/pinctrl/qcom/pinctrl-sm8750.c)
 
 The verified Linux boot input with kernel SHA-256
 `6aed9425e69c1e07ba65d3467738a6009874fe75d1fd50215483d333ba0634c3`
