@@ -21,6 +21,102 @@ elden_adreno830_fnv1a(const void *data, size_t bytes)
 #include "EldenAdreno830HfiBoot.inc"
 #endif
 
+static uint32_t *
+elden_adreno830_copy_cmd_db(void)
+{
+    uint32_t *snapshot = kalloc_data(Sm8750CmdDbSize, Z_WAITOK);
+    if (!snapshot) {
+        printf("ELDEN-A830: command database allocation failed\n");
+        return NULL;
+    }
+    vm_offset_t mapping = io_map(Sm8750CmdDbPhysicalBase, Sm8750CmdDbSize, VM_WIMG_IO,
+                                 VM_PROT_READ, true);
+    if (!mapping) {
+        kfree_data(snapshot, Sm8750CmdDbSize);
+        printf("ELDEN-A830: command database map failed\n");
+        return NULL;
+    }
+    const volatile uint32_t *db = (const volatile uint32_t *)mapping;
+    if (db[1] != Sm8750CmdDbMagic) {
+        ml_io_unmap(mapping, Sm8750CmdDbSize);
+        kfree_data(snapshot, Sm8750CmdDbSize);
+        printf("ELDEN-A830: command database magic mismatch\n");
+        return NULL;
+    }
+    for (size_t i = 0; i < Sm8750CmdDbSize / sizeof(uint32_t); ++i) {
+        snapshot[i] = db[i];
+    }
+    ml_io_unmap(mapping, Sm8750CmdDbSize);
+    return snapshot;
+}
+
+#ifdef ELDEN_RECOVERY_RPMH_READ
+#include <kern/clock.h>
+#include "Sm8750RpmhRead.c"
+
+static uint32_t
+elden_adreno830_rpmh_read32(void *context, uint32_t offset)
+{
+    uint32_t value = ((const volatile uint32_t *)context)[offset / 4];
+    __asm__ volatile("dmb oshld" ::: "memory");
+    return value;
+}
+
+static void
+elden_adreno830_rpmh_write32(void *context, uint32_t offset, uint32_t value)
+{
+    volatile uint32_t *reg = (volatile uint32_t *)context + offset / 4;
+    __asm__ volatile("str %w0, [%1]\n\tdsb sy" :: "r"(value), "r"(reg) : "memory");
+}
+
+static void
+elden_adreno830_rpmh_delay(void *context __unused, unsigned us)
+{
+    delay((int)us);
+}
+
+static void
+elden_adreno830_rpmh_triggering(void *context __unused)
+{
+    printf("ELDEN-A830: RPMh triggering DRV-2 TCS1 MX read\n");
+}
+
+void elden_adreno830_run_rpmh_read(void);
+
+void
+elden_adreno830_run_rpmh_read(void)
+{
+    uint32_t *snapshot = elden_adreno830_copy_cmd_db();
+    if (!snapshot) {
+        return;
+    }
+    Sm8750CmdDbResource mx;
+    Sm8750CmdDbStatus found = Sm8750CmdDbRead(snapshot, Sm8750CmdDbSize, "mx.lvl", Sm8750CmdDbArc, &mx);
+    kfree_data(snapshot, Sm8750CmdDbSize);
+    if (found != Sm8750CmdDbOk || mx.address != 0x30010) {
+        printf("ELDEN-A830: RPMh MX resource differs from the Elden capture\n");
+        return;
+    }
+    printf("ELDEN-A830: RPMh mapping DRV-2 for one MX read\n");
+    vm_offset_t mapping = io_map(SM8750_APPS_RSC_DRV2_BASE, SM8750_APPS_RSC_DRV2_PROBE_SIZE,
+                                 VM_WIMG_IO, VM_PROT_READ | VM_PROT_WRITE, true);
+    if (!mapping) {
+        printf("ELDEN-A830: RPMh DRV-2 writable map failed\n");
+        return;
+    }
+    const Sm8750RpmhReadIo io = {
+        (void *)mapping, elden_adreno830_rpmh_read32, elden_adreno830_rpmh_write32,
+        elden_adreno830_rpmh_delay, elden_adreno830_rpmh_triggering,
+    };
+    Sm8750RpmhReadResult result;
+    Sm8750RpmhReadStatus status = Sm8750RpmhReadArc(&io, mx.address, &result);
+    ml_io_unmap(mapping, SM8750_APPS_RSC_DRV2_PROBE_SIZE);
+    printf("ELDEN-A830: RPMh MX read result=%u id=%08x config=%08x reg=%04x irq=%08x cmd=%08x response=%08x\n",
+           (unsigned)status, result.hardware, result.config, result.failed_register,
+           result.irq_status, result.command_status, result.response);
+}
+#endif
+
 /* GPUCC requires LOW_SVS on the host MX and CX rails. */
 static void
 elden_adreno830_rpmh_probe(const void *snapshot)
@@ -85,29 +181,10 @@ elden_adreno830_cmd_db_probe(void)
     if (!log_resources && !read_rpmh) {
         return;
     }
-    uint32_t *snapshot = kalloc_data(Sm8750CmdDbSize, Z_WAITOK);
+    uint32_t *snapshot = elden_adreno830_copy_cmd_db();
     if (!snapshot) {
-        printf("ELDEN-A830: command database allocation failed\n");
         return;
     }
-    vm_offset_t mapping = io_map(Sm8750CmdDbPhysicalBase, Sm8750CmdDbSize, VM_WIMG_IO,
-                                 VM_PROT_READ, true);
-    if (!mapping) {
-        kfree_data(snapshot, Sm8750CmdDbSize);
-        printf("ELDEN-A830: command database map failed\n");
-        return;
-    }
-    const volatile uint32_t *db = (const volatile uint32_t *)mapping;
-    if (db[1] != Sm8750CmdDbMagic) {
-        ml_io_unmap(mapping, Sm8750CmdDbSize);
-        kfree_data(snapshot, Sm8750CmdDbSize);
-        printf("ELDEN-A830: command database magic mismatch\n");
-        return;
-    }
-    for (size_t i = 0; i < Sm8750CmdDbSize / sizeof(uint32_t); ++i) {
-        snapshot[i] = db[i];
-    }
-    ml_io_unmap(mapping, Sm8750CmdDbSize);
 
     static const struct {
         const char *name;

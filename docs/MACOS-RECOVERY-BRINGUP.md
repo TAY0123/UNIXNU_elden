@@ -3049,6 +3049,44 @@ failing instruction and command execution unknown. The source retains
 the verified passive probe. The next transaction should run after the
 host can receive XNU logs and verify the managed reset path.
 
+#### Deferred RPMh MX read
+
+The combined Recovery USB and Adreno build accepts
+`elden-adreno830-rpmh-read=1`. The test entry requires an armed managed
+reset deadline and an open CDC connection. The USB worker drains the
+start marker to the host before launching the separate RPMh worker.
+The worker verifies the live `mx.lvl` address and the measured DRV-2
+identity and configuration. It then checks that ACTIVE TCS1 is idle,
+IRQ-masked and clear of a pending completion.
+
+The single request uses the RSC read opcode with a response requested.
+It leaves the MX vote unchanged. On completion it reads the command
+status and response, restores the slot's control, enable and command
+fields, and acknowledges only TCS1's completion bit. The 100 ms polling
+deadline leaves an in-flight slot in hardware ownership until reset.
+The host register model covers an IRQ arriving before the slot is idle,
+wrong hardware, a busy slot, refused programming, incomplete responses,
+cleanup failure and timeout.
+[Linux RSC v3 registers and request encoding](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/soc/qcom/rpmh-rsc.c) ·
+[Piano GPU trace and heartbeat](https://github.com/lenzhang/UniXNU-xiaomipad8pro/blob/ea12db1f349e606255d400a55f6bd061a967e65c/docs/forensics-2026-11-11.md#L167-L185)
+
+Select **GPU RPMh Read (8 cores)** and open the XNU USB log. Look for
+`RPMh MX read worker starting`, `RPMh triggering DRV-2 TCS1 MX read`
+and the final `RPMh MX read result=` line. Result `0` reports an issued
+and completed read with slot restoration. The existing 300-second
+deadline requests fastboot independently of the probe worker. Retain
+the last line if the device stops responding during an MMIO access.
+
+The MacBook RAM image is
+`~/elden-ptn3222/elden-4k-recovery-rpmh-late-ram.img`, SHA-256
+`e6a30fd0a5e79398af47b8db2cce39106f5ef4b935b89e75eb3c95bca1bc4ac2`.
+Kernel `6E4FEB49-0B8D-3308-829E-C4A9E2CF06D1` passed the 31-module
+prelink, DarwinBoot preflight and packed readback. An eight-CPU QEMU
+boot requested the test with a non-Elden ADT. XNU rejected the probe
+at the board check and continued through BaseSystem to `launchd` PID 1.
+The tablet still needs to supply the MX response and fastboot-return
+evidence.
+
 #### GPUCC handoff probe
 
 Use the paired Recovery build inputs on the Mac build host and a fresh

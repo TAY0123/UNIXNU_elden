@@ -204,6 +204,38 @@ static bool eldenUsbDrain(unsigned attempts)
   return false;
 }
 
+#ifdef ELDEN_RECOVERY_RPMH_READ
+static void eldenRpmhReadWorker(void *, wait_result_t)
+{
+  elden_adreno830_run_rpmh_read();
+  thread_terminate(current_thread());
+}
+
+static void eldenUsbStartRpmhRead()
+{
+  if (!gEldenRpmhReadDeadline || !eldenUsbAcquire(&gEldenUsb.busy)) return;
+  uint64_t required;
+  clock_interval_to_deadline(3, 1000000000, &required);
+  const char begin[] = "\r\nELDEN-A830: RPMh MX read worker starting\r\n";
+  bool sent = required < gEldenRpmhReadDeadline && eldenUsbDrain(300) &&
+      dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1) == sizeof(begin) - 1 &&
+      eldenUsbDrain(300);
+  // This worker owns the start decision. Consume it before releasing USB.
+  gEldenRpmhReadDeadline = 0;
+  __atomic_store_n(&gEldenUsb.busy, 0, __ATOMIC_RELEASE);
+  if (!sent) {
+    IOLog("ELDEN-A830: RPMh read skipped, console drain or reset deadline unavailable\n");
+    return;
+  }
+  thread_t thread = nullptr;
+  if (kernel_thread_start(eldenRpmhReadWorker, nullptr, &thread) != KERN_SUCCESS) {
+    IOLog("ELDEN-A830: RPMh read worker could not start\n");
+    return;
+  }
+  thread_deallocate(thread);
+}
+#endif
+
 static bool eldenUsbWaitForPanicHost()
 {
   uint64_t deadline;
@@ -353,6 +385,9 @@ static void eldenUsbWorker(void *,wait_result_t) {
 #endif
       __atomic_store_n(&gEldenUsb.busy,0,__ATOMIC_RELEASE);
       if(ready&&!gEldenUsb.readyReported){gEldenUsb.readyReported=true;IOLog("ELDEN_USB: host connected; console stream active\n");}
+#ifdef ELDEN_RECOVERY_RPMH_READ
+      if (ready) eldenUsbStartRpmhRead();
+#endif
 #if !defined(ELDEN_RECOVERY_USB)
       if(__atomic_load_n(&gEldenUserTrapSeen,__ATOMIC_ACQUIRE)&&!gEldenUsb.userReported){gEldenUsb.userReported=true;IOLog("ELDEN_BOOT: PID1 AArch64 EL0 BSD syscall observed after init exec\n");}
 #endif

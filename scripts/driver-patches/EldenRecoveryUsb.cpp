@@ -59,6 +59,10 @@ elden_recovery_panic_arm(void)
 #define ELDEN_USB_DEBUG 1
 #define ELDEN_RECOVERY_USB 1
 extern "C" void sheng_log_status(const char *message);
+#ifdef ELDEN_RECOVERY_RPMH_READ
+extern "C" void elden_adreno830_run_rpmh_read(void);
+static uint64_t gEldenRpmhReadDeadline;
+#endif
 #include "EldenUsbDebugXnu.inc"
 
 static unsigned gEldenRecoveryResetInProgress;
@@ -91,18 +95,19 @@ elden_recovery_run_timeout(thread_call_param_t, thread_call_param_t)
     elden_recovery_reset("Recovery test deadline expired");
 }
 
-static void
+static uint64_t
 elden_recovery_schedule_reset(unsigned seconds, thread_call_func_t callback)
 {
     thread_call_t reset = thread_call_allocate_with_options(callback,
         nullptr, THREAD_CALL_PRIORITY_KERNEL, THREAD_CALL_OPTIONS_ONCE);
     if (!reset) {
         IOLog("ELDEN_USB: unable to schedule the fastboot timeout\n");
-        return;
+        return 0;
     }
     uint64_t deadline;
     clock_interval_to_deadline(seconds, 1000000000, &deadline);
     thread_call_enter_delayed(reset, deadline);
+    return deadline;
 }
 
 extern "C" void elden_recovery_usb_start(void);
@@ -128,7 +133,16 @@ elden_recovery_usb_start(void)
             elden_recovery_schedule_reset(timeout, elden_recovery_usb_timeout);
         }
         if (runTimeout >= 15 && runTimeout <= 3600) {
-            elden_recovery_schedule_reset(runTimeout, elden_recovery_run_timeout);
+            uint64_t deadline = elden_recovery_schedule_reset(runTimeout, elden_recovery_run_timeout);
+#ifdef ELDEN_RECOVERY_RPMH_READ
+            unsigned rpmhRead = 0;
+            if (PE_parse_boot_argn("elden-adreno830-rpmh-read", &rpmhRead, sizeof(rpmhRead)) &&
+                rpmhRead == 1) {
+                gEldenRpmhReadDeadline = deadline;
+            }
+#else
+            (void)deadline;
+#endif
         }
     }
     eldenStartUsbDebug();

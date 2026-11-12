@@ -29,7 +29,7 @@ def write_if_changed(path: Path, content: bytes) -> None:
         path.write_bytes(content)
 
 
-def stage_recovery_usb(source: Path, core: Path, apply_overlay: bool) -> dict:
+def stage_recovery_usb(source: Path, core: Path, apply_overlay: bool, rpmh_read: bool) -> dict:
     core_files = {
         "Dwc3.c": "16681b8e405b0d3862cb3289005f210b80b5bea2cc33adc26b2258d18ab9cea6",
         "Dwc3.h": "7731dddfcecb5bf2b7fe44054bae4db786924d20f767ece43d84f82e8c84d690",
@@ -50,7 +50,10 @@ def stage_recovery_usb(source: Path, core: Path, apply_overlay: bool) -> dict:
     files[iokit / "EldenUsbResources.h"] = DEVICE / "soc/sm8750/include/EldenUsbResources.h"
     files[iokit / "EldenPonResources.h"] = DEVICE / "soc/sm8750/include/EldenPonResources.h"
     for destination, path in files.items():
-        write_if_changed(destination, path.read_bytes())
+        content = path.read_bytes()
+        if rpmh_read and destination.name == "EldenRecoveryUsb.cpp":
+            content = b"#define ELDEN_RECOVERY_RPMH_READ 1\n" + content
+        write_if_changed(destination, content)
     log = source / "pexpert/arm/pe_sheng_log.h"
     if apply_overlay:
         subprocess.run(["git", "-C", source, "apply", PATCHES / "elden-macos26-usb-console.patch"],
@@ -104,6 +107,7 @@ def main() -> None:
         parser.error("--elden-recovery-contract requires --elden-ufs-device")
     if args.adreno830_hfi_source is not None and args.adreno830_gmu_firmware is None:
         parser.error("--adreno830-hfi-source requires --adreno830-gmu-firmware")
+    rpmh_read = args.recovery_usb_core is not None and args.adreno830_gmu_firmware is not None
 
     root = args.sheng_root.resolve(strict=True)
     sys.path.insert(0, str(root / "scripts"))
@@ -224,7 +228,7 @@ def main() -> None:
             record["language_trace"]["available"] = False
         if args.recovery_usb_core is not None:
             record["elden_recovery_usb_sources"] = stage_recovery_usb(
-                source, args.recovery_usb_core.resolve(strict=True), previous is None)
+                source, args.recovery_usb_core.resolve(strict=True), previous is None, rpmh_read)
         if args.adreno830_gmu_firmware is not None:
             image = args.adreno830_gmu_firmware.read_bytes()
             digest = hashlib.sha256(image).hexdigest()
@@ -239,6 +243,8 @@ def main() -> None:
             soc = DEVICE / "soc/sm8750"
             inputs.extend(soc / name for name in ("include/Sm8750AdrenoResources.h",
                 "Sm8750CmdDb.c", "include/Sm8750CmdDb.h", "LICENSE.Adreno830"))
+            if rpmh_read:
+                inputs.extend(soc / name for name in ("Sm8750RpmhRead.c", "include/Sm8750RpmhRead.h"))
             if hfi_sources:
                 inputs.extend(hfi_sources)
                 inputs.extend(driver / name for name in (
@@ -249,7 +255,8 @@ def main() -> None:
                     for i in range(0, len(image), 16))
             image_header = pexpert / "EldenAdreno830GmuImage.h"
             hfi_define = "#define ELDEN_ADRENO830_HFI_PROBE 1\n" if hfi_sources else ""
-            write_if_changed(image_header, (hfi_define + "static const uint8_t elden_gmu_image[] = {\n    " +
+            rpmh_define = "#define ELDEN_RECOVERY_RPMH_READ 1\n" if rpmh_read else ""
+            write_if_changed(image_header, (hfi_define + rpmh_define + "static const uint8_t elden_gmu_image[] = {\n    " +
                                             ",\n    ".join(rows) + "\n};\n").encode())
             if previous is None:
                 pe_init = pexpert / "pe_init.c"
