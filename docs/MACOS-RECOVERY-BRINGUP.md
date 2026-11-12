@@ -346,6 +346,32 @@ changes at the beginning, middle and end of the input, a short read
 during an active batch, and a failure to protect the digest table. The
 tablet's UFS timing and memory pressure require hardware measurements.
 
+### Recovery progress panel
+
+The regular `recovery-usb` entry uses `sheng-boot-progress-panel=1`.
+The framebuffer shows the current stage, elapsed time since progress,
+and service status without scrolling the kernel log. The detailed log
+continues into the retained ring used by USB capture. **Capture Recovery
+GUI Failure** keeps the scrolling log for on-device diagnosis.
+
+With the same eight-vCPU local QEMU fixture, paired BaseSystem, early
+console, and cache verifier, the first observed boot milestones were:
+
+| Milestone | Scrolling log | Progress panel |
+| --- | ---: | ---: |
+| `launchd` exec | 48.7 s | 46.7 s |
+| Shared-cache verification complete | 100.9 s | 96.9 s |
+| First boot task after Data restore | 132.1 s | 125.0 s |
+| WindowServer exec | 169.3 s | 154.2 s |
+
+Each column is one local TCG run sampled about once per second. After
+240 seconds, the scrolling console had drawn 526,558 log characters.
+The summary run drew 136 during early boot and captured 526,965 retained
+log bytes with no stream gaps. The final screen showed the WindowServer
+milestone and service status. Repeated `configd` guard-object faults
+again triggered shutdown before a first frame. These timings use QEMU
+storage and GOP. Tablet timing remains open.
+
 ## Stage 4 · Elden hardware
 
 Qualify EL1 PAC and the available translation granule on the tablet
