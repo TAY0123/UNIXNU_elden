@@ -60,9 +60,9 @@ elden_recovery_panic_arm(void)
 #define ELDEN_RECOVERY_USB 1
 extern "C" void sheng_log_status(const char *message);
 #ifdef ELDEN_RECOVERY_RPMH_READ
-extern "C" void elden_adreno830_run_rpmh_read(unsigned hold_rails);
+extern "C" void elden_adreno830_run_rpmh_read(unsigned stage);
 static uint64_t gEldenRpmhReadDeadline;
-static bool gEldenRpmhHoldRails;
+static unsigned gEldenGpuProbeStage;
 #endif
 #include "EldenUsbDebugXnu.inc"
 
@@ -140,9 +140,16 @@ elden_recovery_usb_start(void)
             if (PE_parse_boot_argn("elden-adreno830-rpmh-read", &rpmhRead, sizeof(rpmhRead)) &&
                 rpmhRead == 1) {
                 gEldenRpmhReadDeadline = deadline;
-                unsigned rpmhHold = 0;
-                gEldenRpmhHoldRails = PE_parse_boot_argn("elden-adreno830-rpmh-hold",
-                    &rpmhHold, sizeof(rpmhHold)) && rpmhHold == 1;
+                unsigned rpmhHold = 0, gpuPower = 0;
+                gEldenGpuProbeStage = 1;
+                if (PE_parse_boot_argn("elden-adreno830-rpmh-hold", &rpmhHold, sizeof(rpmhHold)) &&
+                    rpmhHold == 1) {
+                    gEldenGpuProbeStage = 2;
+                    if (PE_parse_boot_argn("elden-adreno830-power-test", &gpuPower, sizeof(gpuPower)) &&
+                        gpuPower == 1) {
+                        gEldenGpuProbeStage = 3;
+                    }
+                }
             }
 #else
             (void)deadline;

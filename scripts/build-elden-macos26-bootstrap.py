@@ -254,7 +254,10 @@ def main() -> None:
             inputs.extend(soc / name for name in ("include/Sm8750AdrenoResources.h",
                 "Sm8750CmdDb.c", "include/Sm8750CmdDb.h", "LICENSE.Adreno830"))
             if rpmh_read:
-                inputs.extend(soc / name for name in ("Sm8750RpmhRead.c", "include/Sm8750RpmhRead.h"))
+                inputs.append(driver / "EldenAdreno830PowerProbe.inc")
+                inputs.extend(soc / name for name in (
+                    "Sm8750RpmhRead.c", "include/Sm8750RpmhRead.h", "Sm8750GpuPower.c",
+                    "include/Sm8750GpuPower.h", "include/Sm8750Qup1Resources.h"))
             if hfi_sources:
                 inputs.extend(hfi_sources)
                 inputs.extend(driver / name for name in (

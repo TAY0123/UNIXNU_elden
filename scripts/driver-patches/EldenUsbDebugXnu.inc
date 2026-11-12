@@ -207,7 +207,7 @@ static bool eldenUsbDrain(unsigned attempts)
 #ifdef ELDEN_RECOVERY_RPMH_READ
 static void eldenRpmhReadWorker(void *, wait_result_t)
 {
-  elden_adreno830_run_rpmh_read(gEldenRpmhHoldRails);
+  elden_adreno830_run_rpmh_read(gEldenGpuProbeStage);
   thread_terminate(current_thread());
 }
 
@@ -216,9 +216,9 @@ static void eldenUsbStartRpmhRead()
   if (!gEldenRpmhReadDeadline || !eldenUsbAcquire(&gEldenUsb.busy)) return;
   uint64_t required;
   clock_interval_to_deadline(3, 1000000000, &required);
-  const char *begin = gEldenRpmhHoldRails ?
-      "\r\nELDEN-A830: RPMh rail hold worker starting\r\n" :
-      "\r\nELDEN-A830: RPMh MX read worker starting\r\n";
+  const char *begin = "\r\nELDEN-A830: RPMh MX read worker starting\r\n";
+  if (gEldenGpuProbeStage == 2) begin = "\r\nELDEN-A830: RPMh rail hold worker starting\r\n";
+  if (gEldenGpuProbeStage == 3) begin = "\r\nELDEN-A830: GPU power worker starting\r\n";
   size_t bytes = strlen(begin);
   bool sent = required < gEldenRpmhReadDeadline && eldenUsbDrain(300) &&
       dwc3_queue(eldenDwc(), begin, bytes) == bytes &&

@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 enum {
-    GccClockVote = 0x52000, GccCfgAhb = 0x71004, GccGpuMemnoc = 0x71010,
+    GccClockVote = SM8750_GCC_GPU_VOTE_REG, GccCfgAhb = 0x71004, GccGpuMemnoc = 0x71010,
     GccDdrGpuAxi = 0x71150, GpllVotes = (1u << 15) | (1u << 16),
     CxGdsc = SM8750_GPUCC_CX_PAGE_OFFSET + SM8750_GPUCC_CX_GDSCR,
     CxHardware = SM8750_GPUCC_CX_PAGE_OFFSET + SM8750_GPUCC_CX_GDS_HW_CTRL,

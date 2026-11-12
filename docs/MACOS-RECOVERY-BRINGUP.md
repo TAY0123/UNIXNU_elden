@@ -3298,11 +3298,34 @@ clang -std=c11 -Wall -Wextra -Werror -Wconversion -O1 -g \
 out/gmu-tests/test-gpu-power
 ```
 
-The XNU clock owner still needs to acquire the shared rail and GCC
-resources, then qualify this sequence over USB. The first tablet
-checkpoint remains the prepared deferred RPMh MX read. Subsequent
-checks need CX power, clock branch readbacks, a running GMU counter and
-the live SID 5 route before the firmware handoff.
+The managed Recovery worker now calls the clock controller after an
+acknowledged MX read and acknowledged active MX and CX votes. It maps
+the GCC and GPUCC apertures and records the first register of each step.
+On success it maps the GMU read-only and samples CM3 reset and the
+always-on counter. Two high-low-high samples 100 µs apart give the
+`advanced` result. The test holds the acquired votes and clocks until
+reset. Firmware transfer and SMMU changes are outside this probe.
+[Adreno 830 counter registers](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/A830Regs.h#L435-L441)
+
+The MacBook copy is `~/elden-ptn3222/elden-4k-recovery-gpu-power-ram.img`,
+SHA-256 `2f2d5c6da221c6c1ea49edc236e3f2bd439c41cd2906a3394911b8808e2e668b`.
+The kernel and dSYM UUID is `09C6A640-7A84-38A9-B20D-2C71D0F574B7`.
+The source preparation check passed with the pinned firmware and USB core.
+The MacBook recompiled the platform expert and USB units and relinked
+against the verified Recovery build. The 31-module prelink, DarwinBoot
+preflight and packed image readback passed. An eight-vCPU QEMU boot with
+all GPU probe arguments reached `launchd` and skipped the worker on its
+non-Elden device tree.
+
+The image includes **GPU RPMh Read (8 cores)** and **GPU CX and GMU
+Clock (8 cores)**. The separate rail-hold image above remains available
+to isolate the two votes. The clock entry requires USB CDC and an armed
+300-second managed reset. On the tablet, look for both rail
+acknowledgments, `GPUCC power result=0`, and `GMU reset=... advanced=1`.
+If the power sequence stops, keep the last `GPUCC entering` line and
+any reported result. Physical GPUCC writes and GMU register access on
+this path still need a tablet result. The live SID 5 route is the next
+prerequisite for firmware handoff.
 
 ### Installation target and hardware inventory
 
