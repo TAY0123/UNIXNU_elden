@@ -1,8 +1,68 @@
 /* SPDX-License-Identifier: BSD-2-Clause-Patent */
+#include <kern/kalloc.h>
 #include <vm/memory_types.h>
 #include "AdrenoFirmware.c"
 #include "EldenAdreno830.c"
 #include "EldenAdreno830GmuImage.h"
+#include "Sm8750CmdDb.c"
+
+static void
+elden_adreno830_cmd_db_probe(void)
+{
+    unsigned enabled = 0;
+    if (!PE_parse_boot_argn("elden-adreno830-cmd-db", &enabled, sizeof(enabled)) || enabled != 1) {
+        return;
+    }
+    uint32_t *snapshot = kalloc_data(Sm8750CmdDbSize, Z_WAITOK);
+    if (!snapshot) {
+        printf("ELDEN-A830: command database allocation failed\n");
+        return;
+    }
+    vm_offset_t mapping = io_map(Sm8750CmdDbPhysicalBase, Sm8750CmdDbSize, VM_WIMG_IO,
+                                 VM_PROT_READ, true);
+    if (!mapping) {
+        kfree_data(snapshot, Sm8750CmdDbSize);
+        printf("ELDEN-A830: command database map failed\n");
+        return;
+    }
+    const volatile uint32_t *db = (const volatile uint32_t *)mapping;
+    if (db[1] != Sm8750CmdDbMagic) {
+        ml_io_unmap(mapping, Sm8750CmdDbSize);
+        kfree_data(snapshot, Sm8750CmdDbSize);
+        printf("ELDEN-A830: command database magic mismatch\n");
+        return;
+    }
+    for (size_t i = 0; i < Sm8750CmdDbSize / sizeof(uint32_t); ++i) {
+        snapshot[i] = db[i];
+    }
+    ml_io_unmap(mapping, Sm8750CmdDbSize);
+
+    static const struct {
+        const char *name;
+        unsigned slave;
+    } required[] = {
+        {"gfx.lvl", Sm8750CmdDbArc}, {"mx.lvl", Sm8750CmdDbArc},
+        {"cx.lvl", Sm8750CmdDbArc}, {"gmxc.lvl", Sm8750CmdDbArc},
+        {"SH0", Sm8750CmdDbBcm}, {"MC0", Sm8750CmdDbBcm},
+        {"ACV", Sm8750CmdDbBcm}, {"CN0", Sm8750CmdDbBcm},
+    };
+    for (size_t i = 0; i < sizeof(required) / sizeof(required[0]); ++i) {
+        Sm8750CmdDbResource resource;
+        Sm8750CmdDbStatus status = Sm8750CmdDbRead(snapshot, Sm8750CmdDbSize,
+            required[i].name, required[i].slave, &resource);
+        if (status != Sm8750CmdDbOk) {
+            printf("ELDEN-A830: cmd-db %s status=%u\n", required[i].name, (unsigned)status);
+            continue;
+        }
+        uint32_t digest = 2166136261u;
+        for (size_t n = 0; n < resource.aux_bytes; ++n) {
+            digest = (digest ^ resource.aux[n]) * 16777619u;
+        }
+        printf("ELDEN-A830: cmd-db %s addr=%05x bytes=%lu fnv1a=%08x\n", required[i].name,
+            resource.address, (unsigned long)resource.aux_bytes, digest);
+    }
+    kfree_data(snapshot, Sm8750CmdDbSize);
+}
 
 static void
 elden_adreno830_gpucc_probe(void)
@@ -48,6 +108,7 @@ static void
 elden_adreno830_probe(void)
 {
     elden_adreno830_gpucc_probe();
+    elden_adreno830_cmd_db_probe();
     unsigned enabled = 0;
     if (!PE_parse_boot_argn("elden-adreno830-probe", &enabled, sizeof(enabled)) || enabled != 1) {
         return;

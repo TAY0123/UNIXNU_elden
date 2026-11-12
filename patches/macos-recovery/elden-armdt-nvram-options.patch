@@ -1,0 +1,13 @@
+diff --git a/ArmDTPlatform/ArmDTPlatform.cpp b/ArmDTPlatform/ArmDTPlatform.cpp
+--- a/ArmDTPlatform/ArmDTPlatform.cpp
++++ b/ArmDTPlatform/ArmDTPlatform.cpp
+@@ -53,6 +53,8 @@ const char *ArmDTPlatform::deleteList (void)
+ 
+ const char *ArmDTPlatform::excludeList (void)
+ {
+-  return "()";
++  // publishNVRAM() has already installed IODTNVRAM at /options.
++  // Keep that provider in the device-tree plane during generic nub creation.
++  return "(\"options\")";
+ }
+ 

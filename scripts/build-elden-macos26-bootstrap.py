@@ -85,7 +85,7 @@ def main() -> None:
     parser.add_argument("--build-gop-display", action="store_true",
                         help="include the Elden framebuffer in the UFS companion")
     parser.add_argument("--adreno830-gmu-firmware", type=Path,
-                        help="include the Elden GMU validation and GPUCC probes")
+                        help="include Elden GMU, GPUCC and command database probes")
     parser.add_argument("--recovery-usb-core", type=Path,
                         help="directory containing the pinned DWC3 core for the Recovery USB console")
     parser.add_argument("--recovery-graphics-cache", type=Path,
@@ -136,6 +136,7 @@ def main() -> None:
         if args.recovery_usb_core else None,
         "adreno830_firmware_sha256": build.sha(args.adreno830_gmu_firmware)
         if args.adreno830_gmu_firmware else None,
+        "armdt_nvram_patch_sha256": build.sha(PATCHES / "elden-armdt-nvram-options.patch"),
         "recovery_graphics_header_sha256": hashlib.sha256(graphics_header).hexdigest()
         if graphics_header is not None else None,
     }
@@ -149,6 +150,10 @@ def main() -> None:
     prepare = build.prepare
     run = build.run
     stage_file = build.stage_file
+    machine_patch = output / "elden-machine-driver-declarations.patch"
+    write_if_changed(machine_patch, build.MACHINE_PATCH.read_bytes() + b"\n" +
+                     (PATCHES / "elden-armdt-nvram-options.patch").read_bytes())
+    build.MACHINE_PATCH = machine_patch
     armcpu_patch = output / "elden-armcpu-inline-asm-and-affinity.patch"
     write_if_changed(armcpu_patch, build.CPU_ASM_PATCH.read_bytes() + b"\n" +
                      (PATCHES / "elden-macos26-armcpu-affinity.patch").read_bytes())
@@ -213,7 +218,9 @@ def main() -> None:
             inputs = [kit / name for name in ("AdrenoFirmware.c", "AdrenoFirmware.h")]
             inputs.extend(driver / name for name in
                           ("EldenAdreno830.c", "EldenAdreno830.h", "EldenAdreno830Boot.inc"))
-            inputs.append(DEVICE / "soc/sm8750/include/Sm8750AdrenoResources.h")
+            soc = DEVICE / "soc/sm8750"
+            inputs.extend(soc / name for name in ("include/Sm8750AdrenoResources.h",
+                "Sm8750CmdDb.c", "include/Sm8750CmdDb.h", "LICENSE.Adreno830"))
             for item in inputs:
                 write_if_changed(pexpert / item.name, item.read_bytes())
             rows = (", ".join(f"0x{byte:02x}" for byte in image[i:i + 16])

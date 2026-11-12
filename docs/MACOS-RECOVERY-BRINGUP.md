@@ -593,6 +593,16 @@ RecoveryOS Agent were present at the final process snapshot, with no
 Language Chooser process. The next trace follows the IOKit property RPC
 and deserializer to distinguish a failed lookup from a failed decode.
 
+The RPC trace found the exact GUID-prefixed key and received
+`kIOReturnNotFound` before deserialization. At the kernel RPC entry,
+the registry object's vtable pointed to `IOPlatformDevice`. The read
+entered `IORegistryEntry::copyProperty`, so it never queried the real
+IODTNVRAM dictionary. ArmDTPlatform's empty exclusion list allowed the
+generic nub pass to replace the provider after `publishNVRAM()`.
+The Elden build now excludes `options` from that pass. All NVRAM
+property reads continue through the stock provider and its permission
+checks.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its
@@ -2820,6 +2830,35 @@ clang -target arm64e-apple-macos26.5 -std=c11 -Wall -Wextra -Werror -O2 \
   -Wframe-larger-than=2048 -ffreestanding -mgeneral-regs-only -I "$kit" \
   -c drivers/Adreno830/EldenAdreno830HfiConfig.c -o out/gmu-tests/EldenAdreno830HfiConfig.arm64e.o
 ```
+
+#### Native command database probe
+
+`elden-adreno830-cmd-db=1` uses the same opt-in kernel build as the
+GPUCC probe. It maps the reserved SM8750 command database at
+`0x81c60000` for reading, checks the magic and copies the 128 KiB region
+into a temporary kernel allocation. It unmaps the region before
+parsing and releases the copy after printing each HFI resource's
+address, aux length and FNV-1a digest. Compare these values with the
+Linux capture before using this provider for native HFI startup.
+
+The reader adapts the pinned Adreno830 lookup and validates entry and
+aux bounds across the database. It distinguishes a missing resource
+from invalid input, including duplicate matching entries. A host
+model re-encoded the 166 decoded Linux entries into a binary fixture
+and reproduced the previous HFI table output under ASan and UBSan.
+Wrong magic, a truncated snapshot, an out-of-range entry table, and
+a slave mismatch were refused. The reader also compiled for ARM64e.
+
+The MacBook linked kernel `0FA14065-0D97-3D65-AF8D-969FA6D58011` with
+the probe and the `/options` fix. The packed Recovery RAM image passed
+DarwinBoot preflight, embedded payload verification and MacBook SHA-256
+readback. The image is
+`~/elden-ptn3222/elden-4k-software-gop-format-lifs-cmd-db-ram.img` with
+SHA-256 `13ef2ce6536a25b6d9e0de85880bbdd9470af627fb23e35c456144fdc5cafa23`.
+On the tablet, all eight records matched the Linux addresses, lengths
+and independently calculated digests. All seven secondary CPUs
+reported online. GMU firmware validation still reported four blocks
+and 88,656 payload bytes.
 
 #### GPUCC handoff probe
 
