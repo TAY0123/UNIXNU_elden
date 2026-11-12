@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "name": "Elden Service",
+      "items": [
+        {"name": "Start logs and WireGuard", "action": "bin/control.sh start", "exitmenu": false},
+        {"name": "Stop logs and WireGuard", "action": "bin/control.sh stop", "exitmenu": false},
+        {"name": "Status", "action": "bin/control.sh status", "exitmenu": false},
+        {"name": "Activate tablet slot A", "action": "bin/control.sh activate-a", "exitmenu": false},
+        {"name": "Activate tablet slot B", "action": "bin/control.sh activate-b", "exitmenu": false},
+        {"name": "Restore Linux to tablet boot_b", "action": "bin/control.sh restore-linux", "exitmenu": false},
+        {"name": "Reboot tablet from fastboot", "action": "bin/control.sh reboot", "exitmenu": false}
+      ]
+    }
+  ]
+}

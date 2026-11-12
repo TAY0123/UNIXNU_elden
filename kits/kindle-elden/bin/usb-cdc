@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+bin=$(CDPATH= cd "$(dirname "$0")" && pwd)
+exec "$bin/runtime/ld-linux-armhf.so.3" --library-path "$bin/runtime" "$bin/runtime/usb-cdc" "$@"
