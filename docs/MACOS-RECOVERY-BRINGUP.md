@@ -583,6 +583,16 @@ has not been demonstrated to reach this consumer. The next check is the
 original NVRAM lookup and conversion path, without forcing a return value
 or changing the Recovery executable.
 
+A 440-second follow-up used the same kernel, prelink and CHRP image with
+`nvram-log=1`. XNU logged the five-byte value under the system GUID.
+In both `recoveryosd` calls, the ASP sysctl size query returned -1 with
+size zero, `IORegistryEntryFromPath` returned an options port, and
+`IORegistryEntryCreateCFProperty` returned null. Neither call found
+the guest-mode environment variable. Boot Picker, WindowServer and
+RecoveryOS Agent were present at the final process snapshot, with no
+Language Chooser process. The next trace follows the IOKit property RPC
+and deserializer to distinguish a failed lookup from a failed decode.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its
@@ -2755,11 +2765,10 @@ HFI queues are ready. ACD, IFPC and core start follow the two tables.
 [Elden vote generation](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/a6xx_gmu.c#L1600-L1977) ·
 [Elden HFI startup](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/a6xx_hfi.c#L972-L1002)
 
-A live Linux capture still needs to establish the selected row and the
-AOP-populated command database. On the MSM render node,
+On the MSM render node,
 `DRM_IOCTL_MSM_GET_PARAM` with `pipe=0x10`, `param=0x03` and zeroed
 `len` and `pad` returns the chip ID in bits 31:0 and speed-bin code in
-bits 47:32. Parameter `0x04` returns the maximum GPU rate in Hz. Record
+bits 47:32. Parameter `0x04` returns the maximum GPU rate in Hz. Capture
 the GPU devfreq `available_frequencies` and enabled GPU and GMU entries
 from `/sys/kernel/debug/opp`. Keep a private, complete copy of
 `/sys/kernel/debug/cmd-db`, including the raw aux bytes for `gfx.lvl`,
@@ -2769,6 +2778,21 @@ partition images supply no live database snapshot.
 [DRM parameter ABI](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/include/uapi/drm/msm_drm.h#L65-L136) ·
 [DRM parameter implementation](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/adreno_gpu.c#L384-L391) ·
 [Command-db dump](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/soc/qcom/cmd-db.c#L275-L365)
+
+The original Linux backup booted in RAM on the tablet. The MSM ioctl
+returned `0xe844050000` and 1,100,000,000 Hz. The enabled OPP records
+confirmed all 14 GPU and three GMU rates. The complete debugfs dump
+contained 166 entries and all eight requested resources, including
+`gmxc.lvl`. The tablet returned to fastboot on slot A through the Linux
+reboot command.
+
+The adapter built the HFI tables from this capture under ASan and UBSan.
+All 15 GX, four CX and eight DDR rows matched independent calculations
+from the pinned Linux algorithms, live aux records and saved DT bandwidths.
+The performance payload encoded as message 15 with 59 payload words.
+This validation used a host process. The XNU caller still needs to read
+the live command database and establish controller ownership before it
+can send these tables to the GMU.
 
 Pagani's `Sm8750CmdDbFind` can back the lookup callback after independent
 snapshot validation. Its missing-entry result also covers bad magic. The
