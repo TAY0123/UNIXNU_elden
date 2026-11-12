@@ -478,6 +478,21 @@ format of the allocated surface. The five matching pages passed host
 checks for guarded application, repeat application, and corruption
 rejection.
 
+The tablet RAM boot with these edits authenticated all five private
+cache pages, established the Aqua session, and reached `First swap` and
+`First frame`. The GOP driver received a 1904 × 3040 `BGRA` surface with a
+7680-byte source stride and copied it to the inherited panel scanout.
+All eight cores recorded timer interrupts and IPIs. At 211 seconds after
+the last milestone, WindowServer, recoveryosd and RecoveryOS Agent were
+still running. The Language Chooser start count was zero.
+
+The tested kernel UUID is `F61C6AC4-5C9B-3A69-9ABE-EED72FEAAFD2`.
+The MacBook RAM image is `~/elden-ptn3222/elden-4k-software-gop-format-linear-ram.img`
+with SHA-256 `517d4fb74add2565b5ba76fcee9c2a31e9ee35c9242a675c64927c443ffd70b6`.
+The eight-vCPU QEMU run with the same kernel and the QEMU storage driver
+also reached `First frame`. The QMP capture showed a pointer on a black
+background.
+
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
 first swap. The panic buffer passed CRC and kernel UUID checks. Its
