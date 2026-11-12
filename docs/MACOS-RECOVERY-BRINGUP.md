@@ -650,6 +650,13 @@ the chooser main thread again waiting for a reply from
 and progress bar. The startup lookup failure alone cannot establish
 why the later pairing-agent request waits.
 
+A separate read-only QEMU trace stopped at the sysctl output call
+after selecting the actual `bluetoothd` process. The original
+`kern.hv_vmm_present` handler prepared the integer `1` for its
+four-byte output, matching the platform's live VM flag. The pairing
+agent wait persists in a full boot with the same tree. Check the
+daemon's virtual controller match and its XPC request handling next.
+
 The closest Recovery display comparison is the paired 25F71 SHENG build
 40305570169. It showed the language list and accepted a selection in QEMU.
 The separate physical SHENG capture showed the Language window with an
