@@ -310,9 +310,10 @@ Metal-device check aborts before it submits a surface to that driver.
 The Elden 4 KiB build overlaps buffered vnode reads with verification of
 independent 16 KiB CodeDirectory blocks. The caller reads into alternating
 512 KiB halves of a single scratch allocation while up to four short-lived
-kernel workers hash the previous half. Concurrent registrations, small
-files, and single-CPU boots use the serial path. Files smaller than 1 MiB
-request scratch sized to the signed byte count.
+kernel workers hash the previous half. Other registrations fall back to
+serial while the pool is occupied. Files below 32 MiB and single-CPU boots
+also use the serial path. Files smaller than 1 MiB request scratch sized
+to the signed byte count.
 
 Each 4 KiB digest comes from the same bytes that passed the original
 16 KiB check. XNU makes the digest table read-only before attaching it
@@ -327,12 +328,23 @@ reduction. The new run spent 50.5 s inside vnode reads. Its reported 28.9 s
 of hash work is summed across workers and overlaps the read time. The
 single-copy scratch budget covers both halves even with four workers.
 
+The one-vCPU control completed the same four registrations with zero
+workers in 71.3 s versus 69.3 s for the baseline. Its hash time was
+25.9 s versus 25.7 s and its read time was 44.3 s versus 42.5 s. Each
+result is from one local TCG run.
+
+With eight vCPUs, WindowServer exec moved from 194 s to 169 s after
+QEMU start. The optimized run again recorded `configd` exit namespace
+37, code `0x39`, followed by launchd shutdown and a SIGKILL of
+WindowServer. The 240-second capture ended on the text console without
+a first-frame marker.
+
 A host test of the verifier routines produced byte-identical digests
-with zero through four workers, including a partial final page. It
-rejected byte changes at the beginning, middle and end of the input,
-a short read during an active batch, and a failure to protect the
-digest table. The tablet's UFS timing and memory pressure require
-hardware measurements.
+with zero through four workers, including a partial final page and a
+concurrent registration that fell back to serial. It rejected byte
+changes at the beginning, middle and end of the input, a short read
+during an active batch, and a failure to protect the digest table. The
+tablet's UFS timing and memory pressure require hardware measurements.
 
 ## Stage 4 · Elden hardware
 
