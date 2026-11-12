@@ -2716,6 +2716,77 @@ before preparing its tables. In particular, the device chip ID
 `0x44050000` must not inherit policy from the adjacent upstream
 `0x44050001` catalog entry.
 
+#### Elden HFI table inputs
+
+The saved `7.2.8-y700-r2-androidcrypt1` kernel's compiled catalog ties
+chip ID `0x44050000` to the `gen80000` firmware set, GMU ID `0x08000100`,
+12 MiB GMEM and the four speed-bin codes below. The matching Elden
+Linux catalog and saved live tree agree. Upstream's `0x44050001` entry
+uses its own speed-bin catalog.
+[Elden catalog](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/a6xx_catalog.c#L2675-L2717) ·
+[Elden OPP tables](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/arch/arm64/boot/dts/qcom/sm8750.dtsi#L3792-L3956) ·
+[Upstream catalog](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/gpu/drm/msm/adreno/a8xx_catalog.c)
+
+| Speed-bin code | OPP mask bit | Active GPU OPPs | Maximum GPU Hz | Positive DDR levels |
+| --- | ---: | ---: | ---: | ---: |
+| `0xbe` | 0 | 11 | 900000000 | 6 |
+| `0xdd` | 1 | 13 | 1050000000 | 7 |
+| `0xe8` | 2 | 14 | 1100000000 | 7 |
+| `0xf2` | 3 | 14 | 1100000000 | 7 |
+
+The GMU OPPs are 500, 650 and 687.5 MHz. `EldenAdreno830BuildHfiConfig`
+checks the reported chip and speed-bin code against the observed enabled
+GPU and GMU rates. It uses the shared HFI vote builders with Elden's
+MX-only dependency vote and ACV bit 2 at every positive bandwidth.
+The output owns the performance and bandwidth tables and can be passed
+to `AdrenoHfiA8xxProgramTables` after power, clocks, SMMU, GMU and the
+HFI queues are ready. ACD, IFPC and core start follow the two tables.
+[Adapter](../drivers/Adreno830/EldenAdreno830HfiConfig.c) ·
+[Elden vote generation](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/a6xx_gmu.c#L1600-L1977) ·
+[Elden HFI startup](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/a6xx_hfi.c#L972-L1002)
+
+A live Linux capture still needs to establish the selected row and the
+AOP-populated command database. On the MSM render node,
+`DRM_IOCTL_MSM_GET_PARAM` with `pipe=0x10`, `param=0x03` and zeroed
+`len` and `pad` returns the chip ID in bits 31:0 and speed-bin code in
+bits 47:32. Parameter `0x04` returns the maximum GPU rate in Hz. Record
+the GPU devfreq `available_frequencies` and enabled GPU and GMU entries
+from `/sys/kernel/debug/opp`. Keep a private, complete copy of
+`/sys/kernel/debug/cmd-db`, including the raw aux bytes for `gfx.lvl`,
+`mx.lvl`, `cx.lvl`, `gmxc.lvl` when present, `SH0`, `MC0`, `ACV` and `CN0`.
+The reserved region is `0x81c60000` through `0x81c7ffff`. The saved AOP
+partition images supply no live database snapshot.
+[DRM parameter ABI](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/include/uapi/drm/msm_drm.h#L65-L136) ·
+[DRM parameter implementation](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/gpu/drm/msm/adreno/adreno_gpu.c#L384-L391) ·
+[Command-db dump](https://github.com/h0cheung/tb322fc-linux-kernel/blob/6f97250ead155fc3b980856323e99a4623dae73d/drivers/soc/qcom/cmd-db.c#L275-L365)
+
+Pagani's `Sm8750CmdDbFind` can back the lookup callback after independent
+snapshot validation. Its missing-entry result also covers bad magic. The
+same project provides SM8750 RPMh, GPUCC and power sequencing references.
+Pagani's `0x44050001` board policy uses different speed bins, GMU rates
+and ACV bandwidth selection.
+[Pagani command-db parser](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/platform/sm8750/Sm8750Rpmh.c#L32-L104) ·
+[Pagani level policy](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/platform/sm8750/Sm8750GpuLevels.h)
+
+Offline comparison matched the compiled catalog and all 17 OPP tuples
+against the adapter. The ASan/UBSan test uses synthetic command-db data
+for all four speed-bin profiles, checks exact HFI vote words and verifies
+refusal leaves the output intact. The adapter also compiles to an ARM64e
+Mach-O object. It has no boot caller.
+
+```sh
+kit=../AdrenoFirmware_a8xx # deaaae24d7fe1a8fdd10a0fe8bfb3fbc4c9a3c87
+mkdir -p out/gmu-tests
+clang -std=c11 -Wall -Wextra -Werror -O1 -g -fsanitize=address,undefined \
+  -I "$kit" "$kit/AdrenoHfiVotes.c" "$kit/AdrenoHfiA8xx.c" \
+  drivers/Adreno830/EldenAdreno830HfiConfig.c drivers/Adreno830/test-hfi-config.c \
+  -o out/gmu-tests/test-hfi-config
+out/gmu-tests/test-hfi-config
+clang -target arm64e-apple-macos26.5 -std=c11 -Wall -Wextra -Werror -O2 \
+  -Wframe-larger-than=2048 -ffreestanding -mgeneral-regs-only -I "$kit" \
+  -c drivers/Adreno830/EldenAdreno830HfiConfig.c -o out/gmu-tests/EldenAdreno830HfiConfig.arm64e.o
+```
+
 #### GPUCC handoff probe
 
 Use the paired Recovery build inputs on the Mac build host and a fresh
