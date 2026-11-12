@@ -19,6 +19,13 @@ path = "Payloads/kernel.macho"
 args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=launchd sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1 -elden-recovery-skip-ignition elden-usb-debug=1 elden-usb-management=1 elden-ufs-isc-sidecar=1 native-ufs-isc-overlay=1 elden-usb-run-timeout=900"
 
 [[entry]]
+id = "recovery-gui-capture"
+title = "Capture Recovery GUI Failure"
+type = "xnu"
+path = "Payloads/kernel.macho"
+args = "-v debug=0x14e keepsyms=1 cpus=1 -enable_kprintf_spam -sheng-early-console sheng-boot-progress=1 native-ufs-elden=1 native-ufs-root=1 native-ufs-diagnostics=1 sheng-stderr-log=2 sheng-stderr-name=recovery-ui sheng-pid1-trace=1 native-gop-display=1 elden-gop-display=1 -elden-recovery-skip-ignition elden-usb-debug=1 elden-ufs-isc-sidecar=1 native-ufs-isc-overlay=1 sheng-windowserver-stop=1"
+
+[[entry]]
 id = "linux"
 title = "Elden Linux - installed rootfs"
 type = "linux"

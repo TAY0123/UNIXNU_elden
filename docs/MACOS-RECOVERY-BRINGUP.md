@@ -241,7 +241,27 @@ The extracted kernel, ADT, Linux payload, and slot and USB EFI binaries
 matched the previous image byte for byte.
 The tablet wrote it to inactive `boot_a` over SSH and matched the full
 partition digest. Slot B Linux remained active. The consolidated entry
-awaits its first hardware boot.
+reached WindowServer on its first hardware run. The owner observed
+`starts=2 exits=2 wait-status=9` while `launchd` logged shutdown.
+The last displayed milestone was `WindowServer exec` and the owner
+saw no Recovery GUI. The final wait status records SIGKILL and leaves
+the cause of the earlier exit unresolved.
+
+**Capture Recovery GUI Failure** enables the existing
+`sheng-windowserver-stop=1` probe. It shows Recovery userspace output
+and stops for the first WindowServer exception delivered to the Mach
+exception path or for its crash notification. The panic screen records
+the exception details and displays the QR code. The capture entry keeps
+the QR visible for an on-device photo. The regular Recovery entry keeps
+its 900-second deadline.
+
+The capture image passed packed payload and AVB verification. A full SSH
+readback of `boot_a` matched
+`1d85172c9eb4bb30c5acf60e6d29ff59e921447bd79801c03eaa65deb1f05451`
+and slot B Linux stayed active. The capture entry awaits its first run.
+The separate 4 KiB QEMU run with generic GOP reached `Display on` after
+starting WindowServer. It also recorded the missing `imgsrc` information.
+The capture ended without a first-frame checkpoint.
 
 ## Stage 4 · Elden hardware
 
