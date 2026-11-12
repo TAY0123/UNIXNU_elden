@@ -363,11 +363,36 @@ snapshot. The screen still showed the boot log. The QEMU screenshot,
 process list and retained log provide separate checks of the VM fix
 and the remaining first-frame failure.
 
+Repeating with the same kernel and `sheng-boot-progress-panel=1`
+isolated the boot console setting. WindowServer first executed at
+150.7 s versus 168.8 s with scrolling logs. Display power-on was
+198.8 s versus 216.9 s. Both runs kept `configd` PID 42 and recorded
+three WindowServer aborts in 345 s. The progress-panel capture missed
+3,420 bytes between debugger samples. These are single-run QEMU
+measurements.
+
 The corresponding packed eight-core tablet image passed DarwinBoot
 preflight, the storage pairing check, and the raw Android v4 readback.
 Its MacBook copy is `~/elden-ptn3222/elden-4k-vm-fault-recovery-ram.img`
 with SHA-256
 `1051a24f60e432d2b022bffe8fe776332eca997c7003c681623db3e4ac7528e3`.
+
+The corrected image RAM-booted on Elden and mounted BaseSystem. The
+original `launchd` reached `main`, all eight CPUs handled timers and
+IPIs, and Recovery created an Aqua audit session. The 231,007-byte USB
+capture contains zero reason 37, code 57 exits. The run ended at the
+WindowServer exception probe with PID 82, `EXC_CRASH` and `SIGABRT`,
+before any first-frame checkpoint. The saved PC and LR resolve to the
+same pthread abort sequence as the earlier single-core QR when using
+cache slide candidate `0x0c2c8000`. The tablet returned to bootloader
+fastboot on slot A without a host reset command during the boot.
+
+The reference SHENG software compositor configuration has three
+graphics rules for the Metal availability check and BGRA surfaces.
+Their original 16 KiB page digests and instruction bytes match the
+25F71 cache used on Elden. Each rule's edit fits within one 4 KiB page.
+Elden still needs a runtime implementation and test of that graphics
+configuration.
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its
@@ -390,9 +415,9 @@ through the pointer stored at object offset `0x28`. In the same cache,
 plus four bytes per `CFPreferencesShmemIndex`. The client opens the
 shared object read-only and requests a 16 KiB `MAP_SHARED` mapping.
 The daemon requests the same size with read-write protection. This
-identifies the POSIX shared-memory path to trace from `pshm_mmap`
-through the fault. The returned mapping's range and lifetime, and any
-occurrence on the tablet, require runtime evidence.
+identifies the POSIX shared-memory path through `pshm_mmap`. The
+follow-up capture above inspected the returned mapping at the fault and
+confirmed the same guard exit code on the tablet.
 
 ### Bounded shared-cache verification
 
