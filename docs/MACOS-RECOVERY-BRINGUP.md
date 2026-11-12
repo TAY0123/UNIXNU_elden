@@ -3162,6 +3162,47 @@ at the board check and continued through BaseSystem to `launchd` PID 1.
 The tablet still needs to supply the MX response and fastboot-return
 evidence.
 
+#### Active MX and CX rail hold
+
+`Sm8750RpmhHoldGpuRails` uses the same DRV-2 TCS1 transport. It derives
+the highest supported corner of each rail from the live command database.
+Linux likewise votes the highest corner before its AP power-domain
+consumers synchronize. This avoids replacing an inherited high vote with
+the GPUCC LOW_SVS minimum. In the Elden capture, MX index 9 maps to level
+448 and CX index 10 maps to level 480. The indices and level tables
+belong to each resource.
+
+The transaction sends a response-requested active write for MX first.
+It waits for the TCS interrupt, idle status and command acknowledgment,
+restores the slot, then repeats for CX. If either request times out, the
+slot stays in hardware ownership. A CX failure can leave the earlier MX
+vote applied. Completed votes remain for the boot session. The caller
+must serialize the AP voters. Acknowledgment qualifies the request path,
+while actual rail and clock behavior need tablet evidence.
+[Linux boot vote policy](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/pmdomain/qcom/rpmhpd.c#L991-L1038) ·
+[RSC response-requested writes](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/soc/qcom/rpmh-rsc.c#L498-L531)
+
+The ASan/UBSan model uses the command database reconstructed from the
+same-tablet Linux capture. It checks MX-before-CX order, both
+acknowledgments, register restoration, timeouts at either rail, cleanup
+failure after an acknowledged MX write and refusal of a truncated
+database. The MacBook recompiled the platform expert and USB worker
+and relinked kernel `F0800C83-F29A-3ACF-9060-2082FF367A6E` with a matching
+dSYM. The 31-module prelink, DarwinBoot preflight, packed-image check and
+MacBook readback passed. An eight-vCPU QEMU boot requested both flags
+with a non-Elden ADT. XNU rejected the worker at the board check and
+continued to `launchd` PID 1.
+
+The image is `~/elden-ptn3222/elden-4k-recovery-rpmh-rails-ram.img` with
+SHA-256 `ad97c573ad071b45b2fa426d4cb4701947dedb215fb266694315e6986ee47601`.
+Select **GPU RPMh Read (8 cores)** for the read-only checkpoint. After
+that passes, **GPU RPMh Rail Hold (8 cores)** repeats the read and sends
+the active votes only if the read succeeds. Open the USB console to
+start the worker. Look for `RPMh rail hold result=0`, `MX=9 trigger=1
+ack=1`, `CX=10 trigger=1 ack=1` and the managed return to fastboot. The
+normal Recovery entry remains the default. GPUCC enable, GMU firmware
+execution and accelerated presentation require subsequent tests.
+
 #### GPUCC handoff probe
 
 Use the paired Recovery build inputs on the Mac build host and a fresh

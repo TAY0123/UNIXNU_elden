@@ -207,7 +207,7 @@ static bool eldenUsbDrain(unsigned attempts)
 #ifdef ELDEN_RECOVERY_RPMH_READ
 static void eldenRpmhReadWorker(void *, wait_result_t)
 {
-  elden_adreno830_run_rpmh_read();
+  elden_adreno830_run_rpmh_read(gEldenRpmhHoldRails);
   thread_terminate(current_thread());
 }
 
@@ -216,9 +216,12 @@ static void eldenUsbStartRpmhRead()
   if (!gEldenRpmhReadDeadline || !eldenUsbAcquire(&gEldenUsb.busy)) return;
   uint64_t required;
   clock_interval_to_deadline(3, 1000000000, &required);
-  const char begin[] = "\r\nELDEN-A830: RPMh MX read worker starting\r\n";
+  const char *begin = gEldenRpmhHoldRails ?
+      "\r\nELDEN-A830: RPMh rail hold worker starting\r\n" :
+      "\r\nELDEN-A830: RPMh MX read worker starting\r\n";
+  size_t bytes = strlen(begin);
   bool sent = required < gEldenRpmhReadDeadline && eldenUsbDrain(300) &&
-      dwc3_queue(eldenDwc(), begin, sizeof(begin) - 1) == sizeof(begin) - 1 &&
+      dwc3_queue(eldenDwc(), begin, bytes) == bytes &&
       eldenUsbDrain(300);
   // This worker owns the start decision. Consume it before releasing USB.
   gEldenRpmhReadDeadline = 0;

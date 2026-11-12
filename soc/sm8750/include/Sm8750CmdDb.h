@@ -37,4 +37,8 @@ Sm8750CmdDbStatus Sm8750CmdDbRead(const void *snapshot, size_t bytes, const char
 Sm8750CmdDbStatus Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name,
                                       unsigned requested, uint32_t *address, unsigned *index);
 
+/* Return the highest non-padding ARC corner and its firmware level. */
+Sm8750CmdDbStatus Sm8750CmdDbArcTop(const void *snapshot, size_t bytes, const char *name,
+                                    uint32_t *address, unsigned *index, unsigned *level);
+
 #endif

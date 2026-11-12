@@ -81,10 +81,16 @@ elden_adreno830_rpmh_triggering(void *context __unused)
     printf("ELDEN-A830: RPMh triggering DRV-2 TCS1 MX read\n");
 }
 
-void elden_adreno830_run_rpmh_read(void);
+static void
+elden_adreno830_rpmh_vote_triggering(void *context __unused)
+{
+    printf("ELDEN-A830: RPMh triggering DRV-2 TCS1 rail vote\n");
+}
+
+void elden_adreno830_run_rpmh_read(unsigned hold_rails);
 
 void
-elden_adreno830_run_rpmh_read(void)
+elden_adreno830_run_rpmh_read(unsigned hold_rails)
 {
     uint32_t *snapshot = elden_adreno830_copy_cmd_db();
     if (!snapshot) {
@@ -92,9 +98,9 @@ elden_adreno830_run_rpmh_read(void)
     }
     Sm8750CmdDbResource mx;
     Sm8750CmdDbStatus found = Sm8750CmdDbRead(snapshot, Sm8750CmdDbSize, "mx.lvl", Sm8750CmdDbArc, &mx);
-    kfree_data(snapshot, Sm8750CmdDbSize);
     if (found != Sm8750CmdDbOk || mx.address != 0x30010) {
         printf("ELDEN-A830: RPMh MX resource differs from the Elden capture\n");
+        kfree_data(snapshot, Sm8750CmdDbSize);
         return;
     }
     printf("ELDEN-A830: RPMh mapping DRV-2 for one MX read\n");
@@ -102,18 +108,30 @@ elden_adreno830_run_rpmh_read(void)
                                  VM_WIMG_IO, VM_PROT_READ | VM_PROT_WRITE, true);
     if (!mapping) {
         printf("ELDEN-A830: RPMh DRV-2 writable map failed\n");
+        kfree_data(snapshot, Sm8750CmdDbSize);
         return;
     }
-    const Sm8750RpmhReadIo io = {
+    Sm8750RpmhReadIo io = {
         (void *)mapping, elden_adreno830_rpmh_read32, elden_adreno830_rpmh_write32,
         elden_adreno830_rpmh_delay, elden_adreno830_rpmh_triggering,
     };
     Sm8750RpmhReadResult result;
     Sm8750RpmhReadStatus status = Sm8750RpmhReadArc(&io, mx.address, &result);
-    ml_io_unmap(mapping, SM8750_APPS_RSC_DRV2_PROBE_SIZE);
     printf("ELDEN-A830: RPMh MX read result=%u id=%08x config=%08x reg=%04x irq=%08x cmd=%08x response=%08x\n",
            (unsigned)status, result.hardware, result.config, result.failed_register,
            result.irq_status, result.command_status, result.response);
+    if (hold_rails && status == Sm8750RpmhReadOk) {
+        io.triggering = elden_adreno830_rpmh_vote_triggering;
+        Sm8750RpmhGpuRailResult rails;
+        status = Sm8750RpmhHoldGpuRails(&io, snapshot, Sm8750CmdDbSize, &rails);
+        printf("ELDEN-A830: RPMh rail hold result=%u MX=%u trigger=%u ack=%u reg=%04x cmd=%08x CX=%u trigger=%u ack=%u reg=%04x cmd=%08x\n",
+            (unsigned)status, rails.mx_index, rails.mx.triggered, rails.mx.acknowledged,
+            rails.mx.failed_register, rails.mx.command_status, rails.cx_index,
+            rails.cx.triggered, rails.cx.acknowledged, rails.cx.failed_register,
+            rails.cx.command_status);
+    }
+    ml_io_unmap(mapping, SM8750_APPS_RSC_DRV2_PROBE_SIZE);
+    kfree_data(snapshot, Sm8750CmdDbSize);
 }
 #endif
 

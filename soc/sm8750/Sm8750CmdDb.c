@@ -91,9 +91,9 @@ Sm8750CmdDbRead(const void *snapshot, size_t bytes, const char *name, unsigned s
     return Sm8750CmdDbOk;
 }
 
-Sm8750CmdDbStatus
-Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name, unsigned requested,
-                   uint32_t *address, unsigned *index)
+static Sm8750CmdDbStatus
+cmd_db_arc_index(const void *snapshot, size_t bytes, const char *name, unsigned requested,
+                 uint32_t *address, unsigned *index, unsigned *top_level)
 {
     if (!address || !index) {
         return Sm8750CmdDbInvalid;
@@ -109,6 +109,7 @@ Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name, unsign
     unsigned entries = (unsigned)resource.aux_bytes / 2;
     unsigned selected = entries;
     unsigned previous = 0;
+    unsigned top = 0;
     for (unsigned i = 0; i < entries; ++i) {
         unsigned level = cmd_db_le16(resource.aux + 2 * i);
         if (!level && i != 0) {
@@ -120,7 +121,13 @@ Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name, unsign
         if (selected == entries && level >= requested) {
             selected = i;
         }
+        top = i;
         previous = level;
+    }
+    if (top_level) {
+        if (!previous) return Sm8750CmdDbMissing;
+        selected = top;
+        *top_level = previous;
     }
     if (selected == entries) {
         return Sm8750CmdDbMissing;
@@ -128,4 +135,19 @@ Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name, unsign
     *address = resource.address;
     *index = selected;
     return Sm8750CmdDbOk;
+}
+
+Sm8750CmdDbStatus
+Sm8750CmdDbArcLevel(const void *snapshot, size_t bytes, const char *name, unsigned requested,
+                   uint32_t *address, unsigned *index)
+{
+    return cmd_db_arc_index(snapshot, bytes, name, requested, address, index, NULL);
+}
+
+Sm8750CmdDbStatus
+Sm8750CmdDbArcTop(const void *snapshot, size_t bytes, const char *name,
+                 uint32_t *address, unsigned *index, unsigned *level)
+{
+    if (!level) return Sm8750CmdDbInvalid;
+    return cmd_db_arc_index(snapshot, bytes, name, 0, address, index, level);
 }

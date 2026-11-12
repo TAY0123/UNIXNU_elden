@@ -20,9 +20,11 @@ enum {
     TcsEnable = Tcs1 + 0x2c,
     CmdMessage = Tcs1 + 0x34,
     CmdAddress = Tcs1 + 0x38,
+    CmdData = Tcs1 + 0x3c,
     CmdStatus = Tcs1 + 0x40,
     CmdResponse = Tcs1 + 0x44,
     ReadResponse = 8 | (1u << 8),
+    WriteResponse = ReadResponse | (1u << 16),
     CommandComplete = (1u << 8) | (1u << 16),
     AmcEnable = 1u << 16,
     AmcTrigger = 1u << 24,
@@ -56,13 +58,16 @@ write_checked(const Sm8750RpmhReadIo *io, Sm8750RpmhReadResult *result,
     return wait_register(io, result, reg, UINT32_MAX, value);
 }
 
-Sm8750RpmhReadStatus
-Sm8750RpmhReadArc(const Sm8750RpmhReadIo *io, uint32_t address, Sm8750RpmhReadResult *result)
+static bool
+rpmh_io_valid(const Sm8750RpmhReadIo *io)
 {
-    if (!result || !io || !io->read || !io->write || !io->delay || !io->triggering ||
-        (address & 3) || address >> 16 != Sm8750CmdDbArc) {
-        return Sm8750RpmhReadArgument;
-    }
+    return io && io->read && io->write && io->delay && io->triggering;
+}
+
+static Sm8750RpmhReadStatus
+transact_arc(const Sm8750RpmhReadIo *io, uint32_t address, const uint32_t *vote,
+             Sm8750RpmhReadResult *result)
+{
     *result = (Sm8750RpmhReadResult){0};
     result->hardware = read_register(io, RscId);
     result->config = read_register(io, RscConfig);
@@ -77,13 +82,17 @@ Sm8750RpmhReadArc(const Sm8750RpmhReadIo *io, uint32_t address, Sm8750RpmhReadRe
     }
     uint32_t message = read_register(io, CmdMessage);
     uint32_t target = read_register(io, CmdAddress);
-    bool programmed = write_checked(io, result, CmdMessage, ReadResponse) &&
+    uint32_t data = vote ? read_register(io, CmdData) : 0;
+    bool programmed = write_checked(io, result, CmdMessage, vote ? WriteResponse : ReadResponse) &&
         write_checked(io, result, CmdAddress, address) &&
+        (!vote || (write_checked(io, result, CmdData, *vote) &&
+                   write_checked(io, result, TcsWait, 1))) &&
         write_checked(io, result, TcsEnable, 1) &&
         write_checked(io, result, TcsControl, AmcEnable);
     Sm8750RpmhReadStatus status = Sm8750RpmhReadProgramming;
     if (programmed) {
         io->triggering(io->context);
+        result->triggered = 1;
         io->write(io->context, TcsControl, AmcEnable | AmcTrigger);
         unsigned polls;
         for (polls = 0; polls < 1000; ++polls) {
@@ -100,7 +109,8 @@ Sm8750RpmhReadArc(const Sm8750RpmhReadIo *io, uint32_t address, Sm8750RpmhReadRe
         if (result->command_status != UINT32_MAX &&
             (result->command_status & CommandComplete) == CommandComplete) {
             status = Sm8750RpmhReadOk;
-            result->response = read_register(io, CmdResponse);
+            result->acknowledged = 1;
+            if (!vote) result->response = read_register(io, CmdResponse);
         } else {
             status = Sm8750RpmhReadIncomplete;
         }
@@ -108,6 +118,8 @@ Sm8750RpmhReadArc(const Sm8750RpmhReadIo *io, uint32_t address, Sm8750RpmhReadRe
     if ((programmed && !write_checked(io, result, TcsControl, AmcEnable)) ||
         !write_checked(io, result, TcsControl, 0) ||
         !write_checked(io, result, TcsEnable, 0) ||
+        (vote && (!write_checked(io, result, TcsWait, 0) ||
+                  !write_checked(io, result, CmdData, data))) ||
         !write_checked(io, result, CmdMessage, message) ||
         !write_checked(io, result, CmdAddress, target)) {
         return Sm8750RpmhReadCleanup;
@@ -119,4 +131,37 @@ Sm8750RpmhReadArc(const Sm8750RpmhReadIo *io, uint32_t address, Sm8750RpmhReadRe
         }
     }
     return status;
+}
+
+Sm8750RpmhReadStatus
+Sm8750RpmhReadArc(const Sm8750RpmhReadIo *io, uint32_t address, Sm8750RpmhReadResult *result)
+{
+    if (!result || !rpmh_io_valid(io) || (address & 3) || address >> 16 != Sm8750CmdDbArc) {
+        return Sm8750RpmhReadArgument;
+    }
+    return transact_arc(io, address, NULL, result);
+}
+
+Sm8750RpmhReadStatus
+Sm8750RpmhHoldGpuRails(const Sm8750RpmhReadIo *io, const void *cmd_db, size_t bytes,
+                      Sm8750RpmhGpuRailResult *result)
+{
+    if (!result || !rpmh_io_valid(io)) return Sm8750RpmhReadArgument;
+    *result = (Sm8750RpmhGpuRailResult){0};
+
+    /* Before AP vote aggregation is available, use each rail's highest
+     * supported corner. A LOW_SVS write could replace a higher AP vote. */
+    enum { LowSvs = 0x40, EldenMxAddress = 0x30010, EldenCxAddress = 0x30000 };
+    uint32_t mx_address, cx_address;
+    unsigned mx_level, cx_level;
+    if (Sm8750CmdDbArcTop(cmd_db, bytes, "mx.lvl", &mx_address, &result->mx_index, &mx_level) ||
+        Sm8750CmdDbArcTop(cmd_db, bytes, "cx.lvl", &cx_address, &result->cx_index, &cx_level) ||
+        mx_address != EldenMxAddress || cx_address != EldenCxAddress ||
+        mx_level < LowSvs || cx_level < LowSvs) {
+        return Sm8750RpmhReadArgument;
+    }
+    uint32_t mx_vote = result->mx_index, cx_vote = result->cx_index;
+    Sm8750RpmhReadStatus status = transact_arc(io, mx_address, &mx_vote, &result->mx);
+    if (status != Sm8750RpmhReadOk) return status;
+    return transact_arc(io, cx_address, &cx_vote, &result->cx);
 }
