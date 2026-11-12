@@ -3216,10 +3216,52 @@ The kernel UUID is `76B9E3DF-4722-31C0-ABE7-48ED3589F68D`. The MacBook
 RAM image is `~/elden-ptn3222/elden-4k-software-gop-format-gpucc-ram.img`,
 with SHA-256
 `82e175da4c9323779268771fc1cafc9c3bc1b099db15eceefd2c17c70f21d8cb`.
-A power and clock owner and a verified GMU SMMU context are required
-before calling the reset-held firmware transfer. Boot configuration,
-firmware ready, HFI, command submission, fences and Metal presentation
-remain open.
+A verified GMU SMMU context and powered controller are required before
+calling the reset-held firmware transfer. Hardware firmware readiness,
+HFI, command submission, fences and Metal presentation remain open.
+
+#### CX and GMU clock control
+
+`Sm8750GpuPowerOn` verifies the MX/CX rail floor through the platform
+owner, enables GCC access, checks for a collapsed and software-controlled
+CX domain, and waits for its hardware power acknowledgment. It checks
+the 600 MHz GPLL0 parent and configures the GPU PLL and roots for a
+500 MHz GMU and a 200 MHz hub. The GPU SMMU clock is enabled as part of
+the same sequence. A serialized GCC vote update preserves the other
+clients' vote bits. The sequence uses the Linux register definitions and
+the PKX110 startup order, with the 500 MHz GMU OPP from the Elden tree.
+[Linux GPUCC](https://github.com/torvalds/linux/blob/9d66f26fefacebfeed15de31c1123451a17ff119/drivers/clk/qcom/gpucc-sm8750.c#L110-L168) ·
+[Elden GMU OPPs](https://github.com/GEEKiDoS/linux/blob/bf96c3d4048973298ede78487177c6f1b4f6bc0f/arch/arm64/boot/dts/qcom/sm8750.dtsi#L3907-L3956) ·
+[PKX110 power sequence](https://github.com/Shad0w23333/Adreno830/blob/1a1321056ffc5428ae925f4680093718b46ca7c2/platform/sm8750/Sm8750GpuPower.c#L274-L333)
+
+The shutdown path assumes the caller has already stopped GMU and GX DMA
+and drained translations. It releases the branch enables it acquired,
+parks both roots on XO and checks CX collapse before dropping its parent
+clock votes. An inherited matching GPU PLL stays running. A failed
+transition keeps its phase and last register for diagnosis, with the
+caller retaining ownership until recovery or reset.
+
+The ASan/UBSan register model seeds the captured Elden CX and clock
+registers and checks startup, shutdown and restart. It covers busy
+shared votes, a mismatched parent, stuck CX, PLL lock failure, stuck
+branches and an unacknowledged root switch. It also injects a callback
+failure at each of the 151 startup and 59 shutdown operations in the
+baseline run. The source compiles as an ARM64e object.
+
+```sh
+mkdir -p out/gmu-tests
+clang -std=c11 -Wall -Wextra -Werror -Wconversion -O1 -g \
+  -fsanitize=address,undefined -I soc/sm8750/include \
+  soc/sm8750/Sm8750GpuPower.c drivers/Adreno830/test-gpu-power.c \
+  -o out/gmu-tests/test-gpu-power
+out/gmu-tests/test-gpu-power
+```
+
+The XNU clock owner still needs to acquire the shared rail and GCC
+resources, then qualify this sequence over USB. The first tablet
+checkpoint remains the prepared deferred RPMh MX read. Subsequent
+checks need CX power, clock branch readbacks, a running GMU counter and
+the live SID 5 route before the firmware handoff.
 
 ### Installation target and hardware inventory
 

@@ -62,7 +62,9 @@
 #define SM8750_GMU_STREAM_ID            5U
 
 /* GPUCC CX register page. Offsets are relative to this page. */
-#define SM8750_GPUCC_CX_PAGE            0x03d99000U
+#define SM8750_GPUCC_BASE               0x03d90000U
+#define SM8750_GPUCC_CX_PAGE_OFFSET     0x9000U
+#define SM8750_GPUCC_CX_PAGE            (SM8750_GPUCC_BASE + SM8750_GPUCC_CX_PAGE_OFFSET)
 #define SM8750_GPUCC_CX_GDSCR           0x080U
 #define SM8750_GPUCC_CX_GDS_HW_CTRL      0x094U
 #define SM8750_GPUCC_AHB_CBCR           0x0bcU
