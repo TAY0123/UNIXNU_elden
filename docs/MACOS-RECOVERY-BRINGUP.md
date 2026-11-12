@@ -1486,6 +1486,15 @@ payload. Its Linux EFI and DTB, Recovery kernel and ADT, and slot
 utility matched that payload. The verified image SHA-256 is
 `b1b3dd6b3af50535a35fe6c4f8d50cb5b8ff1703e618fbfedf5a14e28fd02d12`.
 
+On the MacBook run, the second candidate reported
+`step=i2c-open efi=Not Ready i2c=C bytes=0` before enabling CDC.
+The vendor I²C driver returned during hardware-context setup, before
+any repeater register was transferred. The next candidate looks up
+the effective wrapper and engine in the firmware device tree, checks
+the Linux-confirmed GENI address and enabled status, and derives the
+I²C instance from the live engine counts. The MacBook copy matched
+SHA-256 `6a5b4ccd7d1fbab84f204e3e6579ca7817c5c77cb04913c8b5ef3da221d839e7`.
+
 ### Manage UniXNU and Recovery over USB
 
 The USB management image loads `EldenUsbMenu.efi` from the embedded

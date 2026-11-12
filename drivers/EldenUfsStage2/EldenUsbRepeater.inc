@@ -19,9 +19,56 @@ typedef struct {
 
 STATIC EFI_GUID mQcomI2cGuid = {0xb27ae8b1, 0x3e10, 0x4d07,
     {0xab, 0x5c, 0xeb, 0x9a, 0x6d, 0xc6, 0xfa, 0x8f}};
+STATIC EFI_GUID mQcomDtGuid = {0x0389b776, 0x625f, 0x11eb,
+    {0x83, 0xbe, 0xc7, 0x41, 0xa9, 0x13, 0xde, 0x34}};
 STATIC CONST CHAR8 *mRepeaterStep;
-STATIC UINT32 mRepeaterI2cStatus, mRepeaterI2cBytes, mRepeaterId;
+STATIC UINT32 mRepeaterInstance, mRepeaterI2cStatus, mRepeaterI2cBytes, mRepeaterId;
 STATIC UINT64 mRepeaterEngine;
+
+// Same DT protocol and output node shape used by Pakala I2CDxe.
+typedef struct {
+    VOID *Prefix[6];
+    INT32 (EFIAPI *FindNode)(VOID *, CONST CHAR8 *);
+    VOID *NodeOperations[11];
+    INT32 (EFIAPI *PropertySize)(VOID *, CONST CHAR8 *, UINT32 *);
+    INT32 (EFIAPI *ReadProperty)(VOID *, CONST CHAR8 *, VOID *, UINT32);
+    INT32 (EFIAPI *ReadU64)(VOID *, CONST CHAR8 *, UINT64 *);
+    VOID *IntegerOperations[4];
+    INT32 (EFIAPI *ReadU8)(VOID *, CONST CHAR8 *, UINT8 *);
+} QCOM_DT;
+
+STATIC EFI_STATUS RepeaterInstance(VOID)
+{
+    QCOM_DT *Dt;
+    mRepeaterStep = "dt-protocol";
+    EFI_STATUS Status = gBS->LocateProtocol(&mQcomDtGuid, NULL, (VOID **)&Dt);
+    if (EFI_ERROR(Status)) return Status;
+    if (!Dt->FindNode || !Dt->PropertySize || !Dt->ReadProperty || !Dt->ReadU64 || !Dt->ReadU8)
+        return EFI_UNSUPPORTED;
+
+    UINT64 FirstWrapper[2] = {0}, Wrapper[2] = {0}, Engine[2] = {0};
+    UINT64 Base;
+    UINT8 FirstCount, Count, Index;
+    mRepeaterStep = "dt-qup";
+    if (Dt->FindNode(FirstWrapper, "/soc/TOP_QUP_0") ||
+        Dt->ReadU8(FirstWrapper, "num_se", &FirstCount) || FirstCount > 10 ||
+        Dt->FindNode(Wrapper, "/soc/TOP_QUP_1") ||
+        Dt->ReadU8(Wrapper, "num_se", &Count) || Count > 10 ||
+        Dt->ReadU64(Wrapper, "se_wrapper_base_addr", &Base)) return EFI_NOT_FOUND;
+    mRepeaterStep = "dt-engine";
+    if (Dt->FindNode(Engine, "/soc/TOP_QUP_1/TOP_QUP_1_SE_5") ||
+        Dt->ReadU8(Engine, "se_index", &Index) || Index >= Count ||
+        Base + Index * 0x4000u != PTN_GENI_BASE) return EFI_NOT_FOUND;
+
+    UINT32 Length;
+    CHAR8 State[5];
+    mRepeaterStep = "dt-engine-status";
+    if (Dt->PropertySize(Engine, "status", &Length) || Length != sizeof(State) ||
+        Dt->ReadProperty(Engine, "status", State, Length) ||
+        CompareMem(State, "okay", sizeof(State)) != 0) return EFI_UNSUPPORTED;
+    mRepeaterInstance = MAX(FirstCount, 1) + Index + 1;
+    return EFI_SUCCESS;
+}
 
 STATIC BOOLEAN RepeaterBus(VOID *Handle)
 {
@@ -130,9 +177,11 @@ STATIC EFI_STATUS PrepareRepeater(VOID)
     if (EFI_ERROR(Status)) return Status;
     if (I2c->Revision != 0x10000 || !I2c->Open || !I2c->Read || !I2c->Write || !I2c->Close)
         return EFI_UNSUPPORTED;
+    Status = RepeaterInstance();
+    if (EFI_ERROR(Status)) return Status;
     VOID *Handle = NULL;
     mRepeaterStep = "i2c-open";
-    mRepeaterI2cStatus = I2c->Open(PTN_I2C_INSTANCE, &Handle);
+    mRepeaterI2cStatus = I2c->Open(mRepeaterInstance, &Handle);
     if (mRepeaterI2cStatus != 0 || Handle == NULL) return EFI_NOT_READY;
     mRepeaterStep = "i2c-engine";
     Status = EFI_UNSUPPORTED;

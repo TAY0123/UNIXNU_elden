@@ -265,11 +265,11 @@ EFI_STATUS EFIAPI EldenUsbMenuEntry(EFI_HANDLE Image, EFI_SYSTEM_TABLE *SystemTa
         if (mExit) gBS->CloseEvent(mExit);
         Handoff(NULL, NULL);
     } else {
-        CHAR8 Banner[224];
+        CHAR8 Banner[256];
         UINTN Bytes = AsciiSPrint(Banner, sizeof(Banner),
-            "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 %a step=%a efi=%r i2c=%x bytes=%u engine=%Lx id=%06x\r\n",
+            "UNIXNU: ELDEN-UEFI USB console v1 PTN3222 %a step=%a efi=%r instance=%u i2c=%x bytes=%u engine=%Lx id=%06x\r\n",
             EFI_ERROR(Repeater) ? "fallback" : "ready", mRepeaterStep, Repeater,
-            mRepeaterI2cStatus, mRepeaterI2cBytes, mRepeaterEngine, mRepeaterId);
+            mRepeaterInstance, mRepeaterI2cStatus, mRepeaterI2cBytes, mRepeaterEngine, mRepeaterId);
         Write(&mSerial, &Bytes, Banner);
     }
     return Status;

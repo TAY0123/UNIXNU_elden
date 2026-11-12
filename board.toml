@@ -43,7 +43,6 @@ stream_id = 0x60
 [board.hardware.usb_repeater]
 # Lenovo Linux DT and the Qualcomm TOP_QUP table from this board's xbl_config.
 geni_base = 0xa94000
-firmware_i2c_instance = 16
 i2c_address = 0x4f
 reset_ppid = 0x88d
 port_mux_gpio = 29

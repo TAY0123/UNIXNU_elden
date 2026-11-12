@@ -86,7 +86,6 @@ def prepare(usb_core=None):
         repeater = board['board']['hardware']['usb_repeater']
         constants = {
             'PTN_GENI_BASE': repeater['geni_base'],
-            'PTN_I2C_INSTANCE': repeater['firmware_i2c_instance'],
             'PTN_I2C_ADDRESS': repeater['i2c_address'],
             'PTN_RESET_PPID': repeater['reset_ppid'],
             'PTN_MUX_GPIO': repeater['port_mux_gpio'],
