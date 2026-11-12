@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<keyboard>
+  <layout id="Kindle Terminal QWERTY">
+    <row>
+      <key width="1500"><default display="Esc" action="escape" /></key>
+      <key width="1500"><default display="Tab" action="tab" /></key>
+      <key width="1500"><default display="Ctrl" action="modifier:ctrl" /></key>
+      <key width="1500"><default display="Alt" action="modifier:alt" /></key>
+      <key width="1500"><default display="←" action="left" /><mod1 display="Home" action="home" /></key>
+      <key width="1500"><default display="↑" action="up" /><mod1 display="PgUp" action="pageup" /></key>
+      <key width="1500"><default display="↓" action="down" /><mod1 display="PgDn" action="pagedown" /></key>
+      <key width="1500" fill="true"><default display="→" action="right" /><mod1 display="End" action="end" /></key>
+    </row>
+    <row>
+      <key><default display="1" /><shifted display="!" /><mod1 display="F1" action="f1" /></key>
+      <key><default display="2" /><shifted display="@" /><mod1 display="F2" action="f2" /></key>
+      <key><default display="3" /><shifted display="#" /><mod1 display="F3" action="f3" /></key>
+      <key><default display="4" /><shifted display="$" /><mod1 display="F4" action="f4" /></key>
+      <key><default display="5" /><shifted display="%" /><mod1 display="F5" action="f5" /></key>
+      <key><default display="6" /><shifted display="^" /><mod1 display="F6" action="f6" /></key>
+      <key><default display="7" /><shifted display="&amp;" /><mod1 display="F7" action="f7" /></key>
+      <key><default display="8" /><shifted display="*" /><mod1 display="F8" action="f8" /></key>
+      <key><default display="9" /><shifted display="(" /><mod1 display="F9" action="f9" /></key>
+      <key><default display="0" /><shifted display=")" /><mod1 display="F10" action="f10" /></key>
+      <key><default display="-" /><shifted display="_" /><mod1 display="F11" action="f11" /></key>
+      <key fill="true"><default display="=" /><shifted display="+" /><mod1 display="F12" action="f12" /></key>
+    </row>
+    <row>
+      <key><default display="q" /><shifted display="Q" /></key>
+      <key><default display="w" /><shifted display="W" /></key>
+      <key><default display="e" /><shifted display="E" /></key>
+      <key><default display="r" /><shifted display="R" /></key>
+      <key><default display="t" /><shifted display="T" /></key>
+      <key><default display="y" /><shifted display="Y" /></key>
+      <key><default display="u" /><shifted display="U" /></key>
+      <key><default display="i" /><shifted display="I" /></key>
+      <key><default display="o" /><shifted display="O" /></key>
+      <key><default display="p" /><shifted display="P" /></key>
+      <key><default display="[" /><shifted display="{" /></key>
+      <key fill="true"><default display="]" /><shifted display="}" /></key>
+    </row>
+    <row>
+      <key><default display="a" /><shifted display="A" /></key>
+      <key><default display="s" /><shifted display="S" /></key>
+      <key><default display="d" /><shifted display="D" /></key>
+      <key><default display="f" /><shifted display="F" /></key>
+      <key><default display="g" /><shifted display="G" /></key>
+      <key><default display="h" /><shifted display="H" /></key>
+      <key><default display="j" /><shifted display="J" /></key>
+      <key><default display="k" /><shifted display="K" /></key>
+      <key><default display="l" /><shifted display="L" /></key>
+      <key><default display=";" /><shifted display=":" /></key>
+      <key><default display="'" /><shifted display="&quot;" /></key>
+      <key fill="true"><default display="\" /><shifted display="|" /></key>
+    </row>
+    <row>
+      <key width="1500"><default display="Shift" action="modifier:shift" /></key>
+      <key><default display="z" /><shifted display="Z" /></key>
+      <key><default display="x" /><shifted display="X" /></key>
+      <key><default display="c" /><shifted display="C" /></key>
+      <key><default display="v" /><shifted display="V" /></key>
+      <key><default display="b" /><shifted display="B" /></key>
+      <key><default display="n" /><shifted display="N" /></key>
+      <key><default display="m" /><shifted display="M" /></key>
+      <key><default display="," /><shifted display="&lt;" /></key>
+      <key><default display="." /><shifted display="&gt;" /></key>
+      <key width="1500" fill="true"><default display="Bksp" action="backspace" /></key>
+    </row>
+    <row>
+      <key width="1500"><default display="Fn" action="modifier:mod1" /></key>
+      <key><default display="/" /><shifted display="?" /></key>
+      <key><default display="`" /><shifted display="~" /></key>
+      <key width="5000" fill="true"><default display="Space" action="space" /></key>
+      <key width="2500"><default display="Enter" action="return" /></key>
+      <key><default display="Del" action="delete" /></key>
+    </row>
+  </layout>
+</keyboard>

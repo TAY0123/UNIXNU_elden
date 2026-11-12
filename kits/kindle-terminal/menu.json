@@ -1,0 +1,5 @@
+{
+  "items": [
+    {"name": "Terminal", "action": "bin/launch.sh", "exitmenu": true, "priority": 1}
+  ]
+}
