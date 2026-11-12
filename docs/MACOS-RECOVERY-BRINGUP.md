@@ -311,9 +311,14 @@ code 57. XNU supplied fault address `0x1011e2910`. The user exception
 return address was `0x1807a74f8` with shared-cache slide `0x248000`.
 The paired cache resolves `0x18055f4f8` to
 `-[CFPrefsSource copyOSLogDescription] + 116`. The instruction reads
-through the pointer stored at object offset `0x28`. This identifies the
-faulting read on QEMU. The origin and lifetime of the pointed-to mapping
-and any occurrence on the tablet require separate evidence.
+through the pointer stored at object offset `0x28`. In the same cache,
+`CFPrefsPlistSource` sets that field from the mapped preferences region
+plus four bytes per `CFPreferencesShmemIndex`. The client opens the
+shared object read-only and requests a 16 KiB `MAP_SHARED` mapping.
+The daemon requests the same size with read-write protection. This
+identifies the POSIX shared-memory path to trace from `pshm_mmap`
+through the fault. The returned mapping's range and lifetime, and any
+occurrence on the tablet, require runtime evidence.
 
 ### Bounded shared-cache verification
 
@@ -1512,6 +1517,24 @@ an Aqua audit session. The MacBook retained the boot stream across
 reopening the serial port. A visible Recovery frame was not observed
 in the serial record.
 
+The owner read the diagnostic panic QR from the same single-core run.
+Its kernel UUID `C38D66BB-3623-310E-BBEE-FA8E05D500B3` matches the
+packed kernel and its WindowServer PID 93 matches the USB capture.
+The QR reports `EXC_CRASH` with code `0x06000000`. XNU encodes signal
+6 (`SIGABRT`) in that code. A 25F71 cache slide candidate of
+`0x0d138000` places the saved PC at `__pthread_kill + 8` and the
+saved LR just after the corresponding call in `pthread_kill`.
+The QR has no callers above that pair. The MacBook log has no framed
+copy of this panic.
+
+The 25F71 BaseSystem's `mountrecursive` binary queries
+`kern.imgsrcinfo` for the enclosing volumes. XNU fills that sysctl
+from the old root vnodes retained during imageboot and returns
+`ENXIO` when there is no enclosing root. The current native UFS path
+mounts the BaseSystem APFS volume directly. Booting Recovery from a
+file-backed image on an enclosing filesystem would exercise the
+original mount sequence and supply real volume information.
+
 The next RAM image combines the live-QUP lookup with the device-verified
 eight-core ADT. Its **Capture Recovery GUI Failure (8 cores)** entry
 enables SMP, per-core IPI observation and USB management. The test
@@ -1585,9 +1608,19 @@ entry returns its result over the same link.
 The firmware USB driver stops before the kernel takes over. **Recovery
 USB Console** then starts the XNU CDC device with serial `ELDEN-XNU`.
 Its opt-in `elden-usb-management=1` flag enables `reboot` and
-`reboot-fastboot`. If an active host drains a panic report, XNU sends
-`ELDEN PANIC END` and requests a fastboot reset. A panic before the USB
-worker starts still uses the framebuffer diagnostics.
+`reboot-fastboot` and arms the panic reset. If the panic handler can
+access the CDC controller, it drains the log and sends a panic record
+ending in `ELDEN PANIC END` before requesting a fastboot reset.
+If the USB worker is unavailable or the controller cannot be acquired,
+the handler leaves the panic on the framebuffer for eight seconds
+before requesting the reset. A full kernel lockup can prevent the
+panic handler and the software deadline from executing.
+
+The dual-boot **Capture Recovery GUI Failure** entry now enables
+management and sets a 1,200-second deadline, matching the staged
+eight-core test entry. The earlier GUI capture could stream logs with
+USB debugging enabled but had neither the managed panic reset nor the
+deadline.
 
 Build the UEFI payload driver using `build-ufs-stage2.py --usb-core`
 and the firmware using `build_phase2_firmware.py --usb-menu`. Pass the
