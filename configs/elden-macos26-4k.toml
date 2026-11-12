@@ -44,6 +44,10 @@ patch = "native-4k-shared-region-slide.patch"
 record = "native_shared_region_slide_sha256"
 
 [[overlay]]
+patch = "native-4k-vm-fault-range.patch"
+record = "native_vm_fault_range_sha256"
+
+[[overlay]]
 patch = "elden-macos26-cache-progress.patch"
 record = "cache_progress_overlay_sha256"
 

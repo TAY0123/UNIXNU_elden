@@ -196,6 +196,21 @@ Android v4 payload readback passed. The MacBook RAM test image is
 `~/elden-ptn3222/elden-macos26-4k-profile-ram.img` with SHA-256
 `a8e9933b9ba7d156b37b68b83631886439eab535afffd6a326de6e1c8324dfdb`.
 
+On the tablet, that image reached XNU, started the GOP display and read
+the UFS manifest. NativeUfs rejected the installed ISC window because the
+build had used the reference seed identity. USB captured the complete panic
+before the tablet returned to bootloader fastboot.
+
+Rebuild with `--elden-recovery-contract` pointing to the storage contract
+that was used to provision Elden. The packed-image verifier's optional
+`--recovery-root-pair PRELINK LAYOUT` compares the packaged kernel and
+its prelinked OS and ISC identities with the installed layout report. It
+also checks that the selected menu entry enables the ISC sidecar. The
+verifier rejected the original image and accepted the paired rebuild. The
+paired rebuild mounted BaseSystem and ran the original `launchd` through
+`main` on the tablet. All seven secondary CPUs came online and the USB
+log recorded timer interrupts and IPIs on all eight cores.
+
 On the reference checkout, apply the overlays in order and use the
 reference VirtIO companion produced by that build:
 
@@ -323,6 +338,36 @@ the shared memory-integrity exit namespace. `launchd` explicitly logged
 WindowServer SIGTERM and later SIGKILL during shutdown. The tablet
 photo is consistent with shutdown cleanup. A tablet log containing
 the shutdown trigger is still needed to establish its cause.
+
+The follow-up QEMU debugger run captured `configd` faulting at offset
+`0x2910` of a valid 16 KiB guard-object slot. XNU aligned the address down
+to the containing 4 KiB hardware page, then used a 16 KiB lock range from
+that address. That range crossed the slot boundary and caused the guard
+check to reject the lookup. The Elden VM overlay now derives the range
+from the same page mask that aligned the address. For that access, the
+lookup covers offsets `0x2000` through `0x2fff` in the slot. The existing
+guard and protection checks still run. A sanitizer-instrumented check
+passed 16 cases spanning mixed and equal page sizes and free guard slots.
+
+The eight-core tablet control with the paired storage contract and the
+original VM code passed Data restore and started `recoveryosd` and
+WindowServer. USB captured reason 37, code 57 exits from `configd`,
+`remoted`, and other services. This establishes that the same guard
+failure occurs on Elden.
+
+With the corrected kernel, eight-vCPU QEMU retained the original
+`configd` process (PID 42) through the 345-second observation. It
+completed Data restore and reached `Display on`. WindowServer aborted
+with SIGABRT three times and was on its fourth start at the final
+snapshot. The screen still showed the boot log. The QEMU screenshot,
+process list and retained log provide separate checks of the VM fix
+and the remaining first-frame failure.
+
+The corresponding packed eight-core tablet image passed DarwinBoot
+preflight, the storage pairing check, and the raw Android v4 readback.
+Its MacBook copy is `~/elden-ptn3222/elden-4k-vm-fault-recovery-ram.img`
+with SHA-256
+`1051a24f60e432d2b022bffe8fe776332eca997c7003c681623db3e4ac7528e3`.
 
 An extended one-CPU run enabled the WindowServer exception probe.
 After display power-on, WindowServer aborted with SIGABRT before its

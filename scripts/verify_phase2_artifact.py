@@ -245,6 +245,7 @@ def verify_ramdisk(
     xnu_title: str = "ELDEN 2.3 INITRD 56M",
     expect_timeout: int = -1,
     expect_default: str = "reset",
+    recovery_sidecar: bool = False,
 ) -> str:
     fat_name, volume_label = verify_fat_type(ramdisk)
     expected_label = "ELDENPROBE" if kind == "probe" else "ELDENRAM"
@@ -283,6 +284,12 @@ def verify_ramdisk(
         else:
             if xnu_title not in text:
                 raise SystemExit(f"final title {xnu_title!r} is missing from unixnu.toml")
+            if recovery_sidecar:
+                entries = [entry for entry in parsed.get('entry', [])
+                           if entry.get('title') == xnu_title and entry.get('type') == 'xnu']
+                if (len(entries) != 1 or entries[0].get('path') != 'Payloads/kernel.macho'
+                        or 'elden-ufs-isc-sidecar=1' not in entries[0].get('args', '').split()):
+                    raise SystemExit("selected Recovery entry does not boot the checked kernel and ISC sidecar")
             kernel = Path(directory) / "kernel.macho"
             mtools(
                 "mcopy", "-o", "-i", str(image),
@@ -301,6 +308,33 @@ def verify_ramdisk(
             if adt.stat().st_size == 0:
                 raise SystemExit("kernel.macho.adt is empty")
     return fat_name
+
+
+def verify_recovery_root_pair(prelink_path: Path, layout_path: Path,
+                              kernel_bytes: int, kernel_sha256: str) -> dict:
+    prelink = json.loads(prelink_path.read_text())
+    layout = json.loads(layout_path.read_text())
+    if (prelink.get('candidate_bytes'), prelink.get('candidate_sha256')) != (kernel_bytes, kernel_sha256):
+        raise SystemExit("Recovery prelink report does not identify the packaged kernel")
+    try:
+        storage = prelink['storage_driver']['build']
+        root = storage['recovery_root']
+        windows = {window['name']: window for window in layout['windows']}
+        if len(layout['windows']) != 2 or set(windows) != {'OS', 'ISC'}:
+            raise SystemExit("Recovery layout must contain exactly the OS and ISC windows")
+        if (root['build'], storage['root_partition'], storage['root_lun']) != (
+                layout['build'], layout['partition'], layout['root_lun']):
+            raise SystemExit("Recovery layout does not match the prelinked storage target")
+        for name, compiled in (('OS', root), ('ISC', root['isc'])):
+            planned = windows[name]
+            if (compiled['window'], compiled['bytes'], compiled['sha256']) != (
+                    name, planned['bytes'], planned['sha256']):
+                raise SystemExit(f"Recovery {name} window differs from the prelinked storage contract")
+        return {"build": layout['build'], "partition": layout['partition'],
+                "root_lun": layout['root_lun'],
+                "layout_sha256": sha256(layout_path.read_bytes())}
+    except (KeyError, TypeError) as error:
+        raise SystemExit(f"missing Recovery storage contract data: {error}") from error
 
 
 def main() -> None:
@@ -323,11 +357,19 @@ def main() -> None:
     parser.add_argument('--expect-timeout', type=int, default=-1,
                         help='exact expected menu countdown; default keeps the original manual gate')
     parser.add_argument('--expect-default', default='reset', help='exact expected default entry ID')
+    parser.add_argument('--recovery-root-pair', type=Path, nargs=2, metavar=('PRELINK', 'LAYOUT'),
+                        help='verify the prelinked OS and ISC contract against the installed root layout report')
     args = parser.parse_args()
     if args.expect_timeout != -1 and not 1 <= args.expect_timeout <= 3600:
         raise SystemExit('expected timeout must be -1 or 1..3600 seconds')
     if args.raw_packed_payload and not args.embed_payload:
         parser.error("--raw-packed-payload requires --embed-payload")
+    recovery_root = None
+    if args.recovery_root_pair:
+        if args.kind != 'boot':
+            parser.error("--recovery-root-pair requires --kind boot")
+        recovery_root = verify_recovery_root_pair(*args.recovery_root_pair,
+                                                  args.expect_kernel_bytes, args.expect_kernel_sha256)
 
     image = args.image.read_bytes()
     fd = args.fd.read_bytes()
@@ -383,6 +425,7 @@ def main() -> None:
         ramdisk, args.kind, args.expect_kernel_bytes, args.expect_kernel_sha256,
         args.xnu_title,
         args.expect_timeout, args.expect_default,
+        recovery_sidecar=recovery_root is not None,
     )
 
     entry = {
@@ -402,6 +445,8 @@ def main() -> None:
         "kernel_macho_sha256": args.expect_kernel_sha256,
         "header_version": header_version,
     }
+    if recovery_root is not None:
+        entry["recovery_root_pair"] = recovery_root
     report = {"schema": "unixnu-elden-phase2.3-verify/v1", "artifacts": []}
     if args.report.is_file():
         try:

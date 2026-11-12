@@ -1,0 +1,16 @@
+--- a/osfmk/vm/vm_fault.c
++++ b/osfmk/vm/vm_fault.c
+@@ -4601,8 +4601,12 @@ vm_map_lookup_object_and_lock_entry(
+ 		ctx = vml_ctx_for_vaddr;
+ 	} else {
+ 		vm_map_t tmp_map = original_map;
++		/*
++		 * The range must use the same granule as the aligned fault address.
++		 * A larger map page could extend the request into a neighboring guard slot.
++		 */
+ 		kr = vm_map_range_sh_lock(ctx, &tmp_map, vaddr,
+-		    vaddr + VM_MAP_PAGE_SIZE(tmp_map), flags);
++		    vaddr + fault_page_mask + 1, flags);
+ 		if (kr != KERN_SUCCESS) {
+ 			return kr;
+ 		}
