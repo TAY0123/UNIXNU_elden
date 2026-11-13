@@ -3461,9 +3461,16 @@ subcaches in SystemOS, and Safari in AppOS.
 
 The Data template includes root-owned directories and extended
 attributes that the MacBook SSH user could not read. The archive attempt
-stopped with a permission error at `private/var/agentx`. Populating Data
-requires a copy that preserves owners and extended attributes. The
-scratch System is unsealed and has no System snapshot. The cryptex
+stopped with a permission error at `private/var/agentx`. A Linux root
+mount of the original restore image through read-only APFS FUSE listed
+all 18,731 template entries, including that empty directory with mode
+`0700`. It reported 26 `com.apple.rootless` attributes and 9,957
+compressed files. Sample reads of both compression types returned the
+expected uncompressed lengths. A Data copy still needs to preserve
+ownership, flags and extended attributes.
+[APFS FUSE source](https://github.com/sgan81/apfs-fuse/tree/66b86bd525e8cb90f9012543be89b1f092b75cf3)
+
+The scratch System is unsealed and has no System snapshot. The cryptex
 mounts, boot policy and installed QEMU boot still need integration.
 Tablet install-target publication and persistent writes still need
 hardware verification.
